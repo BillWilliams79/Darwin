@@ -78,6 +78,7 @@ import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
+import { prodRequirementUrl } from '../utils/prodUrl';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -86,6 +87,7 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import { useFilerFilesElsewhere } from './filerScope';
 import {
     buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
     staleCategory, staleMachine,
@@ -352,6 +354,7 @@ export default function RequirementEditorPopup() {
     const { profile, idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
+    const filesElsewhere = useFilerFilesElsewhere();
     const isDesktop = useMediaQuery('(min-width:900px)');
     const show = useRequirementFilerStore(s => s.editorShow);
     const open = useRequirementFilerStore(s => s.editorOpen);
@@ -613,8 +616,8 @@ export default function RequirementEditorPopup() {
                     // Saved, but no id to PUT later edits to: keep what was typed,
                     // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
-                    failOpen({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
-                        + 'or start a new requirement.' });
+                    failOpen({ key, text: `Saved, but its id could not be read back — find it on ${
+                        filesElsewhere ? 'darwin.one/swarm' : '/swarm'}, or start a new requirement.` });
                     return;
                 }
             } else {
@@ -682,7 +685,10 @@ export default function RequirementEditorPopup() {
                         <Box data-testid="requirement-editor-identity"
                              sx={{ flexShrink: 0, fontSize: '1.15em', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {savedId != null ? (
-                                <Box component={Link} to={`/swarm/requirement/${savedId}`}
+                                <Box {...(filesElsewhere
+                                        // Filed into production from a dev build (req #3888): its page is on darwin.one.
+                                        ? { component: 'a', href: prodRequirementUrl(savedId), target: '_blank', rel: 'noopener noreferrer' }
+                                        : { component: Link, to: `/swarm/requirement/${savedId}` })}
                                      data-testid="requirement-editor-id-link"
                                      sx={{ color: P.req, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
                                     {savedId}

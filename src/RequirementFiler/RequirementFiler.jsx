@@ -39,6 +39,11 @@
 // (useRequirementFilerStore), as the Dev Servers dashboard remembers its own.
 // Desktop only, signed in only — the navbar control is the desktop sidebar's.
 //
+// PRODUCTION FROM EVERY BUILD (req #3888): App.jsx mounts the filer and its
+// editor inside FilerDataScope (filerScope.jsx), which points their `darwinUri`
+// at production `darwin` on a dev server — the requirement is real, filed with
+// the reader's own credentials, and its id opens on darwin.one.
+//
 // ADDRESSABLE: any page's `?filer=1` opens the filer and `?filer=new` also opens
 // a new requirement from that page, as the + does (`?filer=bug`, the
 // two-button era's link, does the same) — a link (or a dev server) can land on it.
@@ -63,6 +68,7 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
+import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
 import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
 
@@ -197,6 +203,7 @@ export function fileRequirementNow(filedFrom, profile) {
 export default function RequirementFiler() {
     const { profile, idToken } = useContext(AuthContext);
     const { database, darwinUri } = useContext(AppContext);
+    const filesElsewhere = useFilerFilesElsewhere();
     const theme = useContext(ThemeContext);
     const location = useLocation();
     const isDesktop = useMediaQuery('(min-width:900px)');
@@ -259,7 +266,7 @@ export default function RequirementFiler() {
                            <Box sx={{ mr: '0.3em', display: 'flex' }}
                                 onPointerDownCapture={() => { focusAtPress = { el: document.activeElement, t: performance.now() }; }}>
                                <ActionPopupAdd onClick={fileRequirement}
-                                               label="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
+                                               label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />
                            </Box>
                            <ActionPopupClose onClick={() => setShow(false)}

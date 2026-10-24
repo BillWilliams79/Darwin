@@ -56,8 +56,9 @@ vi.mock('../debugBundle', async (importOriginal) => {
 
 import RequirementFiler, { CREATE_WAIT_MS, FILER_RACK_ID, createSettled } from '../RequirementFiler';
 import RequirementEditorPopup from '../RequirementEditorPopup';
+import FilerDataScope from '../filerScope';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
-import { useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
+import { migrateFilerState, useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
@@ -65,15 +66,20 @@ import { draftDirty } from '../requirementFilerModel';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
-const renderAll = ({ nav = false, at = '/maps' } = {}) => render(
+// `scoped` — mounted as App.jsx mounts them, in FilerDataScope on a dev server
+// whose production URI is https://api/darwin (req #3888).
+const renderAll = ({ nav = false, at = '/maps', scoped = false } = {}) => render(
     <QueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider value={{ idToken: 't', profile: { userName: 'u', app_swarm: 1 } }}>
-            <AppContext.Provider value={{ darwinUri: 'https://api/darwin_dev', database: 'darwin_dev' }}>
+            <AppContext.Provider value={{ darwinUri: 'https://api/darwin_dev', database: 'darwin_dev',
+                                          ...(scoped && { darwinOpsUri: 'https://api/darwin' }) }}>
                 <ThemeContext.Provider value={{ themeMode: 'system', effectiveMode: 'dark', setThemeMode: () => {} }}>
                     <MemoryRouter initialEntries={[at]}>
                         {nav && <NavBarSidebar />}
-                        <RequirementFiler />
-                        <RequirementEditorPopup />
+                        <FilerDataScope>
+                            <RequirementFiler />
+                            <RequirementEditorPopup />
+                        </FilerDataScope>
                     </MemoryRouter>
                 </ThemeContext.Provider>
             </AppContext.Provider>
@@ -675,21 +681,57 @@ describe('Requirement Filer (req #3811)', () => {
             .toBe("The last requirement's category is closed or deleted — choose one.");
     });
 
-    it('a store saved by the Defaults era rehydrates to the last settings, and its draft can still be filed', async () => {
-        localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 1, state: {
-            show: true, editorShow: true, editorMode: 'defaults', lastProjectId: 4, lastCategoryId: 862,
-            defaults: { projectId: 4, category_fk: 862, seatEpicId: 300, affected_repos: 'Darwin', ai_model: 'sonnet' },
-            draft: { title: 'Typed before', description: '', projectId: 4, category_fk: 862, requirement_status: 'swarm_ready',
-                coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, affected_repos: '',
-                tracking: 0, seatEpicId: 300, defaultsUnchecked: ['seat'], notice: null },
-        } }));
+    // A Defaults-era (v1) store. In a production build its draft survives and can
+    // still be filed; in a dev build (this suite) v3 drops it with the rest of
+    // its darwin_dev ids, since the filer now files into production (req #3888).
+    const V1_STORE = {
+        show: true, editorShow: true, editorMode: 'defaults', lastProjectId: 4, lastCategoryId: 862,
+        defaults: { projectId: 4, category_fk: 862, seatEpicId: 300, affected_repos: 'Darwin', ai_model: 'sonnet' },
+        draft: { title: 'Typed before', description: '', projectId: 4, category_fk: 862, requirement_status: 'swarm_ready',
+            coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, affected_repos: '',
+            tracking: 0, seatEpicId: 300, defaultsUnchecked: ['seat'], notice: null },
+    };
+
+    it('a store saved by the Defaults era, in a production build, keeps its draft and it can still be filed', async () => {
+        const st = migrateFilerState(V1_STORE, 1, 'darwin');
+        expect(st.defaults).toEqual({ ai_model: 'sonnet' });
+        expect(st).not.toHaveProperty('editorMode');
+        expect(st.draft.defaultsUnchecked).toEqual([]);
+        useRequirementFilerStore.setState(st);
+        renderAll();
+        expect(screen.getByTestId('requirement-editor-save').disabled).toBe(false);
+    });
+
+    it('a store saved by the Defaults era, in a dev build, rehydrates to its settings without its darwin_dev draft', async () => {
+        localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 1, state: V1_STORE }));
         await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
         const st = useRequirementFilerStore.getState();
         expect(st.defaults).toEqual({ ai_model: 'sonnet' });
         expect(st).not.toHaveProperty('editorMode');
-        expect(st.draft.defaultsUnchecked).toEqual([]);
-        renderAll();
-        expect(screen.getByTestId('requirement-editor-save').disabled).toBe(false);
+        expect(st.draft).toBeNull();
+        expect(st.lastCategoryId).toBeNull();
+        expect(st.editorShow).toBe(false);
+    });
+
+    it('on a dev server it files into production, saves there, and links to darwin.one (req #3888)', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll({ scoped: true });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'A real bug');
+        fill('project', '4');
+        fill('category', '862');
+        rest.mockResolvedValueOnce(ok([{ id: 5100 }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await filedThenShown(5100);
+        expect(rest.mock.calls[0][0]).toBe('https://api/darwin/requirements');
+        expect(rest.mock.calls[0][1]).toBe('POST');
+        const link = screen.getByTestId('requirement-editor-id-link');
+        expect(link.getAttribute('href')).toBe('https://www.darwin.one/swarm/requirement/5100');
+        expect(link.getAttribute('target')).toBe('_blank');
+        rest.mockResolvedValueOnce({ data: {}, httpStatus: { httpStatus: 204 } });
+        fill('title', 'A real bug, retitled');
+        await waitFor(() => expect(rest).toHaveBeenCalledTimes(2), LIVE);
+        expect(rest.mock.calls[1].slice(0, 2)).toEqual(['https://api/darwin/requirements', 'PUT']);
     });
 
     it('a filed requirement whose title is blanked says why it is not saving', async () => {

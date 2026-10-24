@@ -8,6 +8,7 @@ import DevServerDashboard from './DevServers/DevServerDashboard';
 import DevServerActionPopup from './NavBar/DevServerActionPopup';
 import RequirementFiler from './RequirementFiler/RequirementFiler';
 import RequirementEditorPopup from './RequirementFiler/RequirementEditorPopup';
+import FilerDataScope from './RequirementFiler/filerScope';
 import { SnackBar } from './Components/SnackBar/SnackBar';
 import { useSnackBarStore } from './stores/useSnackBarStore';
 import { noteRoute } from './utils/routeTrail';
@@ -49,9 +50,12 @@ const App = () => {
             <DevServerDashboard />
             {/* req #3727 — dev builds only; racked in the navbar by default */}
             <DevServerActionPopup />
-            {/* req #3811 — opened from the navbar's filer control, on every page */}
-            <RequirementFiler />
-            <RequirementEditorPopup />
+            {/* req #3811 — opened from the navbar's filer control, on every page;
+                files into production from every build (req #3888) */}
+            <FilerDataScope>
+                <RequirementFiler />
+                <RequirementEditorPopup />
+            </FilerDataScope>
             <SnackBar snackBarOpen={snackBarOpen}
                       setSnackBarOpen={setSnackBarOpen}
                       snackBarMessage={snackBarMessage}
