@@ -140,6 +140,24 @@ export async function deleteInitiative(darwinUri, idToken, id) {
                 : `epic${lockedEpics.length === 1 ? '' : 's'} ${lockedEpics.join(', ')} under it`;
         const error = new Error(`Initiative ${id} cannot be deleted: ${held} is locked — unlock it first.`);
         error.httpStatus = { httpStatus: 423, httpMessage: 'Locked' };
+        error.namedRefusal = true;
+        throw error;
+    }
+
+    // req #3823 — another initiative WAITS FOR this one: deleting it would
+    // release that gate (and `dep_initiative_fk` is RESTRICT, so the gateway
+    // would answer a bare 409). Refused by name before any write.
+    const waitingRows = await fetchEntity(
+        `${darwinUri}/initiative_deps?dep_initiative_fk=${id}&fields=id,initiative_fk`, idToken);
+    const waiting = [...new Set((Array.isArray(waitingRows) ? waitingRows : [])
+        .map((row) => row.initiative_fk))].sort((a, b) => a - b);
+    if (waiting.length) {
+        const error = new Error(
+            `Initiative ${id} cannot be deleted: initiative${waiting.length === 1 ? '' : 's'} `
+            + `${waiting.join(', ')} depend${waiting.length === 1 ? 's' : ''} on it. `
+            + 'Remove those initiative dependencies first.');
+        error.httpStatus = { httpStatus: 409, httpMessage: 'Conflict' };
+        error.namedRefusal = true;
         throw error;
     }
 
@@ -161,6 +179,7 @@ export async function deleteInitiative(darwinUri, idToken, id) {
                 + `${blockers.join(', ')} outside it depend${blockers.length === 1 ? 's' : ''} `
                 + 'on one of its epics. Re-point or remove those dependencies first.');
             error.httpStatus = { httpStatus: 409, httpMessage: 'Conflict' };
+            error.namedRefusal = true;
             throw error;
         }
         const internal = rows.filter((row) => ownSet.has(row.epic_fk));
@@ -180,4 +199,39 @@ export async function deleteInitiative(darwinUri, idToken, id) {
 
     const r = await call_rest_api(`${darwinUri}/initiatives`, 'DELETE', { id }, idToken);
     return assertOk(r, 'deleteInitiative');
+}
+
+// ── Initiative-to-initiative dependencies (req #3823) ───────────────────────
+// One `initiative_deps` row is one edge: `initiative_fk` WAITS FOR
+// `dep_initiative_fk`. The gateway refuses a self edge, an edge to another
+// plan and an edge that closes a cycle (initiative_deps_guard.py) with a 409
+// whose message `assertOk` carries verbatim; a locked initiative or plan is 423.
+
+/** Add one edge: initiative `initiativeId` waits for `depInitiativeId`. */
+export async function createInitiativeDep(darwinUri, idToken, initiativeId, depInitiativeId) {
+    const r = await call_rest_api(`${darwinUri}/initiative_deps`, 'POST',
+        { initiative_fk: initiativeId, dep_initiative_fk: depInitiativeId }, idToken);
+    return assertOk(r, 'createInitiativeDep');
+}
+
+/** Remove one edge, addressed by both columns (the UNIQUE key). */
+export async function deleteInitiativeDep(darwinUri, idToken, initiativeId, depInitiativeId) {
+    const r = await call_rest_api(`${darwinUri}/initiative_deps`, 'DELETE',
+        { initiative_fk: initiativeId, dep_initiative_fk: depInitiativeId }, idToken);
+    return assertOk(r, 'deleteInitiativeDep');
+}
+
+/**
+ * Make `initiativeId` wait for exactly `diff` — `initiativeDepDiff`'s
+ * `{ add, remove }`. ADDS FIRST, ONE AT A TIME, then removals: a refused add
+ * stops the save with the server's reason and the initiative still waits for
+ * everything it did (over-gated, never briefly ungated).
+ */
+export async function setInitiativeDeps(darwinUri, idToken, initiativeId, { add = [], remove = [] }) {
+    for (const dep of add) {
+        await createInitiativeDep(darwinUri, idToken, initiativeId, dep);
+    }
+    for (const row of remove) {
+        await deleteInitiativeDep(darwinUri, idToken, initiativeId, row.dep_initiative_fk);
+    }
 }

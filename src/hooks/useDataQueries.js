@@ -3,7 +3,7 @@ import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, requirementSessions, sessionCostRollups, sessionTerminals, engineStates, engineHeartbeats, engineDecisionRecords, engineOutcomes } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, initiativeDeps, requirementSessions, sessionCostRollups, sessionTerminals, engineStates, engineHeartbeats, engineDecisionRecords, engineOutcomes } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -1027,6 +1027,10 @@ export const useAllPipelineEpicRequirements = pipelineEpicRequirements.useAll;
 export const pipelineEpicRequirementKeys    = pipelineEpicRequirements.keys;
 export const useAllPipelineEpicDeps         = pipelineEpicDeps.useAll;
 export const pipelineEpicDepKeys            = pipelineEpicDeps.keys;
+// req #3823 — initiative-to-initiative dependency edges (the list pages' counts
+// and the initiative editor's current set).
+export const useAllInitiativeDeps           = initiativeDeps.useAll;
+export const initiativeDepKeys              = initiativeDeps.keys;
 // Req #3224 — live orchestration reservations: who is orchestrating what, from
 // where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
 // initiative_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
