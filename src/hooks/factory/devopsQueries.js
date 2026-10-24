@@ -555,6 +555,15 @@ export const pipelineEpicDeps = createEntityQueries({
     fieldsInKey: true,
 });
 
+// req #3823 — initiative-to-initiative dependency edges: `initiative_fk` waits
+// for `dep_initiative_fk`. Same shape and ownership rule as the epic edges
+// above (no creator_fk; derived through the waiting initiative).
+export const initiativeDeps = createEntityQueries({
+    entity: 'initiative_deps',
+    defaultFields: 'id,initiative_fk,dep_initiative_fk',
+    fieldsInKey: true,
+});
+
 // ---------------------------------------------------------------------------
 // Cost rollup reads (req #3117, schema migration 077)
 //

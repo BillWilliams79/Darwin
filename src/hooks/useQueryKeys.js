@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, initiativeDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -101,6 +101,8 @@ export const initiativeKeys = initiatives.keys;
 export const pipelineEpicKeys = pipelineEpics.keys;
 export const pipelineEpicRequirementKeys = pipelineEpicRequirements.keys;
 export const pipelineEpicDepKeys = pipelineEpicDeps.keys;
+// req #3823 — initiative-to-initiative dependency edges.
+export const initiativeDepKeys = initiativeDeps.keys;
 
 // Req #3224 — the durable orchestration reservation. Its own cache entry rather
 // than a slice of the pipelines one: it is LIVE process state on a separate

@@ -22,21 +22,21 @@ describe('pipelineSummaries', () => {
     // done/open tally.
     it('counts epics per pipeline via initiative_fk -> pipeline_fk', () => {
         const out = pipelineSummaries({ pipelines, epics, initiatives });
-        expect(out.get(7)).toEqual({ total: 2 });
-        expect(out.get(8)).toEqual({ total: 1 });
+        expect(out.get(7)).toEqual({ total: 2, initiativeDeps: 0 });
+        expect(out.get(8)).toEqual({ total: 1, initiativeDeps: 0 });
     });
 
     it('seeds an entry for every pipeline, even one with no epics', () => {
         const out = pipelineSummaries({ pipelines: [...pipelines, { id: 9 }], epics, initiatives });
-        expect(out.get(9)).toEqual({ total: 0 });
+        expect(out.get(9)).toEqual({ total: 0, initiativeDeps: 0 });
     });
 
     it('drops an epic whose initiative is unresolved rather than crashing', () => {
         const out = pipelineSummaries({
             pipelines, epics: [...epics, { id: 999, initiative_fk: 12345 }], initiatives,
         });
-        expect(out.get(7)).toEqual({ total: 2 });
-        expect(out.get(8)).toEqual({ total: 1 });
+        expect(out.get(7)).toEqual({ total: 2, initiativeDeps: 0 });
+        expect(out.get(8)).toEqual({ total: 1, initiativeDeps: 0 });
     });
 });
 

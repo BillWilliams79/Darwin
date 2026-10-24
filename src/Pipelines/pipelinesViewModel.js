@@ -39,6 +39,8 @@
 // orchestration-claim renderer) is safe to import, per the paragraph above;
 // a component, a mutation function, or a state-derivation guard is not.
 
+import { initiativeDepCounts } from '../SwarmView/pipelines/pipelineInitiativeDeps';
+
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
 /**
@@ -54,10 +56,12 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {Object[]} args.pipelines  pipelines rows
  * @param {Object[]} args.epics      ALL epics rows
  * @param {Object[]} args.initiatives      ALL initiatives rows (to resolve epic -> pipeline)
- * @returns {Map<number, {total: number}>}  epics per plan — an epic has no
- *          state to tally (req #3750), so the count is the whole summary
+ * @param {Object[]} [args.initiativeDeps]  ALL `initiative_deps` rows (req #3823)
+ * @returns {Map<number, {total: number, initiativeDeps: number}>}  epics per
+ *          plan — an epic has no state to tally (req #3750) — and the plan's
+ *          initiative-to-initiative dependency edges
  */
-export function pipelineSummaries({ pipelines, epics, initiatives } = {}) {
+export function pipelineSummaries({ pipelines, epics, initiatives, initiativeDeps } = {}) {
     const pipelineByInitiative = new Map();
     for (const e of asArray(initiatives)) {
         if (e && e.id != null) pipelineByInitiative.set(e.id, e.pipeline_fk);
@@ -65,7 +69,10 @@ export function pipelineSummaries({ pipelines, epics, initiatives } = {}) {
 
     const out = new Map();
     for (const p of asArray(pipelines)) {
-        if (p && p.id != null) out.set(p.id, { total: 0 });
+        if (p && p.id != null) out.set(p.id, { total: 0, initiativeDeps: 0 });
+    }
+    for (const [planId, n] of initiativeDepCounts(initiativeDeps, initiatives).byPipeline) {
+        if (out.has(planId)) out.get(planId).initiativeDeps = n;
     }
 
     for (const epic of asArray(epics)) {

@@ -72,6 +72,7 @@ import {
     useAllInitiatives,
     useAllPipelineEpics,
     useAllPipelineEpicRequirements,
+    useAllInitiativeDeps,
     useAllRequirements,
     useOrchestrationClaims,
 } from '../hooks/useDataQueries';
@@ -253,6 +254,8 @@ export default function PipelinesPage() {
         useAllPipelineEpics(creatorFk);
     const { data: epicRequirements = [], isLoading: linksLoading } =
         useAllPipelineEpicRequirements(creatorFk);
+    // req #3823 — initiative-to-initiative edges, counted per plan.
+    const { data: initiativeDeps = [] } = useAllInitiativeDeps(creatorFk);
     // `id,requirement_status` is enough for the met/total counts — see
     // pipelinesViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
     // on purpose: this page derives no epic state from it, only a stored-status tally.
@@ -275,7 +278,7 @@ export default function PipelinesPage() {
 
     const machineById = new Map(machines.map((m) => [m.id, m]));
 
-    const summaries = pipelineSummaries({ pipelines, epics, initiatives });
+    const summaries = pipelineSummaries({ pipelines, epics, initiatives, initiativeDeps });
     const reqCounts = pipelineRequirementCounts({
         pipelines, epics, initiatives, epicRequirements, requirements });
 
@@ -354,6 +357,16 @@ export default function PipelinesPage() {
                         data-testid={`pipelines-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
+            ),
+        },
+        {
+            // req #3823 — how many initiative-to-initiative dependencies the plan holds.
+            field: 'initiative_deps', headerName: 'Initiative deps', width: 120, type: 'number',
+            valueGetter: (_v, row) => summaries.get(row.id)?.initiativeDeps ?? 0,
+            renderCell: (params) => (
+                <Box component="span" data-testid={`pipelines-initiative-deps-${params.row.id}`}>
+                    {params.value || '—'}
+                </Box>
             ),
         },
         {
