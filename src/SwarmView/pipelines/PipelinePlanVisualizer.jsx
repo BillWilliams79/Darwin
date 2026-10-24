@@ -133,7 +133,7 @@ import {
     relayoutAnchorTransform,
     // req #3365 — the ruler's own thinning rule, re-applied at draw time
     // against the counter-scaled label widths (a pure function since req #3793).
-    drawnRulerLabelKeys,
+    drawnRulerLabelKeys, stickyRulerLabel,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, CARD_FONT as CF,
     BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_INITIATIVE, INITIATIVE_CHIP_FONT, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
@@ -5043,9 +5043,28 @@ export default function PipelinePlanVisualizer({
     // from its right edge (`maximizeSwitchWorldRight`), and a date that would
     // begin under it is thinned like any label with no room — back as soon as a
     // pan clears the corner. Not maximized, the pass starts from nothing.
+    const rulerStartRight = (maximized && onToggleMaximized)
+        ? maximizeSwitchWorldRight(t) : -Infinity;
     const visibleRulerLabels = drawnRulerLabelKeys(
-        drawLayout.ruler?.slots || [], rulerLabelMag,
-        (maximized && onToggleMaximized) ? maximizeSwitchWorldRight(t) : -Infinity);
+        drawLayout.ruler?.slots || [], rulerLabelMag, rulerStartRight);
+    // req #3873 — the day under the strip's left edge, pinned there and pushed
+    // off by the next date (`stickyRulerLabel`). It replaces its own natural
+    // label and any earlier one it would land on, so the strip never draws a
+    // date twice.
+    const pinnedRulerLabel = stickyRulerLabel(drawLayout.ruler?.slots || [],
+        visibleRulerLabels, t, rulerLabelMag, rulerStartRight);
+    if (pinnedRulerLabel) {
+        for (const key of pinnedRulerLabel.hide) visibleRulerLabels.delete(key);
+        const accented = pinnedRulerLabel.kind === 'future';
+        stickyRulerNodes.push(
+            <Text key="lbl-ruler-pinned" x={pinnedRulerLabel.x}
+                  y={pinnedRulerLabel.y * rulerLabelMag}
+                  text={pinnedRulerLabel.text}
+                  fontSize={F.slot * rulerLabelMag} fontFamily={MONO}
+                  fill={accented ? P.accent : P.dim}
+                  opacity={accented ? 0.9 : 0.95}
+                  listening={false} />);
+    }
 
     // req #3661 — the requirement title editor's box, found while its row is
     // drawn below (it needs the row's own pill packing to place line 1).
@@ -5684,6 +5703,10 @@ export default function PipelinePlanVisualizer({
                  // Group below is drawn at, so this can never drift from what
                  // the canvas actually did.
                  data-ruler-y={stickyRulerY(t).toFixed(2)}
+                 // req #3873 — the slot whose date is pinned to the strip's
+                 // left edge ('' when no date begins at or left of that edge —
+                 // the plan's left end is on screen).
+                 data-ruler-pinned={pinnedRulerLabel?.key ?? ''}
                  // THE LEVEL THE CANVAS DREW — one level, so this and the
                  // toolbar's soft mark and `data-drawn` can no longer disagree
                  // (req #3324). It used to publish the LADDER's answer while the
@@ -6000,15 +6023,12 @@ export default function PipelinePlanVisualizer({
                                     : null),
                                 // req #3695 — A FOLDED INITIATIVE IS A FLOATING TITLE
                                 // BAR: no rectangle beneath it, so the chip is
-                                // drawn at the bar width `placeInitiativeChips`
-                                // measured (never narrower than its name), in
-                                // the initiative's own colour, lifted off the plan by
-                                // a shadow. `e.bar` is the band's folded
-                                // fraction, so the bar grows out of the chip and
-                                // back into it with the fold's animation.
-                                ...(e.bar > 0 && !e.clipped && !editing
-                                    ? { minWidth: e.w }
-                                    : null),
+                                // tinted in the initiative's own colour and
+                                // lifted off the plan by a shadow. `e.bar` is
+                                // the band's folded fraction, so the styling
+                                // fades in and out with the fold's animation.
+                                // Its WIDTH is the open chip's (req #3862):
+                                // folding never elongates it.
                                 display: 'flex', alignItems: 'center', gap: '4px',
                                 fontFamily: MONO, fontSize: e.fontSize,
                                 fontWeight: 700,

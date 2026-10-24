@@ -69,7 +69,7 @@ import {
     pipelineEpicDepKeys,
     useAllRequirements,
 } from '../hooks/useDataQueries';
-import { pipelineComposeKeys } from '../hooks/useQueryKeys';
+import { pipelineComposeKeys, requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { formatDateTime } from '../utils/dateFormat';
 import {
@@ -82,7 +82,7 @@ import { initiativeLinkTo } from '../SwarmView/pipelines/pipelineInitiativeLink'
 import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineEpicLink';
 import EpicEditDialog from './EpicEditDialog';
 import { buildEpicRows } from './epicsModel';
-import { deleteEpic, updateEpic } from './epicsApi';
+import { deleteEpicFreeingDependents, updateEpic } from './epicsApi';
 
 // `tracking` splits an epic's links into gating vs container ids for the Reqs
 // tooltip; `title` rides along. Deliberately NOT 1.0's
@@ -103,12 +103,21 @@ const reqIdSummary = (row) => {
     return ids.map((id) => (tracking.has(id) ? `${id} (tracking)` : String(id))).join(', ');
 };
 
-const blockerClause = (row) => {
-    const ids = row.blockerEpicIds || [];
-    if (ids.length === 1 && ids[0] === row.id) return 'it depends on itself';
-    return ids.length === 1
-        ? `epic ${ids[0]} depends on it`
-        : `epics ${ids.join(', ')} depend on it`;
+// req #3877 — what a delete does, in the confirm: dependents are FREED of
+// their edge onto this epic (never refused), the epic's own dependency rows go
+// with it, and its requirements are un-orchestrated, not deleted.
+const deleteConsequence = (row) => {
+    const freed = (row.blockerEpicIds || []).filter((id) => id !== row.id);
+    const gateCount = (row.depIds || []).filter((id) => id !== row.id).length;
+    const reqIds = row.reqIds || [];
+    return [
+        freed.length && (freed.length === 1
+            ? `Epic ${freed[0]} will stop waiting on it.`
+            : `Epics ${freed.join(', ')} will stop waiting on it.`),
+        gateCount && `Its ${gateCount} dependency row${gateCount === 1 ? '' : 's'} will be removed.`,
+        reqIds.length && `${reqIds.length === 1 ? 'Requirement' : 'Requirements'} ${reqIds.join(', ')}`
+            + ' will be un-orchestrated — the requirements themselves are not deleted.',
+    ].filter(Boolean).join(' ');
 };
 
 export default function EpicsPage() {
@@ -296,34 +305,34 @@ export default function EpicsPage() {
     };
 
     const handleDelete = async (row) => {
-        if (row.blockerEpicIds.length) {
-            showError(`Epic ${row.id} cannot be deleted: ${blockerClause(row)}. `
-                + 'Re-point or remove those dependencies in the plan first.');
+        // A locked epic (or a locked ancestor) refuses the delete at the
+        // gateway (423); say so before freeing any edge only to restore it.
+        if (row.lockedBy) {
+            showError(`Epic ${row.id} cannot be deleted: its ${row.lockedBy} is locked. Unlock it first.`);
             return;
         }
-        const linkCount = (row.reqIds || []).length;
-        const gateCount = (row.depIds || []).length;
-        const consequence = [
-            linkCount && `${linkCount} requirement link${linkCount === 1 ? '' : 's'}`,
-            gateCount && `${gateCount} dependency row${gateCount === 1 ? '' : 's'}`,
-        ].filter(Boolean).join(' and ');
+        const consequence = deleteConsequence(row);
         if (!window.confirm(
             `Delete epic ${row.id} "${row.title}"?`
+            + (consequence ? ` ${consequence}` : '')
             + (planDataError
-                ? ` The ${failedReadsText} could not be read, so the consequence is`
-                  + ' unknown — the database will refuse if another epic depends on it.'
-                : consequence
-                    ? ` Its ${consequence} will be removed with it. The requirements themselves are not touched.`
-                    : '')
+                ? ` The ${failedReadsText} could not be read, so this may be incomplete`
+                  + (depsError ? ' — the database will refuse if an epic it could not read depends on it.' : '.')
+                : '')
             + ' This cannot be undone.')) return;
         try {
-            await deleteEpic(darwinUri, idToken, row.id);
+            await deleteEpicFreeingDependents(darwinUri, idToken, row.id, row.blockerEpicIds);
+        } catch (err) {
+            showError(err, 'Could not delete epic');
+        } finally {
+            // Refetch either way: a failure may have freed (and failed to
+            // restore) an edge, and the table must show what the plan holds.
             invalidateEpics();
             queryClient.invalidateQueries({
                 queryKey: pipelineEpicRequirementKeys.all(creatorFk) });
             queryClient.invalidateQueries({ queryKey: pipelineEpicDepKeys.all(creatorFk) });
-        } catch (err) {
-            showError(err, 'Could not delete epic');
+            // Unseated requirements change their derived `pipelined` mark.
+            queryClient.invalidateQueries({ queryKey: requirementKeys.all(creatorFk) });
         }
     };
 
@@ -466,14 +475,9 @@ export default function EpicsPage() {
                             <EditIcon fontSize="small" />
                         </IconButton>
                     </Tooltip>
-                    <Tooltip title={params.row.blockerEpicIds.length
-                        ? `Blocked — ${blockerClause(params.row)}`
-                        : 'Delete'}>
+                    <Tooltip title="Delete">
                         <IconButton size="small"
-                                    aria-label={params.row.blockerEpicIds.length
-                                        ? `Blocked — ${blockerClause(params.row)}`
-                                        : `Delete epic ${params.row.id}`}
-                                    data-blocked={params.row.blockerEpicIds.length ? 'yes' : 'no'}
+                                    aria-label={`Delete epic ${params.row.id}`}
                                     data-testid={`epic-delete-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); handleDelete(params.row); }}>
                             <DeleteIcon fontSize="small" />

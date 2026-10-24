@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-    computePlanLayout, placeInitiativeChips, INITIATIVE_BAR_W,
+    computePlanLayout, placeInitiativeChips,
 } from '../pipelinePlanLayout';
 import {
     easeInOutCubic, foldRevealAt, foldAnimDone, startFoldAnim, foldContentAlpha,
@@ -109,34 +109,32 @@ describe('a folded initiative is a floating title bar (req #3695)', () => {
     const chip = (over, worldWidth = 1600) => placeInitiativeChips({
         bands: [bandOf(over)], transform: t, viewport, worldWidth })[0];
 
-    it('an open initiative\'s chip is as wide as its name, and no bar', () => {
-        const c = chip({ collapsed: false, reveal: 1 });
-        expect(c.bar).toBe(0);
-        expect(c.w).toBeLessThan(INITIATIVE_BAR_W);
+    it('an open initiative\'s chip is no bar', () => {
+        expect(chip({ collapsed: false, reveal: 1 }).bar).toBe(0);
     });
 
-    it('a folded initiative\'s chip widens to the bar width', () => {
+    // req #3862 — folding used to WIDEN the chip to a 420px bar, so the element
+    // the reader had asked to shrink elongated. It keeps its open width now.
+    it('a folded initiative\'s chip is a bar, at its open width — never longer', () => {
+        const open = chip({ collapsed: false, reveal: 1 }).w;
         const c = chip({ collapsed: true, reveal: 0 });
         expect(c.bar).toBe(1);
-        expect(c.w).toBe(INITIATIVE_BAR_W);
+        expect(c.w).toBe(open);
         expect(c.clipped).toBe(false);
         // Hand-built bands with no reveal answer from `collapsed`.
-        expect(chip({ collapsed: true }).w).toBe(INITIATIVE_BAR_W);
+        expect(chip({ collapsed: true }).w).toBe(open);
     });
 
-    it('morphs between chip and bar with the fold', () => {
+    it('keeps its width through the fold animation', () => {
         const open = chip({ collapsed: false, reveal: 1 }).w;
         const half = chip({ collapsed: true, reveal: 0.5 });
         expect(half.bar).toBe(0.5);
-        expect(half.w).toBeCloseTo((open + INITIATIVE_BAR_W) / 2, 6);
+        expect(half.w).toBe(open);
     });
 
-    it('never runs past the band\'s right edge, and never narrows a long name', () => {
-        const narrow = chip({ collapsed: true, reveal: 0 }, 300);
-        expect(narrow.x + narrow.w).toBeLessThanOrEqual(300 - 2);
+    it('a long name keeps its own width folded or open', () => {
         const long = 'A remarkably long initiative name that outruns any title bar at all';
         const c = chip({ collapsed: true, reveal: 0, initiative: long, initiativeLabel: long });
-        expect(c.w).toBeGreaterThan(INITIATIVE_BAR_W);
         expect(c.w).toBe(chip({ collapsed: false, reveal: 1, initiative: long, initiativeLabel: long }).w);
     });
 });

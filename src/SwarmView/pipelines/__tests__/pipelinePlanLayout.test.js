@@ -59,6 +59,7 @@ import {
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
     AUTONOMY_COLORS, AUTONOMY_ORDER, AUTONOMY_UNKNOWN_COLOR, autonomyColor,
     SESSION_STATUS_COLORS, SESSION_STATUS_ORDER, SESSION_UNKNOWN_COLOR,
+    MODEL_COLORS, MODEL_ORDER, MODEL_UNKNOWN_COLOR,
     REQ_COLOR_SCALES, REQ_COLOR_KEYS, reqColorScale, buildReqColorViews,
     DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
     reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_H,
@@ -4862,12 +4863,13 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         // missing renders a blank chip or an untitled key, which is exactly the
         // failure this asserts away.
         // ORDER IS THE TOOLBAR'S ORDER and it is the user's (req #3365):
-        // State, Session (second, req #3584), Autonomy, Machine. Asserted here
+        // State, Session (second, req #3584), Autonomy, Model (req #3863),
+        // Machine. Asserted here
         // rather than in a component test because the registry is the ONE
         // place it is stated — the toolbar and the on-screen key both map this
         // array and neither sorts.
         expect(REQ_COLOR_SCALES.map((s) => s.key))
-            .toEqual(['state', 'session', 'autonomy', 'machine']);
+            .toEqual(['state', 'session', 'autonomy', 'model', 'machine']);
         for (const s of REQ_COLOR_SCALES) {
             for (const field of ['key', 'chipLabel', 'chipTip', 'chipName', 'keyTitle']) {
                 expect(typeof s[field], `${s.key}.${field}`).toBe('string');
@@ -4890,7 +4892,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
     });
 
     it('is the SOURCE of the key positions, not a parallel copy', () => {
-        expect(REQ_COLOR_KEYS).toEqual(['state', 'session', 'autonomy', 'machine', 'none']);
+        expect(REQ_COLOR_KEYS).toEqual(['state', 'session', 'autonomy', 'model', 'machine', 'none']);
         // The stored preference's whole vocabulary is the registry plus `none` —
         // there is no second list to keep in epic (the `COLOR_KEY_LABELS` object
         // that used to be one is gone; nothing rendered it).
@@ -4918,7 +4920,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         // default moved to Aurora at req #3365 and a test naming those constants
         // would be asserting a palette the canvas no longer draws.
         const PAL = planPalette(DEFAULT_PLAN_PALETTE);
-        expect(Object.keys(views)).toEqual(['state', 'session', 'autonomy', 'machine']);
+        expect(Object.keys(views)).toEqual(['state', 'session', 'autonomy', 'model', 'machine']);
         expect(views.state.colorOf(1)).toBe(PAL.status.met);
         expect(views.state.colorOf(3)).toBe(PAL.status.wontfix);
         expect(views.state.legend.map((e) => e.key)).toEqual(REQ_STATUS_ORDER);
@@ -4935,6 +4937,33 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         expect(views.autonomy.legend.map((e) => e.key)).toEqual(AUTONOMY_ORDER);
         expect(views.autonomy.legend.map((e) => e.color))
             .toEqual(AUTONOMY_ORDER.map((v) => PAL.autonomy[v]));
+    });
+
+    it('builds the MODEL scale from `ai_model`, after Autonomy (req #3863)', () => {
+        const PAL = planPalette(DEFAULT_PLAN_PALETTE);
+        const views = buildReqColorViews({
+            requirements: [
+                { id: 1, ai_model: 'haiku' },
+                { id: 2, ai_model: 'fable' },
+                { id: 3, ai_model: 'opus' },
+                // A model this build does not know (added to the enum first).
+                { id: 4, ai_model: 'nimbus' },
+            ],
+        });
+        expect(views.model.colorOf(1)).toBe(PAL.model.haiku);
+        expect(views.model.colorOf(2)).toBe(PAL.model.fable);
+        expect(views.model.colorOf(3)).toBe(PAL.model.opus);
+        expect(views.model.colorOf(4)).toBe(MODEL_UNKNOWN_COLOR);
+        // Every rung, smallest first, then unknown because a mark wears it.
+        expect(views.model.legend.map((e) => e.key)).toEqual([...MODEL_ORDER, 'unknown']);
+        expect(views.model.legend.slice(0, 4).map((e) => e.color))
+            .toEqual(MODEL_ORDER.map((v) => PAL.model[v]));
+        expect(reqIdKeyEntries({ colorKey: 'model', views }).title)
+            .toBe('Requirement id = model');
+        expect(reqIdStyle({ colorKey: 'model', views, reqId: 2 }))
+            .toEqual({ fill: PAL.model.fable, bold: true });
+        // Signal's model scale IS the module constant, by identity.
+        expect(planPalette('stoplight').model).toBe(MODEL_COLORS);
     });
 
     it('builds the SESSION scale from `session_status`, second after State (req #3584)', () => {
@@ -5052,7 +5081,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
 
     it('has one position per registered scale plus none, and defaults to state', () => {
         expect([...REQ_COLOR_KEYS].sort())
-            .toEqual(['autonomy', 'machine', 'none', 'session', 'state']);
+            .toEqual(['autonomy', 'machine', 'model', 'none', 'session', 'state']);
         expect(DEFAULT_COLOR_KEY).toBe('state');
         for (const v of REQ_COLOR_KEYS) expect(isColorKey(v)).toBe(true);
     });
@@ -9002,6 +9031,7 @@ describe('palette themes (req #3365)', () => {
             expect(Object.keys(p.status).sort()).toEqual([...REQ_STATUS_ORDER].sort());
             expect(Object.keys(p.autonomy).sort()).toEqual([...AUTONOMY_ORDER].sort());
             expect(Object.keys(p.session).sort()).toEqual([...SESSION_STATUS_ORDER].sort());
+            expect(Object.keys(p.model).sort()).toEqual([...MODEL_ORDER].sort());
         }
     });
 
@@ -9014,6 +9044,7 @@ describe('palette themes (req #3365)', () => {
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
                 session: Object.values(p.session),
+                model: Object.values(p.model),
             })) {
                 for (const hex of hexes) {
                     expect(contrast(hex, PANEL), `${p.key}.${scale} ${hex}`)
@@ -9034,6 +9065,7 @@ describe('palette themes (req #3365)', () => {
                 initiative: p.initiative,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
+                model: Object.values(p.model),
                 session: Object.entries(p.session)
                     .filter(([k]) => k !== 'waiting').map(([, v]) => v), // waiting ≡ review by directive (req #3656)
             })) {
