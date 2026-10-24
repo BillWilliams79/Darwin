@@ -3211,13 +3211,15 @@ export default function PipelinePlanVisualizer({
     // edit, so no read is added — and a save re-reads the plan. `key` changes
     // per open so the form seeds afresh; `kind` outlives the close so the exit
     // animation has something to draw.
-    const [planEditor, setPlanEditor] = useState({ key: 0, open: false, kind: null, target: null });
+    const [planEditor, setPlanEditor] = useState(
+        { key: 0, open: false, kind: null, target: null, deletion: null });
     // When it opened: the second click of a quick double click on the title
     // area lands on the dialog's backdrop, which must not close it at once (the
     // add-epic dialog's `insertOpenedAtRef` rule).
     const planEditorOpenedAtRef = useRef(0);
     const openPlanEditor = useCallback((what, id) => {
         let target = null;
+        let deletion = null;
         if (what === 'initiative') {
             target = (model?.initiatives || []).find((e) => e.id === id) || null;
         } else {
@@ -3232,12 +3234,22 @@ export default function PipelinePlanVisualizer({
                     locked: row.locked, lockedBy: row.lockedBy,
                     checkpoint: row.checkpoint,
                 };
+                // req #3867 — what the editor's Delete frees, from the rows
+                // this canvas holds: the epics waiting on this one. The database
+                // is the backstop for a dependent the composed read did not
+                // carry (a 409, the plan untouched).
+                deletion = {
+                    reqCount: (row.reqIds || []).length,
+                    dependents: rows
+                        .filter((r) => r.id !== row.id && (r.depIds || []).includes(row.id))
+                        .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
+                };
             }
         }
         if (!target) return;
         planEditorOpenedAtRef.current = Date.now();
-        setPlanEditor((ed) => ({ key: ed.key + 1, open: true, kind: what, target }));
-    }, [model?.initiatives, rowById, runPending]);
+        setPlanEditor((ed) => ({ key: ed.key + 1, open: true, kind: what, target, deletion }));
+    }, [model?.initiatives, rows, rowById, runPending]);
     const closePlanEditor = useCallback((reason) => {
         if (reason === 'backdropClick'
             && Date.now() - planEditorOpenedAtRef.current < DOUBLE_CLICK_MS) return;
@@ -6970,6 +6982,7 @@ export default function PipelinePlanVisualizer({
                     key={`plan-epic-editor-${planEditor.key}`}
                     open={planEditor.open}
                     epic={planEditor.target}
+                    deletion={planEditor.deletion}
                     initiativeOptions={insertInitiativeOptions}
                     onClose={closePlanEditor}
                     onSaved={refreshPlan}
