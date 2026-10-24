@@ -11,7 +11,9 @@
 // .seed), so it sits docked in the navbar as the old box did, stacked with any
 // other racked panel. Drag its head off the navbar and it floats, moves,
 // reshapes and collapses like any other; drag it back to rack it again. Where
-// the reader leaves it is theirs from then on.
+// the reader leaves it is theirs from then on. In a minimized bar (the icon-only
+// navbar, the folded topology toolbar) it is ONE list icon in its orange box,
+// its fields in the tooltip; a click unfolds the bar (req #3886).
 //
 // Dev builds only (never drawn in production) and desktop only, as before.
 
@@ -19,6 +21,7 @@ import { useContext, useLayoutEffect, useMemo } from 'react';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
@@ -28,7 +31,6 @@ import {
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { useDevServers } from '../hooks/useDataQueries';
-import { RACK_NARROW_PX } from '../Components/AnchoredPanel/panelRack';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
 import { useDevServerInfoStore } from '../stores/useDevServerInfoStore';
 import { prodRequirementUrl } from '../utils/prodUrl';
@@ -138,48 +140,27 @@ export default function DevServerActionPopup() {
     const prod = database === 'darwin';
     // req #3748 — the dev server pill: below the terminal pill, opening this
     // dev server in a new tab (the Sessions list's Dev Server chip does the same).
-    const portPill = (compact) => (
+    const portPill = (
         <Box component="a" href={`https://localhost:${port}`} target="_blank" rel="noopener noreferrer"
-             title={`Open port ${port} in a new tab`} data-testid="navbar-dev-port"
-             sx={compact ? { ...PILL_SX, alignSelf: 'flex-start', px: '0.35em', py: 0 } : PILL_SX}>
+             title={`Open port ${port} in a new tab`} data-testid="navbar-dev-port" sx={PILL_SX}>
             {port}
         </Box>
     );
+
+    // Its fields, for the icon's tooltip in a minimized bar (req #3886).
+    const iconLabel = ['Dev Server', [DEV_REQ_ID, DEV_REQ_TITLE].filter(Boolean).join(' - '), terminalLabel,
+        `Port ${port}`, `DB - ${database}${prod ? ' (PROD)' : ''}`, 'Click to expand'].filter(Boolean).join('\n');
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Dev Server" testid="devserver-info"
                        rackId={DEV_INFO_RACK_ID}
+                       rackIcon={FormatListBulletedIcon} rackIconLabel={iconLabel}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX}
                        colors={FRAME_COLORS}
                        sx={ACTION_POPUP_SX}>
-            {({ shapedWidth }) => (shapedWidth != null && shapedWidth < RACK_NARROW_PX) ? (
-                // The icon-only navbar (req #3739): every field the full panel
-                // shows — requirement, terminal, port, database — in short form at a
-                // smaller size, wrapped rather than clipped, each with its full
-                // label as a tooltip.
-                <Box data-testid="devserver-info-compact"
-                     sx={{ px: '0.4em', py: '0.15em', fontSize: '0.8em', lineHeight: 1.35,
-                            display: 'flex', flexDirection: 'column', gap: '0.5em',
-                            whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
-                    <RequirementLine lines={4} />
-                    {(terminalNumber != null || terminalHref) && (
-                        <Box component={terminalHref ? 'a' : 'span'}
-                             {...(terminalHref ? { href: terminalHref } : {})}
-                             title={terminalLabel} data-testid="navbar-dev-terminal"
-                             sx={{ color: DEV_ORANGE, fontWeight: 700, textDecoration: 'none' }}>
-                            T{terminalNumber ?? '↗'}
-                        </Box>
-                    )}
-                    {portPill(true)}
-                    {/* The DB last (req #3748). */}
-                    <Box data-testid="navbar-dev-database" title={`DB - ${database}${prod ? ' (PROD)' : ''}`}
-                         sx={{ color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
-                        {database}{prod ? ' PROD' : ''}
-                    </Box>
-                </Box>
-            ) : (
+            {() => (
                 <>
                     {/* req #3788 — the requirement leads the window. */}
                     <RequirementLine sx={ROW_SX} lines={3} />
@@ -199,7 +180,7 @@ export default function DevServerActionPopup() {
                         ) : (
                             <Box component="span" data-testid="navbar-dev-terminal">{terminalLabel}</Box>
                         ))}
-                        {portPill(false)}
+                        {portPill}
                     </Box>
                     {/* Active DB — orange + (PROD) when dev points at production
                         (req #2683). Last (req #3748). */}

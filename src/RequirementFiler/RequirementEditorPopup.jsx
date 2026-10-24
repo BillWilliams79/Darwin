@@ -41,6 +41,15 @@
 // so a half-typed title never becomes a row; after that every change saves on
 // its own, LIVE_SAVE_MS after the last edit, like the requirement page. A failed
 // live save is shown with Retry and not re-sent until something changes.
+//
+// CREATE CLOSES THE EDITOR AT THE PRESS (req #3860, "try out having the
+// requirement editor close as soon as you click create"): the requirement, its
+// capture and the description's link are written with the editor hidden — this
+// component stays mounted, so the save runs on — and the filer's list shows it
+// filed; a click there brings it back. A create that FAILS brings the editor
+// back on its draft, so what was typed, the error and Retry are never hidden.
+// While it is being written the store's `creating` holds its key, and the
+// filer's + and a reopen wait for it (RequirementFiler.jsx createSettled).
 // Its fields, the saved id and where it floats live in useRequirementFilerStore
 // — racking re-mounts this subtree, and a draft survives a reload.
 //
@@ -54,6 +63,7 @@ import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
@@ -69,6 +79,7 @@ import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
+import { prodRequirementUrl } from '../utils/prodUrl';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -77,6 +88,7 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import { useFilerFilesElsewhere } from './filerScope';
 import {
     buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
     staleCategory, staleMachine,
@@ -246,22 +258,13 @@ export function captureSettled(key, timeoutMs = 3000) {
     });
 }
 
-/** The debug capture's status, as its one line says it. */
-function captureStatus({ stage, savedId, orphaned, total }) {
-    return stage === 'capturing' ? 'capturing…'
-        : orphaned && stage === 'ready' ? 'not saved — the requirement\'s id could not be read back'
-        : stage === 'done' ? 'saved'
-        : stage === 'none' ? 'every category dropped — filed without one'
-        : stage === 'failed' ? 'could not be captured — this files without one'
-        : stage === 'posted' ? 'saved — its description link is not'
-        : savedId != null ? 'not saved' : formatBytes(total);
-}
-
 /** The debug capture's place on the File row (req #3815): a DEBUG CAPTURE
- *  button — it slides the categories open below (CaptureDetails) — and its size
- *  beside it (or, off the usual path, what became of it). */
-function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onExpand }) {
-    const total = useMemo(() => (capture ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
+ *  button — it slides the categories open below (CaptureDetails) — a trash can
+ *  that drops every category (req #3887), and the size of what is kept. No
+ *  status text: the size is the whole report. */
+function CaptureLine({ capture, dropped, canDropAll, onDropAll, expanded, onExpand }) {
+    // Nothing kept saves nothing, so it measures 0 — not the bundle's bare header.
+    const total = useMemo(() => (capture && !keepsNothing(capture, dropped) ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
     return (
         <Box data-testid="requirement-editor-capture"
              sx={{ ml: 'auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.45em', flexWrap: 'wrap' }}>
@@ -274,8 +277,16 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
                         '&:hover:not(:disabled)': { borderColor: BUG_COLOR }, '&:disabled': { opacity: 0.6 } }}>
                 Debug Capture
             </Box>
+            <Box component="button" type="button" onClick={onDropAll} disabled={!canDropAll}
+                 aria-label="Drop every debug capture category" title="Drop everything"
+                 data-testid="requirement-editor-capture-drop-all"
+                 sx={{ display: 'inline-flex', p: '0.1em', border: 'none', background: 'transparent', color: P.dim,
+                        cursor: canDropAll ? 'pointer' : 'default', '&:hover:not(:disabled)': { color: BUG_COLOR },
+                        '&:disabled': { opacity: 0.4 } }}>
+                <DeleteOutlineIcon sx={{ fontSize: '1.2em' }} />
+            </Box>
             <Box component="span" data-testid="requirement-editor-capture-status"
-                 sx={{ color: P.dim, fontSize: '0.9em' }}>{captureStatus({ stage, savedId, orphaned, total })}</Box>
+                 sx={{ color: P.dim, fontSize: '0.9em' }}>{capture ? formatBytes(total) : ''}</Box>
         </Box>
     );
 }
@@ -285,6 +296,13 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
 function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
     // Once a save has sent the bundle, the selection is what was sent.
     const editable = stage === 'ready' && !locked;
+    // Filed from always first, a light dashed line, then the rest biggest to
+    // smallest (req #3887). Sizes are fixed at capture time; the sort is stable.
+    const [filedFrom, rest] = useMemo(() => {
+        const cats = capture?.categories ?? [];
+        return [cats.find(c => c.key === 'filedFrom'),
+                cats.filter(c => c.key !== 'filedFrom').sort((a, b) => b.bytes - a.bytes)];
+    }, [capture]);
     return (
         <>
             {capture && (
@@ -295,7 +313,15 @@ function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, on
                         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid',
                                                   gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '0.5em',
                                                   rowGap: '0.1em', alignItems: 'baseline' }}>
-                            {capture.categories.map(({ key, bytes, note }) => {
+                            {[filedFrom, 'rule', ...rest].filter(Boolean).map((c) => {
+                                if (c === 'rule') {
+                                    return filedFrom ? (
+                                        <Box component="li" key="rule" aria-hidden="true"
+                                             data-testid="requirement-editor-capture-rule"
+                                             sx={{ gridColumn: '1 / -1', borderTop: `1px dashed ${P.line}`, opacity: 0.6, my: '0.15em' }} />
+                                    ) : null;
+                                }
+                                const { key, bytes, note } = c;
                                 const label = DEBUG_CATEGORIES.find(c => c.key === key)?.label ?? key;
                                 const kept = !dropped.includes(key);
                                 return (
@@ -343,6 +369,7 @@ export default function RequirementEditorPopup() {
     const { profile, idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
+    const filesElsewhere = useFilerFilesElsewhere();
     const isDesktop = useMediaQuery('(min-width:900px)');
     const show = useRequirementFilerStore(s => s.editorShow);
     const open = useRequirementFilerStore(s => s.editorOpen);
@@ -358,7 +385,8 @@ export default function RequirementEditorPopup() {
     const captureStage = useRequirementFilerStore(s => s.captureStage);
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
-        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent } = useRequirementFilerStore.getState();
+        clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
+        setCreating, endCreating } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -367,6 +395,14 @@ export default function RequirementEditorPopup() {
     const [saving, setSaving] = useState(null);
     const [failure, setFailure] = useState(null);
     const error = failure?.key === draftKey ? failure.text : null;
+    // A failure is shown where it can be read: on a create, Create closed the
+    // editor (req #3860), so it comes back — on that draft only, never over
+    // another, and never for a later save the reader closed it on.
+    const failOpen = (f) => {
+        setFailure(f);
+        const st = useRequirementFilerStore.getState();
+        if (st.draftKey === f.key && st.creating === f.key) setEditorShow(true);
+    };
     // The settings behind the spec-code button: closed for every new draft.
     const [settingsOpen, setSettingsOpen] = useState(false);
     // The capture's per-category details, behind its Details button.
@@ -498,6 +534,9 @@ export default function RequirementEditorPopup() {
         const st = await captureSettled(key);
         if (st.draftKey !== key) return;
         let stage = st.captureStage;
+        // Still being built when its wait ran out: shown with Retry once it is
+        // ready, rather than left unsent behind the closed editor (req #3860).
+        if (stage === 'capturing' && st.creating === key) setEditorShow(true);
         if (stage === 'ready') {
             // The first send fixes the selection: a retry sends, and the block
             // describes, exactly what that send carried.
@@ -512,12 +551,12 @@ export default function RequirementEditorPopup() {
                     { requirement_fk: id, bundle: text, bundle_bytes: bytes, creator_fk: user }, idToken);
                 const status = res?.httpStatus?.httpStatus;
                 ok = status === 200 || status === 201;
-                if (!ok) setFailure({ key, text: errorText(res, `#${id} saved, but its debug capture was not`) });
+                if (!ok) failOpen({ key, text: errorText(res, `#${id} saved, but its debug capture was not`) });
             } catch (e) {
                 // One capture per requirement: a DUPLICATE-KEY 409 is the row an
                 // earlier try wrote. A foreign-key 409 (the requirement is gone) is not.
                 ok = e?.httpStatus?.httpStatus === 409 && Number(e?.httpStatus?.httpDetail?.errno) === 1062;
-                if (!ok) setFailure({ key, text: errorText(e, `#${id} saved, but its debug capture was not`) });
+                if (!ok) failOpen({ key, text: errorText(e, `#${id} saved, but its debug capture was not`) });
             }
             if (!ok) return;
             stage = 'posted';
@@ -532,11 +571,11 @@ export default function RequirementEditorPopup() {
             const res = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id, description }], idToken);
             const status = res?.httpStatus?.httpStatus;
             if (status !== 200 && status !== 204) {
-                setFailure({ key, text: errorText(res, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+                failOpen({ key, text: errorText(res, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
                 return;
             }
         } catch (e) {
-            setFailure({ key, text: errorText(e, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+            failOpen({ key, text: errorText(e, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
             return;
         }
         queryClient.invalidateQueries({ queryKey: requirementKeys.all(user) });
@@ -563,15 +602,23 @@ export default function RequirementEditorPopup() {
     // store (this closure's `canSave` may be a hidden render's, stale).
     const save = async (live = false) => {
         if (!live && !canSave) return;
+        // A live save only ever PUTs: a closure from before the create landed
+        // (the editor it closed renders nothing) must never POST it twice.
+        if (live && savedId == null) return;
         const key = draftKey;
-        const fail = (res, text) => { failedDraftRef.current = draft; setFailure({ key, text: errorText(res, text) }); };
+        const isPost = savedId == null;
+        const fail = (res, text) => {
+            failedDraftRef.current = draft;
+            (isPost ? failOpen : setFailure)({ key, text: errorText(res, text) });
+        };
         savingRef.current = key;
         setSaving(key);
         setFailure(null);
         const values = savedValues(draft);
         const uri = `${darwinUri}/requirements`;
-        const isPost = savedId == null;
         let id = savedId;
+        // CREATE closes the editor at the press (req #3860); the rest is written hidden.
+        if (isPost) { setCreating(key); setEditorShow(false); }
         try {
             if (isPost) {
                 const body = buildPostBody(draft);
@@ -584,8 +631,8 @@ export default function RequirementEditorPopup() {
                     // Saved, but no id to PUT later edits to: keep what was typed,
                     // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
-                    setFailure({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
-                        + 'or start a new requirement.' });
+                    failOpen({ key, text: `Saved, but its id could not be read back — find it on ${
+                        filesElsewhere ? 'darwin.one/swarm' : '/swarm'}, or start a new requirement.` });
                     return;
                 }
             } else {
@@ -602,6 +649,7 @@ export default function RequirementEditorPopup() {
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
+            if (isPost) endCreating(key);
             if (savingRef.current === key) savingRef.current = null;
             setSaving(s => (s === key ? null : s));
         }
@@ -652,7 +700,10 @@ export default function RequirementEditorPopup() {
                         <Box data-testid="requirement-editor-identity"
                              sx={{ flexShrink: 0, fontSize: '1.15em', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {savedId != null ? (
-                                <Box component={Link} to={`/swarm/requirement/${savedId}`}
+                                <Box {...(filesElsewhere
+                                        // Filed into production from a dev build (req #3888): its page is on darwin.one.
+                                        ? { component: 'a', href: prodRequirementUrl(savedId), target: '_blank', rel: 'noopener noreferrer' }
+                                        : { component: Link, to: `/swarm/requirement/${savedId}` })}
                                      data-testid="requirement-editor-id-link"
                                      sx={{ color: P.req, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
                                     {savedId}
@@ -788,7 +839,9 @@ export default function RequirementEditorPopup() {
                             ) : null}
                             {hasCapture && (
                                 <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
-                                             stage={captureStage} savedId={savedId} orphaned={orphaned}
+                                             canDropAll={captureStage === 'ready' && captureSentDropped == null
+                                                 && saving !== draftKey && !keepsNothing(capture, captureDropped)}
+                                             onDropAll={dropAllCaptureCategories}
                                              expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
                             )}
                         </Box>

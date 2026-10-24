@@ -7,7 +7,7 @@
 // It was Pipeline 1.0's browser-side ordering & derivation engine (req #3112) —
 // `buildPlanRows`, `displayOrder`, `verifyOrder`, `eligibility`,
 // `launchBatches`, `deriveEpicState`, `dominantLabels`, `machineLabels`,
-// `requirementCounts`, `pauseState`, `serialState` and their helpers. Pipeline
+// `requirementCounts`, `pauseState` and their helpers. Pipeline
 // 2.0 derives a plan ONCE, server-side, in `pipeline2_derive.py`, and
 // `pipelineAdapter.js` reshapes that output; nothing in the browser derives a
 // plan any more, so all of it went with Pipeline 1.0.

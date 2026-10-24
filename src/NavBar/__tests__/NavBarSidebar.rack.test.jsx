@@ -112,13 +112,13 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
         const idleText = zone.textContent;
 
         // Moving anywhere: the navbar does not change in any way.
-        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: false, index: null, fromRack: false, color: '#123456' }));
+        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: false, rack: null, index: null, fromRack: false, from: null, color: '#123456' }));
         expect(zone.getAttribute('data-rack-drop')).toBe('armed');
         expect(look()).toEqual(idle);
 
         // Over it: no text, no landing zone, no outline or background change —
         // a glow in the dragged panel's frame colour, and nothing else.
-        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: true, index: 1, fromRack: false, color: '#123456' }));
+        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: true, rack: 'nav', index: 1, fromRack: false, from: null, color: '#123456' }));
         expect(zone.getAttribute('data-rack-drop')).toBe('over');
         const over = look();
         expect(over.outline).toBe(idle.outline);
@@ -135,9 +135,9 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
     it('lifts itself above the page while a racked panel is dragged out of it', () => {
         renderNav();
         const zone = screen.getByTestId('navbar-rack-zone');
-        act(() => usePanelRackStore.getState().setDrag({ id: 'a', over: false, index: null, fromRack: true }));
+        act(() => usePanelRackStore.getState().setDrag({ id: 'a', over: false, rack: null, index: null, fromRack: true, from: 'nav' }));
         expect(getComputedStyle(zone).zIndex).toBe('1250');
-        act(() => usePanelRackStore.getState().setDrag({ id: 'a', over: false, index: null, fromRack: false }));
+        act(() => usePanelRackStore.getState().setDrag({ id: 'a', over: false, rack: null, index: null, fromRack: false, from: null }));
         expect(getComputedStyle(zone).zIndex).not.toBe('1250');
     });
 

@@ -128,15 +128,24 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(at(120)).toEqual(['stacked', 'T3']);
     });
 
-    it('racked in the icon-only navbar, the pill stacks so both halves fit (req #3748)', () => {
+    it('racked in the icon-only navbar, it is one server icon in its framed box (req #3886)', () => {
         const slotNode = document.createElement('div');
         document.body.appendChild(slotNode);
-        usePanelRackStore.setState({ racked: ['devservers'], slot: { node: slotNode, width: 64 }, drag: null });
-        renderDash();
-        expect(screen.getByTestId('devserver-dashboard-pill-7').getAttribute('data-size')).toBe('stacked');
-        expect(cells(7)).toEqual(['T33002']);
-        usePanelRackStore.setState({ racked: [], slot: null });
-        slotNode.remove();
+        const expand = vi.fn();
+        usePanelRackStore.setState({ racked: ['devservers'], slot: { node: slotNode, width: 64, expand }, drag: null });
+        try {
+            renderDash();
+            const icon = screen.getByTestId('devserver-dashboard-rack-icon');
+            expect(slotNode.contains(icon)).toBe(true);
+            expect(icon.getAttribute('title')).toMatch(/^Dev Servers — \d+/);
+            expect(screen.queryByTestId('devserver-dashboard-item-7')).toBe(null);
+            fireEvent.pointerDown(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 30 });
+            fireEvent.pointerUp(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 30 });
+            expect(expand).toHaveBeenCalledTimes(1);
+        } finally {
+            usePanelRackStore.setState({ racked: [], slot: null });
+            slotNode.remove();
+        }
     });
 
     it('the terminal links to its window when the session has a handle here (req #3668)', () => {

@@ -3,7 +3,7 @@ import {
     DAY_HOURS, hoursFromRowMidnight, xPct36, xPctWin, semanticLevel,
     shiftDayStr, dayDelta, dateRange, isWeekend,
     buildModelContext, buildDayModel, recenterDecision, startGlyphPlacement,
-    durationDashed,
+    durationDashed, fitDayTransform,
 } from '../konvaSwarmModel';
 import { toLocaleDateString, getTimeOfDayFraction } from '../../utils/dateFormat';
 
@@ -174,6 +174,38 @@ describe('recenterDecision — stale-transform / mid-May affinity (req #2860)', 
             navKey: 'today|s|e|800x600|1', lastNavKey: NAV,
             centerY: 4000, lastCenterY: 4000, userPanned: true,
         })).toEqual({ recenter: true, clearPan: true });
+    });
+});
+
+describe('fitDayTransform — Today fits a tall day (req #3858)', () => {
+    const base = { viewW: 1400, viewH: 800, worldW: 1348, kBase: 1.04, axisH: 22, minK: 0.26 };
+
+    it('keeps the kBase / full-width / vertically-centered framing when the day fits', () => {
+        // 400 world px * 1.04 = 416 < 800-22-16 → unchanged from the original centering.
+        const r = fitDayTransform({ ...base, rowCenterY: 1000, rowHeight: 400 });
+        expect(r).toEqual({ k: 1.04, tx: 0, ty: 800 / 2 - 1000 * 1.04 });
+    });
+
+    it('zooms out so a 40-lane day shows its full height below the axis', () => {
+        const rowHeight = 26 + 40 * 30 + 18;   // CHROME_TOP + lanes + ROW_PAD
+        const r = fitDayTransform({ ...base, rowCenterY: 5000, rowHeight });
+        expect(r.k).toBeLessThan(base.kBase);
+        // top and bottom of the row both land inside [axisH, viewH].
+        const top = 5000 - rowHeight / 2, bot = 5000 + rowHeight / 2;
+        expect(top * r.k + r.ty).toBeGreaterThanOrEqual(base.axisH);
+        expect(bot * r.k + r.ty).toBeLessThanOrEqual(base.viewH);
+        // the narrower world is centered horizontally.
+        expect(r.tx).toBeCloseTo((base.viewW - base.worldW * r.k) / 2);
+    });
+
+    it('never zooms out past minK', () => {
+        const r = fitDayTransform({ ...base, rowCenterY: 0, rowHeight: 100000 });
+        expect(r.k).toBe(base.minK);
+    });
+
+    it('falls back to kBase framing for a missing row or a degenerate viewport', () => {
+        expect(fitDayTransform({ ...base, rowCenterY: 10, rowHeight: 0 }).k).toBe(base.kBase);
+        expect(fitDayTransform({ ...base, viewH: 30, rowCenterY: 10, rowHeight: 900 }).k).toBe(base.kBase);
     });
 });
 

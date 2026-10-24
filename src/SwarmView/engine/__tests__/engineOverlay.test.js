@@ -85,7 +85,7 @@ describe('an engine record → badges and the cut', () => {
                 }
             });
         }
-        for (const code of ['BARRIER', 'DEP_PRIORITY', 'MANUAL', 'NOT_BEFORE', 'SERIAL_TURN',
+        for (const code of ['BARRIER', 'DEP_PRIORITY', 'MANUAL', 'NOT_BEFORE',
             'MACHINE_PIN', 'NO_WORK', 'CAPACITY', 'IN_FLIGHT', 'ADMITTED']) {
             expect(seen, code).toContain(code);
         }

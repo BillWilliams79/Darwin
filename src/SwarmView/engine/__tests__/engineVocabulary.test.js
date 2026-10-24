@@ -16,7 +16,7 @@ import {
     CODE_COLORS, CODE_LABELS, EPIC_CODES, EVENT_CODES, HEALTH_COLORS, HEALTH_STATES, HOLD_CODES,
     SHELL_EVENT_CODES,
     ITEM_CODES, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, desiredReasonText, detailText, eventText,
-    plainWords,
+    initiativeName, plainWords,
 } from '../engineVocabulary';
 
 const ENGINE2 = path.resolve(__dirname, '../../../../../scripts/swarm/engine2');
@@ -123,8 +123,7 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         // An untitled id falls back to its number rather than going blank.
         expect(detailText('DEP_PRIORITY', { waiting_on_epic_ids: [101, 102] }, names))
             .toBe('waiting on epics Alpha, 102');
-        expect(detailText('SERIAL_TURN', { live_initiative_id: 5 }, names))
-            .toBe('initiative Engine cutover has the turn');
+        expect(initiativeName(5, names)).toBe('initiative Engine cutover');
         expect(eventText({ code: 'LANDED', requirement_id: 7, epic_id: 12, status: 'met' }, names))
             .toBe('a requirement reached a terminal status: requirement 7 on epic Foundation is met');
         expect(eventText({ code: 'TOP_UP', epic_id: 12, requirement_ids: [7, 8] }, names))

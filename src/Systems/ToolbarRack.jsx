@@ -1,20 +1,21 @@
-// ToolbarRack.jsx — AI Architecture's own toolbar as THE panel rack (req #3792).
+// ToolbarRack.jsx — AI Architecture's own toolbar as a panel rack (req #3792),
+// beside the Darwin navbar's (req #3886).
 //
 // AI Architecture (/systems2) shows its own toolbar: the topology page's
-// navbar, drawn in a same-origin iframe beside Darwin's. While that toolbar is
-// drawn, every Action Popup docks against IT, by the Darwin
-// navbar's rules and with its behaviours — dropped on the toolbar it glows in
+// navbar, drawn in a same-origin iframe beside Darwin's. An Action Popup docks
+// against it by the Darwin navbar's rules and with its behaviours — dropped on the toolbar it glows in
 // the window's frame colour, the window locks in below the toolbar's buttons at
 // the toolbar's width, more than one stack in rack order, each only as tall as
 // its content, the buttons first; dragged up and down the stack it reorders,
 // dragged off it floats again. Pattern doc: memory/anchored-collapse-pattern.md
 // § A page's own toolbar.
 //
-// ONE rack, not a second one: this publishes the toolbar as the store's
-// `pageSlot`, which is the live `slot` while it is drawn (usePanelRackStore), so
-// the racked windows move here from the navbar and back with it, the navbar is
-// no drop zone meanwhile, and the hit test, drop index, reorder, glow and box are
-// usePanelRack's / panelRack's own (RACK_SX, rackGlow). What is this page's:
+// A SECOND rack (req #3886, replacing #3792's take-over): this publishes the
+// toolbar as the store's `pageSlot`, a drop zone beside the navbar's. Each rack
+// keeps the popups dropped on it — the navbar's stay in the navbar while this
+// toolbar is drawn, and this toolbar's stay here when it folds — and the hit
+// test, drop index, reorder, glow and box are usePanelRack's / panelRack's own
+// (RACK_SX, rackGlow). What is this page's:
 //   • WHERE — a shadow root appended to the toolbar, below its buttons, so the
 //     topology page's own CSS (its global `button` rule) and scripts (which
 //     select its nav buttons) never reach the windows, nor theirs the page. The
@@ -32,11 +33,18 @@
 //   • THE HEIGHT — the toolbar scrolls with its page, so the rack is capped at
 //     what the buttons leave of the frame's height: the navbar's "the nav list
 //     comes first, the rack gets what is left" (req #3751).
-//   • DRAWN — the toolbar folded to its slim strip (its ‹), or covered by a 3D
-//     view's full screen, is not drawn: the slot is withdrawn and the windows go
-//     back to the Darwin navbar, as they would with no toolbar at all.
-// A floating Action Popup dragged over the frame would otherwise lose its
-// pointer to the iframe, so the frame takes no pointer while one is carried.
+//   • FOLDED — the toolbar folded to its slim strip (its ‹) keeps its popups
+//     (req #3886): the rack stays in the strip (the page hides every other
+//     child of a folded toolbar), and each popup is drawn there as its ONE
+//     icon in a box of its frame colour (AnchoredPanel's `rackIcon`) — a click
+//     on it unfolds the toolbar (`expand`, the toolbar's own ›) unless the
+//     popup's icon does something of its own. The strip is still a drop zone.
+//   • DRAWN — covered by a view's full screen, the toolbar is not drawn: the
+//     slot is withdrawn and its windows are drawn in the Darwin navbar
+//     meanwhile, as on a page with no toolbar at all (rackPlacement).
+// An Action Popup carried from anywhere but this toolbar over the frame would
+// otherwise lose its pointer to the iframe, so the frame takes no pointer
+// meanwhile.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -51,10 +59,15 @@ import { usePanelRackStore } from '../stores/usePanelRackStore';
 
 /** The toolbar in the topology page. */
 const TOOLBAR_SELECTOR = 'nav.navbar';
-/** A 3D view's full screen covers the toolbar: its stage takes `.tpu3d-full`
- *  (Topology tpu3d.js). */
-const FULL_SCREEN_STAGES = '.tpu3d';
-const FULL_SCREEN_SELECTOR = '.tpu3d-full';
+/** A view's full screen covers the toolbar: a 3D stage takes `.tpu3d-full`, and
+ *  a 2D stage refused the browser's full screen takes the fixed `.s2-full`
+ *  overlay (Topology tpu3d.js). */
+const FULL_SCREEN_STAGES = '.tpu3d, .stage';
+const FULL_SCREEN_SELECTOR = '.tpu3d-full, .s2-full';
+/** The toolbar folded to its slim strip, and the › that unfolds it (Topology
+ *  topology.js setNavCollapsed). */
+const FOLDED_CLASS = 'nav-collapsed';
+const EXPAND_SELECTOR = '[data-testid="topo-nav-collapse"]';
 /** The shadow root's own base: the windows size by border-box, as in Darwin. */
 const SHADOW_BASE_CSS = ':host { display: block; } *, *::before, *::after { box-sizing: border-box; }';
 
@@ -72,6 +85,9 @@ export function mountToolbarHost(frame) {
     if (!toolbar) return null;
     const hostEl = doc.createElement('div');
     hostEl.setAttribute('data-testid', 'toolbar-rack-host');
+    // Shown in the folded strip too, which hides every other child but its top
+    // row (`.navbar.nav-collapsed > :not(.nav-top)`): an inline display wins.
+    hostEl.style.display = 'block';
     const shadow = hostEl.attachShadow({ mode: 'open' });
     const base = doc.createElement('style');
     base.textContent = SHADOW_BASE_CSS;
@@ -89,10 +105,15 @@ export function mountToolbarHost(frame) {
     };
 }
 
-/** Whether the toolbar is drawn: present, not folded, not under a full screen. */
+/** Whether the toolbar is drawn: present, not under a full screen. Folded to
+ *  its strip it is still drawn (req #3886). */
 export function toolbarDrawn(host) {
-    return !!host?.toolbar.isConnected && !host.toolbar.classList.contains('nav-collapsed')
-        && !host.doc.querySelector(FULL_SCREEN_SELECTOR);
+    return !!host?.toolbar.isConnected && !host.doc.querySelector(FULL_SCREEN_SELECTOR);
+}
+
+/** Whether the toolbar is folded to its slim strip. */
+export function toolbarFolded(host) {
+    return !!host?.toolbar.classList.contains(FOLDED_CLASS);
 }
 
 /** The height the toolbar's buttons leave the rack in the frame, px. */
@@ -112,6 +133,7 @@ export default function ToolbarRack({ frameRef }) {
     // The host in the iframe's CURRENT document — rebuilt on each load.
     const [host, setHost] = useState(null);
     const [drawn, setDrawn] = useState(false);
+    const [folded, setFolded] = useState(false);
     const [rackEl, setRackEl] = useState(null);
     const [slotNode, setSlotNode] = useState(null);
     const [width, setWidth] = useState(0);
@@ -141,7 +163,7 @@ export default function ToolbarRack({ frameRef }) {
     // classes on every frame).
     useEffect(() => {
         if (!host) return undefined;
-        const check = () => setDrawn(toolbarDrawn(host));
+        const check = () => { setDrawn(toolbarDrawn(host)); setFolded(toolbarFolded(host)); };
         check();
         const mo = new host.doc.defaultView.MutationObserver(check);
         [host.toolbar, ...host.doc.querySelectorAll(FULL_SCREEN_STAGES)].forEach(el =>
@@ -171,7 +193,9 @@ export default function ToolbarRack({ frameRef }) {
         if (!host || !slotNode || !drawn || !frame) { setPageSlot(null); return undefined; }
         const win = host.doc.defaultView;
         setPageSlot({
-            node: slotNode, width, cache: host.cache, name: 'toolbar',
+            node: slotNode, width, cache: host.cache, name: 'toolbar', folded,
+            // A popup's icon in the folded strip unfolds it: the toolbar's own ›.
+            expand: () => { if (toolbarFolded(host)) host.doc.querySelector(EXPAND_SELECTOR)?.click(); },
             // The toolbar's column, its top to the frame's bottom.
             zone: { getBoundingClientRect: () => {
                 const r = host.toolbar.getBoundingClientRect();
@@ -184,7 +208,7 @@ export default function ToolbarRack({ frameRef }) {
             },
         });
         return () => setPageSlot(null);
-    }, [host, slotNode, drawn, width, frameRef]);
+    }, [host, slotNode, drawn, folded, width, frameRef]);
 
     // The drop glow on the toolbar, and a carried floating Action Popup keeps its
     // pointer over the frame.
@@ -192,8 +216,9 @@ export default function ToolbarRack({ frameRef }) {
     const dragging = !!drag;
     useEffect(() => {
         if (!host) return;
-        host.toolbar.style.boxShadow = drag?.over ? rackGlow(drag.color) : '';
-        host.toolbar.setAttribute('data-rack-drop', drag ? (drag.over ? 'over' : 'armed') : 'off');
+        const over = !!drag?.over && drag.rack === 'page';
+        host.toolbar.style.boxShadow = over ? rackGlow(drag.color) : '';
+        host.toolbar.setAttribute('data-rack-drop', drag ? (over ? 'over' : 'armed') : 'off');
     }, [host, drag]);
     // The fade, only while a drag is on (and through its fade-out): the toolbar's
     // own transitions (its collapse) are kept and extended, never replaced.
@@ -210,7 +235,8 @@ export default function ToolbarRack({ frameRef }) {
         };
     }, [host, dragging]);
     useEffect(() => () => clearTimeout(fadeTimer.current), []);
-    const carried = !!drag && !drag.fromRack;
+    // Carried from anywhere but this toolbar (floating, or the navbar's rack).
+    const carried = !!drag && drag.from !== 'page';
     useEffect(() => {
         const frame = frameRef.current;
         if (!frame || !carried) return undefined;
