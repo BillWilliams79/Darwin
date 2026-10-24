@@ -184,6 +184,12 @@ export const useRequirementFilerStore = create(
                 set({ captureDropped: captureDropped.includes(category)
                     ? captureDropped.filter(c => c !== category) : [...captureDropped, category] });
             },
+            // The trash can (req #3887): every category dropped at once.
+            dropAllCaptureCategories: () => {
+                const { capture, captureStage, captureSentDropped } = get();
+                if (!capture || captureStage !== 'ready' || captureSentDropped != null) return;
+                set({ captureDropped: capture.categories.map(c => c.key) });
+            },
             setCaptureStage: (key, captureStage) => { if (get().draftKey === key) set({ captureStage }); },
             markCaptureSent: (key, dropped) => {
                 if (get().draftKey === key && get().captureSentDropped == null) set({ captureSentDropped: [...dropped] });
