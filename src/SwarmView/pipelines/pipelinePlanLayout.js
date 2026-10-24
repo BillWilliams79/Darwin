@@ -704,6 +704,37 @@ export const AUTONOMY_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
     ? AUTONOMY_COLORS[ct] : AUTONOMY_UNKNOWN_COLOR);
 
+// ── Requirement-id scale: AI MODEL (the 'model' key, req #3863) ────────────
+// `requirements.ai_model` — which Claude model the requirement's session is
+// launched on. The registry's own comment (req #3422) named it as coming.
+//
+// AN ORDINAL LADDER LIKE AUTONOMY, so a RAMP: smallest to frontier. The hues
+// are the app's MODEL CHIP ramp (`SwarmView/modelChipStyles.js`'s
+// `AI_MODEL_COLOR`: haiku red → sonnet amber → opus light green → fable dark
+// green), so a requirement's model reads as the same colour on the plan as on
+// every card and table chip that shows it. Restated rather than imported:
+// that module pulls MUI's colour helpers into what is otherwise a pure layout
+// module, and its fable (#388e3c) measures 4.20:1 on this panel — under the
+// 4.5:1 floor every swatch here is held to — so this scale lifts fable to
+// #43a047 (5.23:1) and keeps the other three exactly.
+//
+// MEASURED against the panel (#111b2b): minimum contrast 5.23:1 (`fable`),
+// minimum pairwise ΔE 21.8 (`opus`/`fable` — the two greens, which the chip
+// ramp makes neighbours by design).
+export const MODEL_COLORS = {
+    haiku: '#e57373',    // red — smallest
+    sonnet: '#ffd54f',   // amber
+    opus: '#81c784',     // light green
+    fable: '#43a047',    // deep green — the frontier
+};
+
+// Key order: the ladder, smallest first — same rule as AUTONOMY_ORDER.
+export const MODEL_ORDER = ['haiku', 'sonnet', 'opus', 'fable'];
+
+// The column is NOT NULL with a default, so unknown is a model added to the
+// enum before the UI caught up — the shared unknown swatch, for autonomy's reason.
+export const MODEL_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
+
 // ── Requirement-id scale 4: SESSION STATUS (the 'session' key, req #3584) ──
 // `swarm_sessions.swarm_status` of the requirement's LATEST session — what is
 // actually happening to the work right now, which the requirement's own
@@ -818,6 +849,7 @@ export const PLAN_PALETTES = [
         status: REQ_STATUS_COLORS,
         autonomy: AUTONOMY_COLORS,
         session: SESSION_STATUS_COLORS,
+        model: MODEL_COLORS,
     },
     {
         key: 'slate',
@@ -858,6 +890,14 @@ export const PLAN_PALETTES = [
             paused:      '#a0a070',
             completing:  '#6fd0c4',
             completed:   '#8fbf7a',
+        },
+        // req #3863 — the model-chip ramp at Slate's chroma. MEASURED minimum
+        // ΔE 24.1 (`opus`/`fable`), minimum contrast 5.48:1 (`fable`).
+        model: {
+            haiku:       '#c4847f',
+            sonnet:      '#cfb870',
+            opus:        '#b0d4a0',
+            fable:       '#5b9f74',
         },
     },
     {
@@ -923,6 +963,16 @@ export const PLAN_PALETTES = [
             paused:      '#fb923c',
             completing:  '#38bdf8',
         },
+        // req #3863 — THE LIVE model scale: the app's model-chip ramp (red →
+        // amber → light green → deep green, see MODEL_COLORS) in Aurora's own
+        // Tailwind-400/300/500 stops. MEASURED minimum ΔE 29.2 (`opus`/
+        // `fable`), minimum contrast 6.25:1 (`haiku`).
+        model: {
+            haiku:       '#f87171',
+            sonnet:      '#fcd34d',
+            opus:        '#86efac',
+            fable:       '#22c55e',
+        },
     },
 ];
 
@@ -985,7 +1035,7 @@ export function planPalette(key) {
 
 
 // ── The colour key is N SCALES PLUS NONE (req #3168; third scale req #3422) ─
-// `state` · `machine` · `autonomy` · `none`. It was TRI-STATE when req #3168
+// `state` · `session` · `autonomy` · `model` · `machine` · `none`. It was TRI-STATE when req #3168
 // wrote this note and the count is no longer the point — what survives verbatim
 // is that `none` IS NOT A BUTTON. MUI's exclusive ToggleButtonGroup already
 // fired `onChange(_, null)` when the selected button was clicked again and the
@@ -1227,8 +1277,8 @@ function buildEnumColorView({
 }
 
 // The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, SESSION,
-// AUTONOMY, MACHINE (req #3365 user directive; Session inserted second by req
-// #3584's). It was state, machine, autonomy — the
+// AUTONOMY, MODEL, MACHINE (req #3365 user directive; Session inserted second by
+// req #3584's; Model beside Autonomy by req #3863). It was state, machine, autonomy — the
 // two original scales first so a reader's muscle memory for the chip positions
 // survived autonomy's arrival at req #3422. That reason has expired: the chips
 // have moved, so the muscle memory being protected is the memory of an order
@@ -1301,6 +1351,24 @@ export const REQ_COLOR_SCALES = [
             order: AUTONOMY_ORDER,
             paint: (v) => (Object.hasOwn(pal.autonomy, v)
                 ? pal.autonomy[v] : AUTONOMY_UNKNOWN_COLOR),
+        }),
+    },
+    // After Autonomy (req #3863): both say HOW the requirement's work runs.
+    {
+        key: 'model',
+        chipLabel: 'Model',
+        chipTip: 'Colour the requirement marks by AI MODEL — haiku through '
+            + 'fable — click again for none',
+        chipName: 'Model — colour the requirement marks by AI model',
+        keyTitle: 'Requirement id = model',
+        build: ({ requirements, presentReqIds, pal = planPalette() }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'ai_model',
+            colors: pal.model,
+            order: MODEL_ORDER,
+            paint: (v) => (Object.hasOwn(pal.model, v)
+                ? pal.model[v] : MODEL_UNKNOWN_COLOR),
         }),
     },
     {
@@ -3446,6 +3514,72 @@ export function drawnRulerLabelKeys(slots = [], mag = 1, startRight = -Infinity)
     return drawn;
 }
 
+// ── THE LEFT EDGE ALWAYS NAMES A DAY (req #3873, user directive: "the date bar
+//    should hold the latest date element (even future) and stick it to the
+//    left edge … similar to how initiatives are dragged off the top of the
+//    screen") ────────────────────────────────────────────────────────────────
+// Panned into the plan, the strip's dates are the ones whose boundary is ON
+// screen, so a reader sitting inside one long day saw an empty strip. The
+// sticky-header move the initiative chips make at the top edge
+// (`placeInitiativeChips`), turned on its side: the slot whose label would
+// begin at or left of the strip's visible left edge — any kind, so `future`
+// and `undated` pin too — is drawn flush to that edge, and the next DRAWN
+// label pushes it back off to the left as it arrives, so the two hand off
+// with no gap and no overlap. Below the push it is that slot's own label,
+// moved: its natural copy and any earlier label it would land on are not
+// drawn (`hide`).
+//
+// Against the DRAWN set (`drawnRulerLabelKeys`), not a re-thin from the left
+// edge: unmaximized the drawn set is a function of the zoom alone, so a pan
+// never makes a date blink on or off; only the pinned one changes, and only as
+// a boundary crosses the edge. The edge is the switch's right edge when the maximized
+// Plan page's full screen switch occupies the strip's corner (`startRight`,
+// the same reserve the re-thin honours).
+export const RULER_PIN_PAD = 4;   // SCREEN px between the left edge and the pinned date
+/**
+ * @param {Object[]} slots `ruler.slots` — `{key, kind, label, labelX, labelW}`
+ * @param {Set<string>} drawn `drawnRulerLabelKeys(...)` for the same `mag`
+ * @param {{x:number,k:number}} t  the stage transform
+ * @param {number} mag     `rulerScreenMag(t)`
+ * @param {number} [startRight] world x the first label must clear
+ * @returns {?{key:string, kind:string, text:string, x:number, y:number,
+ *     hide:Set<string>}} the pinned label (world x), or null when the strip's
+ *     first slot is itself on screen
+ */
+export function stickyRulerLabel(slots = [], drawn = new Set(), t,
+    mag = 1, startRight = -Infinity) {
+    if (!t || !(t.k > 0) || typeof t.x !== 'number' || !slots.length) return null;
+    const gap = RULER_LABEL_GAP * mag;
+    const edge = Math.max(-t.x / t.k + RULER_PIN_PAD / t.k, startRight + gap);
+    // The first drawn label after slot `i` — the one that pushes it.
+    const pusherX = (i) => {
+        for (let j = i + 1; j < slots.length; j++) {
+            if (drawn.has(slots[j].key)) return slots[j].labelX;
+        }
+        return Infinity;
+    };
+    // A THINNED day takes the pin only once it fits whole at the edge: handing
+    // it over earlier would show it already pushed, cut off by the left edge.
+    // Until then the day before it keeps the pin and is pushed off as usual.
+    let idx = -1;
+    for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        if (s.labelX > edge) continue;
+        if (drawn.has(s.key)
+            || edge + (s.labelW || 0) * mag + gap <= pusherX(i)) idx = i;
+    }
+    if (idx < 0) return null;
+    const s = slots[idx];
+    const w = (s.labelW || 0) * mag;
+    const x = Math.min(edge, pusherX(idx) - gap - w);
+    const hide = new Set([s.key]);
+    for (let i = 0; i < idx; i++) {
+        const p = slots[i];
+        if (drawn.has(p.key) && p.labelX + (p.labelW || 0) * mag + gap > x) hide.add(p.key);
+    }
+    return { key: s.key, kind: s.kind, text: s.label, x, y: RULER_LABEL_Y, hide };
+}
+
 const truncate = (s, n) => {
     const str = String(s == null ? '' : s);
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
@@ -5422,15 +5556,17 @@ export const INITIATIVE_CHIP_BG_ALPHA = 0.6;
 // occupy a respectable amount of width as it is an initiative … when collapsed it's
 // just a floating title bar so it gives way to the other highlighted initiatives."
 // The band draws no rectangle once folded (the renderer's call), so the chip is
-// all of the initiative that remains — and a chip only as wide as its name reads as a
-// label, not as an initiative. A folded chip therefore widens to this many SCREEN px:
-// flat, like the chip's other reservations, because a title bar is chrome the
-// reader reads at any zoom. It never NARROWS a chip (a longer name keeps its own
-// width) and it never takes room the name did not have — the band's right edge,
-// the panel edge and the key still bound it, and only the NAME decides whether
-// the chip is clipped. It morphs with the fold: an initiative half-way through its
-// animation is half-way between bar and chip.
-export const INITIATIVE_BAR_W = 420;
+// all of the initiative that remains, drawn as a title bar: tinted in the
+// initiative's colour and lifted by a shadow, in proportion to how folded it is
+// (`bar`, the renderer's).
+//
+// A FOLDED CHIP KEEPS ITS OPEN WIDTH (req #3862). It used to widen to a flat
+// 420px bar, so folding an initiative ELONGATED the very element the reader had
+// just asked to shrink. User direction: "the closed epic elongates when it
+// should stay the same or become smaller if we're hiding buttons. give it
+// respectful white space but apprpriately shrink." Folding hides none of the
+// chip's controls, so it stays exactly the size it was — its padding is the
+// white space — and the fold changes only its styling.
 
 /**
  * Where every initiative band's name is drawn, in SCREEN px.
@@ -5791,13 +5927,9 @@ export function placeInitiativeChips({
             w = room;
             clipped = true;
         }
-        // req #3695 — THE TITLE BAR, widened by `folded` (computed above).
-        let bar = 0;
-        if (!clipped && folded > 0) {
-            bar = folded;
-            const wBar = wFull + folded * Math.max(0, INITIATIVE_BAR_W - wFull);
-            w = Math.max(wFull, Math.min(wBar, limit - x));
-        }
+        // req #3695 — THE TITLE BAR's styling fraction (`folded`, computed
+        // above). It never widens the chip (req #3862): `w` is the name's.
+        const bar = !clipped && folded > 0 ? folded : 0;
 
         // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
         // wholly outside the content area for the final margin's worth of the
@@ -5834,8 +5966,8 @@ export function placeInitiativeChips({
             // an estimate a hair short would truncate every name on the plan.
             clipped,
             // req #3695 — how much of a TITLE BAR this chip is (0..1): the
-            // band's folded fraction. Above 0, `w` is the bar's width — never
-            // less than the name's — and the renderer draws the box at it.
+            // band's folded fraction. Styling only — the tint and the lift;
+            // a folded chip is as wide as an open one (req #3862).
             bar,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.

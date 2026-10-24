@@ -7,6 +7,10 @@
 // The caller mounts it with a fresh `key` per open, so the form seeds from
 // `epic` once; it writes through epicsApi itself and reports back through
 // `onSaved` (the caller invalidates or re-reads what it draws) and `onClose`.
+//
+// req #3867 — a caller that passes `deletion` also gets a Delete button: every
+// epic waiting on this one is freed of that dependency, then the epic goes
+// (`deleteEpicFreeingDependents`, the same delete the Epics table makes, req #3877).
 
 import { useContext, useState } from 'react';
 
@@ -22,6 +26,8 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import InputLabel from '@mui/material/InputLabel';
 import FormControl from '@mui/material/FormControl';
+import Alert from '@mui/material/Alert';
+import Tooltip from '@mui/material/Tooltip';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -30,6 +36,7 @@ import {
     REST_NULL,
     VALID_RUN2_MODES,
     createEpic,
+    deleteEpicFreeingDependents,
     isRestNullLiteral,
     updateEpic,
 } from './epicsApi';
@@ -62,6 +69,39 @@ const runOf = (epic) => (VALID_RUN2_MODES.includes(epic?.run) ? epic.run : 'auto
 // column default (on); the plan canvas passes a boolean, the Epics page 0/1.
 const barrierOf = (epic) => epic?.checkpoint == null || Boolean(Number(epic.checkpoint));
 
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const epicList = (ids, cap = false) => `${cap ? 'E' : 'e'}pic${ids.length === 1 ? '' : 's'} ${ids.join(', ')}`;
+
+// Why the epic cannot be deleted right now, or null. A lock on the epic (its
+// own or inherited) or on any epic whose dependency row the delete rewrites is
+// a 423 at the gateway, so the button says so instead of failing.
+const deleteBlockedReason = (epic, inheritedLock, deletion) => {
+    if (inheritedLock) return `Locked by its ${inheritedLock} — unlock the ${inheritedLock} to delete this epic.`;
+    if (epic.locked) return 'Locked — unlock and save to delete this epic.';
+    const locked = (deletion.dependents || []).filter((d) => d.locked).map((d) => d.id);
+    if (locked.length) {
+        return `${epicList(locked, true)} ${locked.length === 1 ? 'waits' : 'wait'} on it and `
+            + `${locked.length === 1 ? 'is' : 'are'} locked — unlock to delete this epic.`;
+    }
+    return null;
+};
+
+// What the delete does, in the confirmation's words.
+export const deleteConsequence = (epic, deletion) => {
+    const parts = [`Delete epic ${epic.id} "${epic.title || ''}"? This cannot be undone.`];
+    const reqCount = deletion.reqCount || 0;
+    if (reqCount) {
+        parts.push(`Its ${plural(reqCount, 'requirement')} become${reqCount === 1 ? 's' : ''} `
+            + 'un-orchestrated — the requirements themselves are not deleted.');
+    }
+    const dependents = (deletion.dependents || []).map((d) => d.id);
+    if (dependents.length) {
+        parts.push(`${epicList(dependents, true)} ${dependents.length === 1 ? 'waits' : 'wait'} `
+            + 'on it and will be freed of that dependency.');
+    }
+    return parts.join(' ');
+};
+
 /**
  * @param {Object} props
  * @param {boolean} props.open
@@ -73,9 +113,12 @@ const barrierOf = (epic) => epic?.checkpoint == null || Boolean(Number(epic.chec
  * @param {*} [props.defaultInitiativeFk]     the Initiative a NEW epic starts in
  * @param {function} props.onClose
  * @param {function} props.onSaved      after a successful write, before onClose
+ * @param {?Object} [props.deletion]      req #3867 — enables Delete on an existing
+ *                                 epic: `{ reqCount, dependents: [{ id, locked }] }`
+ *                                 — the epics waiting on it — from rows the caller holds
  */
 export default function EpicEditDialog({
-    open, epic, initiativeOptions, defaultInitiativeFk = '', onClose, onSaved,
+    open, epic, initiativeOptions, defaultInitiativeFk = '', onClose, onSaved, deletion = null,
 }) {
     const { idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -89,6 +132,7 @@ export default function EpicEditDialog({
     const [formBarrier, setFormBarrier] = useState(barrierOf(epic));
     const [formLocked, setFormLocked] = useState(!!epic?.locked);
     const [submitting, setSubmitting] = useState(false);
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
     const initiativeName = epic
         ? (initiativeOptions.find((o) => String(o.id) === String(epic.initiative_fk))?.title
             || (epic.initiative_fk == null ? '(none)' : `Initiative ${epic.initiative_fk}`))
@@ -109,6 +153,28 @@ export default function EpicEditDialog({
         || formRun !== runOf(epic)
         || formBarrier !== barrierOf(epic)
         || formNotBefore !== notBeforeToInputValue(epic.not_before));
+
+    const canDelete = !!(epic && deletion);
+    const deleteBlocked = canDelete ? deleteBlockedReason(epic, inheritedLock, deletion) : null;
+
+    const handleDelete = async () => {
+        setSubmitting(true);
+        let deleted = false;
+        try {
+            await deleteEpicFreeingDependents(darwinUri, idToken, epic.id,
+                (deletion.dependents || []).map((d) => d.id));
+            deleted = true;
+        } catch (err) {
+            setConfirmingDelete(false);
+            showError(err, 'Could not delete epic');
+        } finally {
+            setSubmitting(false);
+        }
+        // Re-read either way: after a failure, whatever landed (or its
+        // rollback) is the plan now.
+        await onSaved?.();
+        if (deleted) onClose();
+    };
 
     const handleSubmit = async () => {
         const title = formTitle.trim();
@@ -285,7 +351,37 @@ export default function EpicEditDialog({
                     )}
                 </Stack>
             </DialogContent>
+            {confirmingDelete && (
+                <Alert severity="warning" sx={{ mx: 3 }} data-testid="epic-delete-consequence">
+                    {deleteConsequence(epic, deletion)}
+                </Alert>
+            )}
+            {confirmingDelete ? (
+                <DialogActions>
+                    <Button onClick={() => setConfirmingDelete(false)} disabled={submitting}
+                            data-testid="epic-delete-keep">Keep epic</Button>
+                    <Button variant="contained" color="error" onClick={handleDelete}
+                            disabled={submitting} autoFocus
+                            data-testid="epic-delete-confirm">
+                        {submitting ? 'Deleting…' : 'Delete epic'}
+                    </Button>
+                </DialogActions>
+            ) : (
             <DialogActions>
+                {canDelete && (
+                    <Tooltip title={deleteBlocked || ''}>
+                        {/* A disabled button fires no events; the span carries the tooltip. */}
+                        <span style={{ marginRight: 'auto' }}>
+                            <Button color="error" onClick={() => setConfirmingDelete(true)}
+                                    disabled={submitting || !!deleteBlocked}
+                                    data-blocked={deleteBlocked ? 'yes' : 'no'}
+                                    aria-label={deleteBlocked || `Delete epic ${epic.id}`}
+                                    data-testid="epic-delete">
+                                Delete
+                            </Button>
+                        </span>
+                    </Tooltip>
+                )}
                 <Button onClick={() => onClose()} disabled={submitting}>Cancel</Button>
                 <Button variant="contained" onClick={handleSubmit}
                         disabled={submitting || !formTitle.trim()
@@ -294,6 +390,7 @@ export default function EpicEditDialog({
                     {epic ? 'Save' : 'Create'}
                 </Button>
             </DialogActions>
+            )}
         </Dialog>
     );
 }
