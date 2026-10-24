@@ -16,7 +16,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -94,6 +94,18 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 
 let mountedRoots = [];
 let queryClient;
+// Renders the router location so a test can read what the page wrote to it,
+// and keeps the REAL navigate (the module mock replaces `useNavigate` for the
+// page) so a test can change the URL from OUTSIDE the page — the same probe
+// EpicsPage.test.jsx uses for its own filter tests.
+const actualRouter = await vi.importActual('react-router-dom');
+let currentLocation = null;
+let outsideNavigate = null;
+function LocationProbe() {
+    currentLocation = useLocation();
+    outsideNavigate = actualRouter.useNavigate();
+    return null;
+}
 
 function mount(initialEntries = ['/swarm/initiatives']) {
     const container = document.createElement('div');
@@ -110,6 +122,7 @@ function mount(initialEntries = ['/swarm/initiatives']) {
                     <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
                         <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                             <InitiativesPage2 />
+                            <LocationProbe />
                         </AuthContext.Provider>
                     </AppContext.Provider>
                 </QueryClientProvider>
@@ -130,6 +143,22 @@ const type = (el, value) => act(() => {
     el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+// MUI Select renders the chosen option's text in its combobox; the "All"
+// choice is the empty value, which MUI shows as blank (the label sits there).
+const selectText = (testId) => node(testId).querySelector('[role="combobox"]')
+    .textContent.replace(/\u200b/g, '').trim();
+const pickOption = async (selectTestId, optionText) => {
+    const button = node(selectTestId).querySelector('[role="combobox"]');
+    act(() => {
+        button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    });
+    const lists = document.body.querySelectorAll('[role="listbox"]');
+    const option = [...lists[lists.length - 1].querySelectorAll('[role="option"]')]
+        .find(el => el.textContent === optionText);
+    if (!option) throw new Error(`no option "${optionText}" in ${selectTestId}`);
+    click(option);
+    await flush();
+};
 const rowIds = () => [...document.body.querySelectorAll('[data-testid^="grid-row-"]')]
     .map(el => Number(el.getAttribute('data-testid').replace('grid-row-', '')));
 
@@ -190,6 +219,75 @@ describe('InitiativesPage2 rows', () => {
     it('resolves the pipeline title for the row', () => {
         mount();
         expect(node('cell-pipeline_title-4').textContent).toBe('Plan Seven');
+    });
+});
+
+// req #3864 — the title bar's Pipeline selector, EpicsPage's contract without
+// its Initiative half.
+describe('InitiativesPage pipeline filter (req #3864)', () => {
+    beforeEach(() => {
+        initiatives.push({ id: 9, pipeline_fk: 8, title: 'Other plan work', description: null,
+            category_fk: 1, initiative_status: 'active', closed: 0, sort_order: 0,
+            create_ts: '2026-08-01 00:00:00' });
+    });
+
+    it('shows every pipeline\'s initiatives by default', () => {
+        mount();
+        expect(rowIds()).toEqual([4, 9, 5]);
+        expect(selectText('initiatives-pipeline-filter')).toBe('');
+    });
+
+    it('pre-selects the pipeline from a ?pipeline= deep link', () => {
+        mount(['/swarm/initiatives?pipeline=8']);
+        expect(rowIds()).toEqual([9]);
+        expect(selectText('initiatives-pipeline-filter')).toBe('Plan Eight');
+        expect(node('initiatives-accounting').textContent).toBe('1 of 4 initiatives');
+    });
+
+    it('ignores a deep link naming a pipeline that does not exist', () => {
+        mount(['/swarm/initiatives?pipeline=999']);
+        expect(rowIds()).toEqual([4, 9, 5]);
+        expect(selectText('initiatives-pipeline-filter')).toBe('');
+    });
+
+    it('choosing a pipeline narrows the rows and writes the URL, keeping router state', async () => {
+        mount([{ pathname: '/swarm/initiatives', state: { from: 'pipeline', pipelineId: 7 } }]);
+        await pickOption('initiatives-pipeline-filter', 'Plan Seven');
+        expect(rowIds()).toEqual([4, 5]);
+        expect(currentLocation.search).toBe('?pipeline=7');
+        expect(currentLocation.state).toEqual({ from: 'pipeline', pipelineId: 7 });
+        await pickOption('initiatives-pipeline-filter', 'All pipelines');
+        expect(rowIds()).toEqual([4, 9, 5]);
+        expect(currentLocation.search).toBe('');
+    });
+
+    it('composes with the closed filter', async () => {
+        mount(['/swarm/initiatives?pipeline=7']);
+        click(node('initiatives-closed-chip-closed'));
+        expect(rowIds()).toEqual([4, 5, 6]);
+    });
+
+    it('re-filters when a link changes the URL while the page is open', async () => {
+        mount(['/swarm/initiatives?pipeline=7']);
+        act(() => { outsideNavigate('/swarm/initiatives?pipeline=8'); });
+        await flush();
+        expect(rowIds()).toEqual([9]);
+        expect(selectText('initiatives-pipeline-filter')).toBe('Plan Eight');
+    });
+
+    it('New Initiative defaults to the chosen pipeline', async () => {
+        restGetResponses = {
+            'http://test.local/darwin/initiatives?pipeline_fk=8&fields=id,sort_order':
+                [{ id: 9, sort_order: 0 }],
+        };
+        mount(['/swarm/initiatives?pipeline=8']);
+        click(node('initiative-add'));
+        expect(selectText('initiative-pipeline-select')).toBe('Plan Eight');
+        type(node('initiative-title-input'), 'Filed under eight');
+        click(node('initiative-save'));
+        await flush();
+        const post = restCalls.find(c => c.method === 'POST');
+        expect(post.body).toMatchObject({ pipeline_fk: 8, sort_order: 1 });
     });
 });
 
