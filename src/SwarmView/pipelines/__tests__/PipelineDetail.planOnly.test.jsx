@@ -145,6 +145,21 @@ describe('PipelineDetail — Plan, Lock and Engine, never the Table (req #3641, 
         expect(node('pipeline-mode-engine').getAttribute('aria-pressed')).toBe('true');
     });
 
+    it('draws Plan | Engine as icons with no text, named by aria-label (req #3894)', () => {
+        mount('/swarm/pipeline/2');
+        for (const [value, label] of [['plan', 'Plan'], ['engine', 'Engine']]) {
+            const chip = node(`pipeline-mode-${value}`);
+            expect(chip.textContent).toBe('');
+            expect(chip.querySelector('svg')).not.toBeNull();
+            expect(chip.getAttribute('aria-label')).toBe(label);
+            // Selected or not, the chip is a named button — and the only
+            // element carrying that name (the Tooltip's span does not).
+            expect(chip.getAttribute('role')).toBe('button');
+            expect(document.querySelectorAll(`[aria-label="${label}"]`)).toHaveLength(1);
+        }
+        expect(node('pipeline-mode-plan').getAttribute('aria-pressed')).toBe('true');
+    });
+
     it.each(['/swarm/pipeline/2', '/swarm/pipeline/2?mode=engine'])(
         'puts Plan | Engine first on the header row, left of the plan name — %s (req #3875)',
         (url) => {
