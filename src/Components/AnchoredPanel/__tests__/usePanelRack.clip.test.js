@@ -41,18 +41,18 @@ describe('rackTarget clips the stack to the scrolling column (req #3751)', () =>
 
     it('a pointer below the column\'s visible bottom lands last', () => {
         // Inside panel b's upper half, but scrolled out of the column's sight.
-        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, index: 1 });
+        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, rack: 'nav', own: false, index: 1 });
     });
 
     it('a pointer above the column\'s visible top lands last', () => {
         // The stack scrolled up under the navbar header: above the column is
         // not in the stack.
         clip.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200, top: 700, bottom: 1000, height: 300 });
-        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, index: 1 });
+        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, rack: 'nav', own: false, index: 1 });
     });
 
     it('a pointer on panel b\'s visible upper half still lands above it', () => {
         clip.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200, top: 50, bottom: 1000, height: 950 });
-        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, index: 0 });
+        expect(rackTarget('a', 100, 600, false)).toEqual({ over: true, rack: 'nav', own: false, index: 0 });
     });
 });

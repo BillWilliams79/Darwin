@@ -33,6 +33,7 @@
 import { memo } from 'react';
 
 import Box from '@mui/material/Box';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 
 import AnchoredPanel from '../../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupBadge } from '../../Components/AnchoredPanel/ActionPopupHead';
@@ -118,6 +119,7 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Active" testid="pipeline-viz-active" rackId="active"
+                       rackIcon={PlayCircleOutlineIcon} rackIconLabel={`Active — ${isLoading ? 'loading' : count}\nClick to expand`}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={

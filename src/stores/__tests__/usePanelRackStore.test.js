@@ -21,9 +21,42 @@ describe('usePanelRackStore (req #3720)', () => {
         s.rack('other', 0);
         expect(usePanelRackStore.getState().racked).toEqual(['other', 'devservers']);
         const stored = JSON.parse(localStorage.getItem('darwin_panel_rack'));
-        expect(stored.state).toEqual({ racked: ['other', 'devservers'], seeded: [] });
+        expect(stored.state).toEqual({ racked: ['other', 'devservers'], pageRacked: [], seeded: [] });
         s.unrack('other');
         expect(usePanelRackStore.getState().racked).toEqual(['devservers']);
+    });
+
+    it('keeps a toolbar\'s rack beside the navbar\'s: racked in one, a panel leaves the other (req #3886)', async () => {
+        const { usePanelRackStore } = await import('../usePanelRackStore');
+        const s = usePanelRackStore.getState;
+        s().rack('a', 0);
+        s().rack('b', 0, 'page');
+        s().rack('c', 5, 'page');
+        expect([s().racked, s().pageRacked]).toEqual([['a'], ['b', 'c']]);
+        s().rack('b', 0, 'nav');
+        expect([s().racked, s().pageRacked]).toEqual([['b', 'a'], ['c']]);
+        s().rack('a', 0, 'page');
+        expect([s().racked, s().pageRacked]).toEqual([['b'], ['a', 'c']]);
+        s().unrack('c');
+        expect(s().pageRacked).toEqual(['a']);
+        // Seeded into the navbar, a panel leaves the toolbar's rack.
+        s().seed('a');
+        expect([s().racked, s().pageRacked]).toEqual([['b', 'a'], []]);
+        expect(JSON.parse(localStorage.getItem('darwin_panel_rack')).state.pageRacked).toEqual([]);
+    });
+
+    it('loads a stored toolbar order, and a malformed one as empty (req #3886)', async () => {
+        localStorage.setItem('darwin_panel_rack', JSON.stringify({
+            state: { racked: [], pageRacked: ['requirement-filer', 4] }, version: 1 }));
+        let { usePanelRackStore } = await import('../usePanelRackStore');
+        await usePanelRackStore.persist.rehydrate();
+        expect(usePanelRackStore.getState().pageRacked).toEqual(['requirement-filer']);
+        // A store from before req #3886 has none.
+        localStorage.setItem('darwin_panel_rack', JSON.stringify({ state: { racked: ['a'] }, version: 1 }));
+        vi.resetModules();
+        ({ usePanelRackStore } = await import('../usePanelRackStore'));
+        await usePanelRackStore.persist.rehydrate();
+        expect(usePanelRackStore.getState().pageRacked).toEqual([]);
     });
 
     it('loads a stored order, and a malformed one as empty', async () => {

@@ -35,6 +35,7 @@ import { useContext, useMemo } from 'react';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import DnsIcon from '@mui/icons-material/Dns';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupBadge, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
@@ -188,6 +189,7 @@ export default function DevServerDashboard() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
                        rackId={DASH_RACK_ID}
+                       rackIcon={DnsIcon} rackIconLabel={`Dev Servers — ${failed ? 'unavailable' : (isLoading ? 'loading' : count)}\nClick to expand`}
                        limits={LIMITS} fontPx={FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={
