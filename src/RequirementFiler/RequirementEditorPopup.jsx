@@ -63,6 +63,7 @@ import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
@@ -257,22 +258,13 @@ export function captureSettled(key, timeoutMs = 3000) {
     });
 }
 
-/** The debug capture's status, as its one line says it. */
-function captureStatus({ stage, savedId, orphaned, total }) {
-    return stage === 'capturing' ? 'capturing…'
-        : orphaned && stage === 'ready' ? 'not saved — the requirement\'s id could not be read back'
-        : stage === 'done' ? 'saved'
-        : stage === 'none' ? 'every category dropped — filed without one'
-        : stage === 'failed' ? 'could not be captured — this files without one'
-        : stage === 'posted' ? 'saved — its description link is not'
-        : savedId != null ? 'not saved' : formatBytes(total);
-}
-
 /** The debug capture's place on the File row (req #3815): a DEBUG CAPTURE
- *  button — it slides the categories open below (CaptureDetails) — and its size
- *  beside it (or, off the usual path, what became of it). */
-function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onExpand }) {
-    const total = useMemo(() => (capture ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
+ *  button — it slides the categories open below (CaptureDetails) — a trash can
+ *  that drops every category (req #3887), and the size of what is kept. No
+ *  status text: the size is the whole report. */
+function CaptureLine({ capture, dropped, canDropAll, onDropAll, expanded, onExpand }) {
+    // Nothing kept saves nothing, so it measures 0 — not the bundle's bare header.
+    const total = useMemo(() => (capture && !keepsNothing(capture, dropped) ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
     return (
         <Box data-testid="requirement-editor-capture"
              sx={{ ml: 'auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.45em', flexWrap: 'wrap' }}>
@@ -285,8 +277,16 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
                         '&:hover:not(:disabled)': { borderColor: BUG_COLOR }, '&:disabled': { opacity: 0.6 } }}>
                 Debug Capture
             </Box>
+            <Box component="button" type="button" onClick={onDropAll} disabled={!canDropAll}
+                 aria-label="Drop every debug capture category" title="Drop everything"
+                 data-testid="requirement-editor-capture-drop-all"
+                 sx={{ display: 'inline-flex', p: '0.1em', border: 'none', background: 'transparent', color: P.dim,
+                        cursor: canDropAll ? 'pointer' : 'default', '&:hover:not(:disabled)': { color: BUG_COLOR },
+                        '&:disabled': { opacity: 0.4 } }}>
+                <DeleteOutlineIcon sx={{ fontSize: '1.2em' }} />
+            </Box>
             <Box component="span" data-testid="requirement-editor-capture-status"
-                 sx={{ color: P.dim, fontSize: '0.9em' }}>{captureStatus({ stage, savedId, orphaned, total })}</Box>
+                 sx={{ color: P.dim, fontSize: '0.9em' }}>{capture ? formatBytes(total) : ''}</Box>
         </Box>
     );
 }
@@ -296,6 +296,13 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
 function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
     // Once a save has sent the bundle, the selection is what was sent.
     const editable = stage === 'ready' && !locked;
+    // Filed from always first, a light dashed line, then the rest biggest to
+    // smallest (req #3887). Sizes are fixed at capture time; the sort is stable.
+    const [filedFrom, rest] = useMemo(() => {
+        const cats = capture?.categories ?? [];
+        return [cats.find(c => c.key === 'filedFrom'),
+                cats.filter(c => c.key !== 'filedFrom').sort((a, b) => b.bytes - a.bytes)];
+    }, [capture]);
     return (
         <>
             {capture && (
@@ -306,7 +313,15 @@ function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, on
                         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid',
                                                   gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '0.5em',
                                                   rowGap: '0.1em', alignItems: 'baseline' }}>
-                            {capture.categories.map(({ key, bytes, note }) => {
+                            {[filedFrom, 'rule', ...rest].filter(Boolean).map((c) => {
+                                if (c === 'rule') {
+                                    return filedFrom ? (
+                                        <Box component="li" key="rule" aria-hidden="true"
+                                             data-testid="requirement-editor-capture-rule"
+                                             sx={{ gridColumn: '1 / -1', borderTop: `1px dashed ${P.line}`, opacity: 0.6, my: '0.15em' }} />
+                                    ) : null;
+                                }
+                                const { key, bytes, note } = c;
                                 const label = DEBUG_CATEGORIES.find(c => c.key === key)?.label ?? key;
                                 const kept = !dropped.includes(key);
                                 return (
@@ -370,7 +385,7 @@ export default function RequirementEditorPopup() {
     const captureStage = useRequirementFilerStore(s => s.captureStage);
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
-        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent,
+        clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
         setCreating, endCreating } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
@@ -824,7 +839,9 @@ export default function RequirementEditorPopup() {
                             ) : null}
                             {hasCapture && (
                                 <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
-                                             stage={captureStage} savedId={savedId} orphaned={orphaned}
+                                             canDropAll={captureStage === 'ready' && captureSentDropped == null
+                                                 && saving !== draftKey && !keepsNothing(capture, captureDropped)}
+                                             onDropAll={dropAllCaptureCategories}
                                              expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
                             )}
                         </Box>
