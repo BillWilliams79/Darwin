@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    DOCK_SNAP, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
+    DOCK_SNAP, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockToFit, dockedStyle, freeCorner,
     moveRect, resizeRect, validDock,
 } from '../anchoredPanelGeometry';
 
@@ -78,6 +78,30 @@ describe('dockFromResize', () => {
         it('stays on its edges even when reshaped past the middle', () => {
         expect(dockFromResize({ left: 20, top: 60, width: 1564, height: 924 }, vw, vh, dock,
             { h: 'l', v: 't' })).toEqual({ h: 'r', x: 16, v: 'b', y: 16, w: 1564, ht: 924 });
+    });
+});
+
+describe('dockToFit (req #3893)', () => {
+    const r0 = { left: 100, top: 500, width: 200, height: 150 };
+    it('takes its natural size on both axes, its docked corner held', () => {
+        // Docked top-left: grows right and down.
+        expect(dockToFit(r0, { width: 499.2, height: 300 }, vw, vh, { h: 'l', x: 100, v: 't', y: 500, ...auto }, 120, 64))
+            .toEqual({ h: 'l', x: 100, v: 't', y: 500, w: 500, ht: 300 });
+        // Docked bottom-right: grows left and up, the corner where it was.
+        const br = { left: 1200, top: 600, width: 200, height: 150 };
+        expect(dockToFit(br, { width: 500, height: 300 }, vw, vh, { h: 'r', x: 200, v: 'b', y: 250, ...auto }, 120, 64))
+            .toEqual({ h: 'r', x: 200, v: 'b', y: 250, w: 500, ht: 300 });
+    });
+    it('is capped at the viewport and moved only as far as it must to stay on it', () => {
+        expect(dockToFit(r0, { width: 1800, height: 5000 }, vw, vh, { h: 'l', x: 100, v: 't', y: 500, ...auto }, 120, 64))
+            .toEqual({ h: 'l', x: 0, v: 't', y: 0, w: vw, ht: vh });
+        expect(dockToFit(r0, { width: 300, height: 700 }, vw, vh, { h: 'l', x: 100, v: 't', y: 500, ...auto }, 120, 64))
+            .toEqual({ h: 'l', x: 100, v: 't', y: 300, w: 300, ht: 700 });
+    });
+    it('never under the minimum, so the host keeps it', () => {
+        const d = dockToFit(r0, { width: 50, height: 20 }, vw, vh, { h: 'l', x: 100, v: 't', y: 500, ...auto }, 120, 64);
+        expect([d.w, d.ht]).toEqual([120, 64]);
+        expect(validDock(d, 120, 64)).toBe(d);
     });
 });
 

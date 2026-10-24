@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import {
-    unorchestratedSwarmReady, epicAcceptsNewWork, seatTargetAt,
+    unorchestratedSwarmReady, epicAcceptsNewWork, seatTargetAt, unseatedFitSize,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
     unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM, unseatedBoxZoom, UNSEATED_MAX_EPICS_ACROSS,
@@ -382,5 +382,30 @@ describe('unseatedBoxZoom — capped at six epics across (req #3648)', () => {
 
     it('passes the zoom through when the viewport is not measured yet', () => {
         expect(unseatedBoxZoom(2, 0, pitch)).toBe(2);
+    });
+});
+
+// req #3893 — the grip double-clicked: every title on one line, the whole list.
+describe('unseatedFitSize', () => {
+    const base = { fixedW: 14, frameH: 60, widthPx: 400, fontPx: 12, maxW: 2000, maxH: 1000 };
+    it('keeps the type it was measured in when the fitted width selects it', () => {
+        // Measured at 12px, step 0: 460 wide → ws 1.15, still step 0.
+        expect(unseatedFitSize({ ...base, naturalW: 459, naturalListH: 240, drawnFontPx: 12, step: 0 }))
+            .toEqual({ ws: 1.15, hEm: 20 });
+    });
+    it('takes the size its width selects — one up, scaled to that type', () => {
+        // 600 wide at 12px is ws 1.5: one size up (15px), so 1.25× wider and taller.
+        const fit = unseatedFitSize({ ...base, naturalW: 600, naturalListH: 240, drawnFontPx: 12, step: 0 });
+        expect(fit.ws).toBeCloseTo((586 * 1.25 + 15) / 400, 2);
+        expect(fit.hEm).toBe(25);
+    });
+    it('caps the width at the room there is and the list at the height left by the frame', () => {
+        const fit = unseatedFitSize({ ...base, naturalW: 449, naturalListH: 5000, drawnFontPx: 12, step: 0,
+            maxW: 420, maxH: 500 });
+        expect(fit).toEqual({ ws: 1.05, hEm: Math.round(100 * 440 / 12) / 100 });
+    });
+    it('never shorter than the list floor', () => {
+        expect(unseatedFitSize({ ...base, naturalW: 449, naturalListH: 10, drawnFontPx: 12, step: 0 }).hEm)
+            .toBe(4.5);
     });
 });

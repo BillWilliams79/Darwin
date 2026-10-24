@@ -921,7 +921,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerup', 2000, 200); });
     });
 
-    it('is remembered, keeps tracking the zoom, and double-click on the grip restores it', () => {
+    it('is remembered and keeps tracking the zoom', () => {
         window.localStorage.setItem('darwin-plan-unseated-box-size',
             JSON.stringify({ ws: 1.5, hEm: 10 }));
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
@@ -935,12 +935,47 @@ describe('UnorchestratedReqBox', () => {
         expect(box.style.width).toBe('1200px');
         expect(box.style.fontSize).toBe('20px');
         expect(q('pipeline-viz-unseated-list').style.height).toBe('160px');
+    });
+
+    // req #3893 — the grip (or any corner) double-clicked: every title on one
+    // line, the whole list, in the size that width selects.
+    it('double-click on the grip or a corner fits it to its content', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size',
+            JSON.stringify({ ws: 1.5, hEm: 10 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={16} widthPx={800} />));
+        const box = q('pipeline-viz-unseated');
+        const list = q('pipeline-viz-unseated-list');
+        // The measuring render: one-line titles, no width or list cap.
+        let measured = null;
+        const pane = { clientWidth: 2000, clientHeight: 1000 };
+        Object.defineProperty(box, 'offsetParent', { get: () => pane });
+        Object.defineProperty(box, 'offsetTop', { get: () => 8 });
+        Object.defineProperty(box, 'offsetWidth', { get: () => 1004 });
+        Object.defineProperty(box, 'clientWidth', { get: () => 1000 });
+        box.getBoundingClientRect = () => {
+            measured = { width: box.style.width, maxWidth: box.style.maxWidth, listH: list.style.height,
+                title: q('pipeline-viz-unseated-item-title-11').style.whiteSpace
+                    || getComputedStyle(q('pipeline-viz-unseated-item-title-11')).whiteSpace };
+            return { left: 0, top: 8, width: 1000, height: 300 };
+        };
+        Object.defineProperty(list, 'scrollHeight', { get: () => 200 });
         act(() => { q('pipeline-viz-unseated-grip').dispatchEvent(
             new MouseEvent('dblclick', { bubbles: true })); });
-        expect(box.getAttribute('data-stretched')).toBe('0');
-        expect(box.style.width).toBe('800px');
-        expect(box.style.fontSize).toBe('16px');
-        expect(window.localStorage.getItem('darwin-plan-unseated-box-size')).toBeNull();
+        expect(measured).toMatchObject({ width: 'max-content', maxWidth: 'none', listH: 'auto', title: 'nowrap' });
+        // Measured at 20px (one size up): 1000px wide plus a px of slack, the
+        // ratio rounded UP (1.25125 → 1.26) so the widest title never wraps;
+        // 200px of list — the same size at 20px.
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-size')))
+            .toEqual({ ws: 1.26, hEm: 12.5 });
+        expect(box.style.width).toBe('1008px');
+        expect(box.style.fontSize).toBe('20px');
+        expect(list.style.height).toBe('200px');
+        // Any corner does the same.
+        window.localStorage.removeItem('darwin-plan-unseated-box-size');
+        act(() => { q('pipeline-viz-unseated-edge-se').dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true })); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-size')))
+            .toEqual({ ws: 1.26, hEm: 12.5 });
     });
 
     it('remembered from the left, it grows rightward from a bottom-right grip', () => {

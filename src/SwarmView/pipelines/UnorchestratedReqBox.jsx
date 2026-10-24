@@ -107,8 +107,11 @@
 // it grows leftward off the right edge it stays flush with; bottom-right when
 // remembered from the left. The stretch is held relative to the zoom size, so
 // a stretched box still scales with the zoom; it is remembered per browser
-// like the spot, written once on release, and double-clicking the grip puts
-// the box back to its zoom size. The grip has its own strip under the list so
+// like the spot, written once on release. Double-clicking the grip — or any
+// corner — FITS the box to its content (req #3893, as every Action Popup
+// does; it used to put the box back to its zoom size): every title on one
+// line and the whole list, capped at the room there is, in whichever of the
+// three sizes that width selects (`unseatedFitSize`). The grip has its own strip under the list so
 // it never covers a row, and is hidden while folded, carried or moved.
 //
 // ── …AND FROM EVERY EDGE AND CORNER, LIKE EVERY ACTION POPUP (req #3833) ──
@@ -203,7 +206,7 @@ import ActionPopupHead, {
 } from '../../Components/AnchoredPanel/ActionPopupHead';
 import {
     ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_EDGE_PX, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_EM,
-    ACTION_POPUP_MONO, actionPopupReshapeZone,
+    ACTION_POPUP_MONO, actionPopupDockCue, actionPopupReshapeZone,
 } from '../../Components/AnchoredPanel/actionPopupChrome';
 import { RESIZE_EDGES } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
@@ -211,7 +214,7 @@ import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePane
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_DRAG_TYPE, UNSEATED_MIN_LIST_EM, pointInRect, unseatedDragId,
-    unseatedMinStretchPx, unseatedResizedBox,
+    unseatedFitSize, unseatedMinStretchPx, unseatedResizedBox,
 } from './pipelineUnseated';
 import {
     useDarwinDraggable, LIFT_DELAY_MS, LIFT_VIBRATE_MS, MOUSE_ACTIVATION_PX,
@@ -749,12 +752,38 @@ export default function UnorchestratedReqBox({
         onPointerCancel: onStretchUp,
         onLostPointerCapture: onStretchUp,
     });
+    // Fitted to its content (req #3893): one measuring render — titles on one
+    // line, no width or list cap — then the stretch that shows it all.
+    const [fitting, setFitting] = useState(false);
     const onGripDoubleClick = (e) => {
         e.stopPropagation();
+        if (!open || inRack) return;
         if (Date.now() - lastResizeEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
-        setSize(null);
-        writeSize(null);
+        setFitting(true);
     };
+    useLayoutEffect(() => {
+        if (!fitting) return;
+        setFitting(false);
+        const box = boxRef.current;
+        const list = listRef.current;
+        const cb = box && layoutIn(box, !!pos);
+        if (!cb || !list) return;
+        const hs = heights(box);
+        const next = unseatedFitSize({
+            naturalW: box.getBoundingClientRect().width,
+            fixedW: box.offsetWidth - box.clientWidth + ACTION_POPUP_EDGE_PX,
+            naturalListH: list.scrollHeight + list.offsetHeight - list.clientHeight,
+            frameH: hs.frame, drawnFontPx: drawn.fontPx, step: drawn.step, widthPx, fontPx,
+            maxW: cb.w - 2 * CORNER_INSET,
+            // Placed, the whole window (a box that no longer fits is lifted);
+            // at home, the pane below its corner.
+            maxH: cb.h - CORNER_INSET - ROUNDING_SLACK_PX - (pos ? CORNER_INSET : cb.top),
+        });
+        setSize(next);
+        writeSize(next);
+        // `heights` and the zoom size are read as they are now.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fitting]);
     const onBarDoubleClick = (e) => {
         // Racked, it has no home to go to: it is dragged out instead.
         if (inRack) return;
@@ -857,6 +886,7 @@ export default function UnorchestratedReqBox({
              data-rack-id={ORCHESTRABLES_RACK_ID}
              data-racked={inRack ? '1' : '0'}
              data-rack-open={inRack && open ? '1' : '0'}
+             data-dock-cue={overRack && moving ? '1' : '0'}
              data-carrying={carrying ? '1' : '0'}
              data-lifted={barLifted ? '1' : '0'}
              data-text-step={drawn.step}
@@ -868,7 +898,8 @@ export default function UnorchestratedReqBox({
              // through `sx` makes Emotion mint (and never free) a new rule —
              // the badge layer's own "geometry in style" rule.
              data-open={open ? '1' : '0'}
-             style={{ fontSize: `${typePx}px`, width: boxW, ...placement }}
+             style={{ fontSize: `${typePx}px`, width: boxW, ...placement,
+                      ...(fitting && { width: 'max-content', maxWidth: 'none' }) }}
              sx={{ position: 'absolute',
                     maxWidth: inRack ? 'none' : `calc(100% - ${2 * CORNER_INSET}px)`,
                     // Beats max-height: the title bar is always whole.
@@ -900,6 +931,8 @@ export default function UnorchestratedReqBox({
                     // epic beneath can be read; over the navbar, the drop
                     // zone shows through, as it does for every rackable window.
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
+                    // Over a rack, a release docks it: it says so (req #3893).
+                    ...(overRack && moving && actionPopupDockCue(OUTLINE)),
                     // Only while folding — see the header.
                     transition: folding && !inRack ? `width ${foldMs}ms ease` : 'none',
                     // In the stack: square, flat. The rack's row sizes it: open,
@@ -969,6 +1002,7 @@ export default function UnorchestratedReqBox({
                  style={{
                      ...(drawn.listHeightPx != null && !racking
                          && { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }),
+                     ...(fitting && { height: 'auto', maxHeight: 'none' }),
                      // Mid-fold only — see `foldListW`.
                      ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
@@ -1002,7 +1036,7 @@ export default function UnorchestratedReqBox({
                                      // the swarm-ready colour.
                                      idStyle={idStyleOf
                                          ? idStyleOf(id) : { fill: statusColor, bold: true }}
-                                     narrow={narrow}
+                                     narrow={narrow} oneLine={fitting}
                                      onOpen={onOpen} />
                     );
                 })}
@@ -1017,7 +1051,7 @@ export default function UnorchestratedReqBox({
                 {gripShown && (
                 <Box data-testid="pipeline-viz-unseated-grip"
                      data-corner={anchoredRight ? 'bottom-left' : 'bottom-right'}
-                     title="Drag to resize · double-click for the default size"
+                     title="Drag to resize · double-click to fit its content"
                      {...stretch({ h: anchoredRight ? 'l' : 'r', v: 'b' })}
                      onDoubleClick={onGripDoubleClick}
                      // Over its corner's reshape zone, so its double-click is its own.
@@ -1041,8 +1075,9 @@ export default function UnorchestratedReqBox({
                 (req #3833 — AnchoredPanel's zones, req #3743). */}
             {stretchEdges.map((ed) => (
                 <Box key={ed.id} data-testid={`pipeline-viz-unseated-edge-${ed.id}`}
-                     title="Drag to reshape"
+                     title={ed.h && ed.v ? 'Drag to reshape · double-click to fit its content' : 'Drag to reshape'}
                      {...stretch({ h: ed.h, v: ed.v })}
+                     {...(ed.h && ed.v && { onDoubleClick: onGripDoubleClick })}
                      // The title bar's height in em: one rule, whatever the zoom.
                      sx={actionPopupReshapeZone(ed, HEADER_H, OUTLINE)} />
             ))}
@@ -1056,7 +1091,7 @@ export default function UnorchestratedReqBox({
  * face and colour are set here rather than inherited from the box, so the
  * DragOverlay's copy (mounted outside the box) reads exactly like the row.
  */
-function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
+function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, oneLine = false, onOpen }) {
     const { ref, style, attributes, listeners, isDragging } = useDarwinDraggable({
         id: unseatedDragId(id), type: UNSEATED_DRAG_TYPE, row,
         // req #3817 — un-orchestrated a moment ago, its seat not yet deleted.
@@ -1116,7 +1151,9 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
                  // unbroken run breaks rather than overflowing the clamp.
                  sx={{ flex: 1, minWidth: 0, overflow: 'hidden', color: idStyle.fill,
                         display: '-webkit-box', WebkitBoxOrient: 'vertical',
-                        WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
+                        WebkitLineClamp: 2, overflowWrap: 'anywhere',
+                        // Measuring a fit (req #3893): its one-line width.
+                        ...(oneLine && { display: 'block', whiteSpace: 'nowrap' }) }}>
                 {row.title}
             </Box>
             )}
