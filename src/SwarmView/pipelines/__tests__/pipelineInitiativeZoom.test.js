@@ -24,6 +24,7 @@ import {
     initiativeCycleKey, initiativeZoomStateKey, initiativeWorkEpicIds, nextInitiativeZoom,
     initiativeZoomHint, initiativeZoomHintSuffix, initiativeSeatedHint, gestureMovedCamera,
     INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_EPIC,
+    planTitleZoomStateKey,
 } from '../pipelineInitiativeZoom';
 import { INITIATIVE_ZOOM_READS, INITIATIVE_ZOOM_PIPELINE, INITIATIVE_ZOOM_NOW } from './initiativeZoomFixture';
 
@@ -319,5 +320,28 @@ describe('initiativeSeatedHint — the count is requirements SEATED, not by feat
 
     it('says nothing when there is no count to explain', () => {
         expect(initiativeSeatedHint(false)).toBe('');
+    });
+});
+
+// ── req #3853 — the plan title's cycle key ──────────────────────────────────
+
+describe('planTitleZoomStateKey (req #3853)', () => {
+    it('is per plan and never collides with an initiative key', () => {
+        expect(planTitleZoomStateKey(7)).toBe('plan:7');
+        expect(planTitleZoomStateKey(7)).not.toBe(planTitleZoomStateKey(8));
+        expect(planTitleZoomStateKey(null)).toBe('plan:none');
+        expect(planTitleZoomStateKey(7)).not.toBe(initiativeZoomStateKey(7, { key: 'plan' }));
+        expect(planTitleZoomStateKey(7)).not.toBe(initiativeZoomStateKey(7, null));
+    });
+
+    it('rides the initiative cycle: work, then the whole plan, then work', () => {
+        const key = planTitleZoomStateKey(7);
+        const first = nextInitiativeZoom(null, key, true);
+        expect(first).toBe(INITIATIVE_ZOOM_EPIC);
+        const second = nextInitiativeZoom({ key, level: first }, key, true);
+        expect(second).toBe(INITIATIVE_ZOOM_BAND);
+        // An initiative's state never advances the title's cycle.
+        expect(nextInitiativeZoom({ key: initiativeZoomStateKey(7, { key: 3 }), level: first },
+            key, true)).toBe(INITIATIVE_ZOOM_EPIC);
     });
 });

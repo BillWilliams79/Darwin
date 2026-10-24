@@ -142,7 +142,7 @@ import {
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     clusterNextMarks, NEXT_MARK_COUNT_FONT_PX,
     planLevelFor, drawsLabelKind, epicsAcrossScale, zoomAboutViewportCentre,
-    epicsAcrossTransform,
+    epicsAcrossTransform, activeEpicIds, epicsFocusTransform,
     snapZoomScale, zoomAboutPoint,
     // req #3498 — the epic is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
@@ -169,7 +169,7 @@ import {
 } from './pipelinePlanLayout';
 import {
     initiativeCycleKey, initiativeZoomStateKey, initiativeWorkEpicIds, nextInitiativeZoom,
-    initiativeZoomHintSuffix, gestureMovedCamera,
+    initiativeZoomHintSuffix, gestureMovedCamera, planTitleZoomStateKey,
     INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_EPIC,
 } from './pipelineInitiativeZoom';
 // req #3428 — the initiative chip's second destination. The URL contract lives with
@@ -533,6 +533,10 @@ export default function PipelinePlanVisualizer({
     // handshake as `resetViewNonce`: the control lives on the page, the camera
     // lives here, and the nonce is what makes a repeated click fire again.
     epicsAcross = null,
+    // req #3853 — `{deep, nonce}` from the plan title in the header: zoom to
+    // the plan's active epics, or (the next click) the whole plan. The same
+    // nonce handshake as `epicsAcross`.
+    titleZoom = null,
     // req #3498 — when true the WHEEL walks the epics-across ladder instead of
     // scaling continuously. Read through a ref by the zoom filter below, so
     // toggling it never rebuilds the zoom behaviour (which would drop the
@@ -3167,6 +3171,40 @@ export default function PipelinePlanVisualizer({
         }
         if (moved) initiativeZoomRef.current = { key, level };
     }, [initiativeWorkByInitiative, focusInitiativeWork, focusInitiative, pipeline?.id, toggleInitiativeFold, layout]);
+
+    // ── THE PLAN TITLE'S ZOOM (req #3853) ───────────────────────────────────
+    // The initiative name's cycle one level up: the first activation frames the
+    // plan's ACTIVE epics (`activeEpicIds` — the epics-across buttons' answer),
+    // the next the whole plan (Reset's view, animated). It keeps its level in
+    // `initiativeZoomRef` under `planTitleZoomStateKey`, so every camera move
+    // that ends an initiative's cycle ends this one too. `deep` (the title's
+    // double click) goes straight to the work. The work move is attempted and
+    // the whole plan is the floor, exactly as an initiative falls to its band.
+    const activatePlanTitle = useCallback(({ deep = false } = {}) => {
+        const key = planTitleZoomStateKey(pipeline?.id);
+        const ids = activeEpicIds(rows, layout);
+        const next = deep && ids.length > 0
+            ? INITIATIVE_ZOOM_EPIC
+            : nextInitiativeZoom(initiativeZoomRef.current, key, ids.length > 0);
+        let level = next;
+        let moved = next === INITIATIVE_ZOOM_EPIC
+            && applyFocus(epicsFocusTransform(layout, ids, size, kDefault, kZoomFloor));
+        if (!moved) {
+            level = INITIATIVE_ZOOM_BAND;
+            moved = applyFocus({ x: 0, y: yFactoryDefault, k: kFactoryDefault });
+        }
+        if (moved) initiativeZoomRef.current = { key, level };
+    }, [pipeline?.id, rows, layout, size, kDefault, kZoomFloor, applyFocus,
+        yFactoryDefault, kFactoryDefault]);
+    // Keyed on the NONCE alone, read through a ref — `epicsAcross`'s reason: the
+    // layout and size change on every resize and toggle, and must not re-fire a
+    // zoom the reader asked for once. 0 is the initial render, never fired at.
+    const activatePlanTitleRef = useRef(activatePlanTitle);
+    activatePlanTitleRef.current = activatePlanTitle;
+    useEffect(() => {
+        if (!titleZoom?.nonce) return;
+        activatePlanTitleRef.current({ deep: !!titleZoom.deep });
+    }, [titleZoom?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
     // Three edits, straight from the canvas: an initiative's NAME, an epic's NAME, and
