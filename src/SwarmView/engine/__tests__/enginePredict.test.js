@@ -43,7 +43,7 @@ describe('predictRecord — decide() on every cycle of the corpus, as a first cy
             for (const e of p.expect.epics) codes.add(e.code);
             for (const q of p.expect.queue) codes.add(q.code);
         }
-        for (const code of ['ENGINE_HOLD', 'PAUSED', 'SERIAL_TURN', 'BARRIER', 'NOT_BEFORE',
+        for (const code of ['ENGINE_HOLD', 'PAUSED', 'BARRIER', 'NOT_BEFORE',
             'NO_WORK', 'MANUAL', 'MACHINE_PIN', 'DEP_PRIORITY', 'CAPACITY', 'ADMITTED']) {
             expect(codes, code).toContain(code);
         }
@@ -81,18 +81,16 @@ describe('the pieces', () => {
     });
 
     it('takes the first epic-level code in precedence order', () => {
-        const row = { suppressed_by: ['initiative', 'turn'], checkpoint_blocked_by: [7],
+        const row = { suppressed_by: ['initiative'], checkpoint_blocked_by: [7],
             launch_req_ids: [1], launch_candidate: true, run: 'manual' };
-        expect(epicHold(row, {}, null)).toEqual(['PAUSED', { by: ['initiative'] }]);
-        expect(epicHold({ ...row, suppressed_by: ['turn'] }, { live_initiative_id: 4 }, null))
-            .toEqual(['SERIAL_TURN', { live_initiative_id: 4 }]);
-        expect(epicHold({ ...row, suppressed_by: [] }, {}, null))
+        expect(epicHold(row, null)).toEqual(['PAUSED', { by: ['initiative'] }]);
+        expect(epicHold({ ...row, suppressed_by: [] }, null))
             .toEqual(['BARRIER', { barrier_epic_ids: [7] }]);
-        expect(epicHold({ ...row, suppressed_by: [], checkpoint_blocked_by: [] }, {}, null))
+        expect(epicHold({ ...row, suppressed_by: [], checkpoint_blocked_by: [] }, null))
             .toEqual(['MANUAL', { requirement_ids: [1] }]);
-        expect(epicHold({ launch_req_ids: [], no_launch_reason: 'none ready' }, {}, null))
+        expect(epicHold({ launch_req_ids: [], no_launch_reason: 'none ready' }, null))
             .toEqual(['NO_WORK', { reason: 'none ready' }]);
-        expect(epicHold({ launch_req_ids: [1], launch_candidate: true, run: 'auto' }, {}, null))
+        expect(epicHold({ launch_req_ids: [1], launch_candidate: true, run: 'auto' }, null))
             .toEqual([null, null]);
     });
 
