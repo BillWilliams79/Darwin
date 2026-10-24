@@ -5422,15 +5422,17 @@ export const INITIATIVE_CHIP_BG_ALPHA = 0.6;
 // occupy a respectable amount of width as it is an initiative … when collapsed it's
 // just a floating title bar so it gives way to the other highlighted initiatives."
 // The band draws no rectangle once folded (the renderer's call), so the chip is
-// all of the initiative that remains — and a chip only as wide as its name reads as a
-// label, not as an initiative. A folded chip therefore widens to this many SCREEN px:
-// flat, like the chip's other reservations, because a title bar is chrome the
-// reader reads at any zoom. It never NARROWS a chip (a longer name keeps its own
-// width) and it never takes room the name did not have — the band's right edge,
-// the panel edge and the key still bound it, and only the NAME decides whether
-// the chip is clipped. It morphs with the fold: an initiative half-way through its
-// animation is half-way between bar and chip.
-export const INITIATIVE_BAR_W = 420;
+// all of the initiative that remains, drawn as a title bar: tinted in the
+// initiative's colour and lifted by a shadow, in proportion to how folded it is
+// (`bar`, the renderer's).
+//
+// A FOLDED CHIP KEEPS ITS OPEN WIDTH (req #3862). It used to widen to a flat
+// 420px bar, so folding an initiative ELONGATED the very element the reader had
+// just asked to shrink. User direction: "the closed epic elongates when it
+// should stay the same or become smaller if we're hiding buttons. give it
+// respectful white space but apprpriately shrink." Folding hides none of the
+// chip's controls, so it stays exactly the size it was — its padding is the
+// white space — and the fold changes only its styling.
 
 /**
  * Where every initiative band's name is drawn, in SCREEN px.
@@ -5791,13 +5793,9 @@ export function placeInitiativeChips({
             w = room;
             clipped = true;
         }
-        // req #3695 — THE TITLE BAR, widened by `folded` (computed above).
-        let bar = 0;
-        if (!clipped && folded > 0) {
-            bar = folded;
-            const wBar = wFull + folded * Math.max(0, INITIATIVE_BAR_W - wFull);
-            w = Math.max(wFull, Math.min(wBar, limit - x));
-        }
+        // req #3695 — THE TITLE BAR's styling fraction (`folded`, computed
+        // above). It never widens the chip (req #3862): `w` is the name's.
+        const bar = !clipped && folded > 0 ? folded : 0;
 
         // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
         // wholly outside the content area for the final margin's worth of the
@@ -5834,8 +5832,8 @@ export function placeInitiativeChips({
             // an estimate a hair short would truncate every name on the plan.
             clipped,
             // req #3695 — how much of a TITLE BAR this chip is (0..1): the
-            // band's folded fraction. Above 0, `w` is the bar's width — never
-            // less than the name's — and the renderer draws the box at it.
+            // band's folded fraction. Styling only — the tint and the lift;
+            // a folded chip is as wide as an open one (req #3862).
             bar,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.
