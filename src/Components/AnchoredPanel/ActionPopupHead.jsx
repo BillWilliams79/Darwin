@@ -14,7 +14,12 @@
 // wider than its circle — two digits, a wide glyph — pushes its title on.
 // The one exception is the Requirement Filer (`badgeSlot={false}`, user ruling
 // 2026-10-23, req #3830): it never counts anything, so its title sits against
-// the ▾ and its + follows the title — `▸ REQUIREMENT + ×` folded.
+// the ▾ and its + follows the title — `▸ REQUIREMENT +` folded.
+//
+// FOLDED, THERE IS NO × (req #3893: "when any info popup is collapsed, the
+// close button is hidden"). The row tells its actions whether it is open
+// (ActionPopupOpenContext), and ActionPopupClose draws nothing while folded —
+// in every popup, whatever else its host puts beside it.
 //
 // THE ▾ IS DRAWN 1.5× THE TITLE'S TYPE (req #3830: "try making the collapse
 // triangle 50% bigger"), in every popup alike, so the family still lines up.
@@ -25,7 +30,7 @@
 // It owns no gesture: the host spreads its move handlers, testid and tooltip
 // onto the row (`...rowProps`) and takes the row's element by `ref`.
 
-import { forwardRef } from 'react';
+import { createContext, forwardRef, useContext } from 'react';
 
 import Box from '@mui/material/Box';
 
@@ -65,8 +70,13 @@ export function ActionPopupBadge({ children, testid, fill = P.badgeFill, text = 
     );
 }
 
-/** The Action Popups' × — upper right, where the window can be closed (req #3741). */
+/** Whether the head row drawing an action is open; null outside one. */
+const ActionPopupOpenContext = createContext(null);
+
+/** The Action Popups' × — upper right, where the window can be closed (req
+ *  #3741). Not drawn while its popup is folded (req #3893). */
 export function ActionPopupClose({ onClick, label, testid }) {
+    if (useContext(ActionPopupOpenContext) === false) return null;
     return (
         <Box component="button" type="button" onClick={onClick}
              aria-label={label} title={label} data-testid={testid}
@@ -161,7 +171,9 @@ const ActionPopupHead = forwardRef(function ActionPopupHead({
             {/* Open: far right. Folded: right after the title. */}
             {!narrow && actions != null && (
                 <Box sx={{ ml: open ? 'auto' : 0, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    {actions}
+                    <ActionPopupOpenContext.Provider value={!!open}>
+                        {actions}
+                    </ActionPopupOpenContext.Provider>
                 </Box>
             )}
         </Box>

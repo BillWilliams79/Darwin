@@ -211,10 +211,13 @@ describe('Requirement Filer (req #3811)', () => {
         };
         fireEvent.click(plusThenClose());
         expect(screen.getByTestId('requirement-editor')).toBeTruthy();
-        // Folded: ▸ REQUIREMENT + ×.
+        // Folded: ▸ REQUIREMENT + — no × (req #3893).
         act(() => useRequirementFilerStore.setState({ editorShow: false }));
         fireEvent.click(screen.getByTestId('requirement-filer-toggle'));
-        fireEvent.click(plusThenClose());
+        expect(screen.queryByTestId('requirement-filer-close')).toBe(null);
+        const add = screen.getByTestId('requirement-filer-add');
+        expect(header().children[2].contains(add)).toBe(true);
+        fireEvent.click(add);
         expect(screen.getByTestId('requirement-editor')).toBeTruthy();
         expect(document.activeElement).toBe(screen.getByTestId('requirement-editor-field-title'));
         // The filer stays folded.

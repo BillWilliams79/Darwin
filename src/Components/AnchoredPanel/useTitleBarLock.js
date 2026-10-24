@@ -13,7 +13,8 @@
 // popup's frame colour while the pointer is over it, the rack's look
 // (rackGlow) — and `release(x, y, rect)` on the release: the lock to take, or
 // null when it was not dropped on a bar with room for it. `cancel()` ends the
-// glow.
+// glow. `over` is true while the bar glows, so the popup itself can say it
+// would lock if let go (req #3893).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -107,12 +108,14 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
 
     // The drop glow: on the bar under the pointer, off everywhere else.
     const glowRef = useRef(null);
+    const [over, setOver] = useState(false);
     const unglow = () => {
         const g = glowRef.current;
         if (!g) return;
         g.el.style.boxShadow = g.prev;
         g.el.removeAttribute('data-title-bar-over');
         glowRef.current = null;
+        setOver(false);
     };
     useEffect(() => unglow, []);
     const track = (x, y, color) => {
@@ -125,6 +128,7 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
         glowRef.current = { el, prev: el.style.boxShadow };
         el.style.boxShadow = rackGlow(color);
         el.setAttribute('data-title-bar-over', '1');
+        setOver(true);
     };
     const release = (x, y, rect) => {
         unglow();
@@ -139,5 +143,5 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
         return fits ? lockFromDrop(fits, bar.rect) : null;
     };
 
-    return { place: held ? place : null, track, release, cancel: unglow };
+    return { place: held ? place : null, over, track, release, cancel: unglow };
 }

@@ -75,16 +75,25 @@
 // tooltip, a click runs `onRackIcon` (the Requirement Filer's + files a new
 // requirement) or else unfolds the bar (`slot.expand`), and dragging it moves
 // the panel as its head does. A host without one keeps its head row there.
+//
+// ── POLISH (req #3893) ─────────────────────────────────────────────────────
+// Double-click a reshape CORNER — the 2-D thumb — and the panel FITS ITS
+// CONTENT: one measuring render with every cap lifted (the host is told it is
+// content-sized, so a small view gives its titles back), then it docks at that
+// natural size, capped at the viewport, its docked corner held (`dockToFit`).
+// While a drag would dock it on release — over a rack, or the title bar — the
+// panel shimmers in its frame colour (`actionPopupDockCue`), so the reader
+// knows to let go.
 
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 
 import ActionPopupHead from './ActionPopupHead';
-import { ACTION_POPUP_EDGE_PX, actionPopupReshapeZone } from './actionPopupChrome';
+import { ACTION_POPUP_EDGE_PX, actionPopupDockCue, actionPopupReshapeZone } from './actionPopupChrome';
 import {
-    RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
-    moveRect, resizeRect,
+    RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockToFit, dockedStyle,
+    freeCorner, moveRect, resizeRect,
 } from './anchoredPanelGeometry';
 import { rackOrder } from './panelRack';
 import { rackPortal, slotOffset, usePanelRack } from './usePanelRack';
@@ -120,7 +129,9 @@ const viewport = () => ({
  *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
  *   is the reader's width (live while reshaping), null when content-sized
- * @param {{minW, minH, autoMaxW, headPx}} props.limits
+ * @param {{minW, minH, autoMaxW, headPx, fitMinW}} props.limits  `fitMinW`:
+ *   the narrowest a corner double-click's fit may be — the width below which
+ *   the host drops to a smaller layout than the one it measured (req #3893)
  * @param {number} [props.fontPx]        everything inside is in em off it
  * @param {number} [props.border]        the frame's width, px
  * @param {{frame, background, line, head, headHover, text}} props.colors
@@ -154,6 +165,9 @@ export default function AnchoredPanel({
     const gestureRef = useRef(null);
     const [live, setLive] = useState(null);
     const lastMoveEndRef = useRef(0);
+    // A fit to content (req #3893) in progress: the rect it was drawn at, for
+    // the one measuring render with every cap lifted. Null otherwise.
+    const [fitFrom, setFitFrom] = useState(null);
     // Its place in the rack's stack (-1 = not racked), and whether it is drawn
     // there: racked, a navbar to hold it, the navbar not covered.
     const rackApi = usePanelRack(rackId);
@@ -233,7 +247,9 @@ export default function AnchoredPanel({
         const { x, y } = at(g, e);
         const dx = x - g.sx;
         const dy = y - g.sy;
-        if (!g.last && g.kind === 'move' && Math.hypot(dx, dy) <= MOVE_SLOP) return;
+        // A reshape gets the slop too: a double-click on a corner that drifts a
+        // pixel is a fit (req #3893), not a 1 px reshape that swallows it.
+        if (!g.last && Math.hypot(dx, dy) <= MOVE_SLOP) return;
         const { vw, vh } = viewport();
         g.last = g.kind === 'move'
             ? moveRect(g.r0, dx, dy, vw, vh)
@@ -337,6 +353,28 @@ export default function AnchoredPanel({
     useLayoutEffect(() => {
         if (bodyRef.current && scrollRef.current) bodyRef.current.scrollTop = scrollRef.current;
     }, [lifted, inRack, slot?.node]);
+    // A double-click on a reshape corner — the 2-D thumb — fits the panel to
+    // its content (req #3893): measured in the render below, docked here.
+    const onCornerDoubleClick = (e) => {
+        e.stopPropagation();
+        if (!open || inRack || inTitleBar) return;
+        if (Date.now() - lastMoveEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
+        const r = boxRef.current?.getBoundingClientRect();
+        if (r) setFitFrom({ left: r.left, top: r.top, width: r.width, height: r.height });
+    };
+    useLayoutEffect(() => {
+        const from = fitFrom;
+        if (!from) return;
+        setFitFrom(null);
+        const box = boxRef.current;
+        if (!box) return;
+        const r = box.getBoundingClientRect();
+        const { vw, vh } = viewport();
+        // Never narrower than the host's own full layout (`fitMinW`): a fit
+        // ends in the layout it was measured in.
+        onDockChange(dockToFit(from, { width: r.width, height: r.height }, vw, vh, dock,
+            Math.max(limits.minW, limits.fitMinW ?? 0), limits.minH));
+    }, [fitFrom]);
     const onHeadDoubleClick = (e) => {
         // Racked or locked in the title bar, it has no home to go to: it is
         // dragged out instead.
@@ -354,7 +392,12 @@ export default function AnchoredPanel({
     // Dragged within a rack in another document, it is still drawn there: in
     // that document's px.
     const drawnOff = live && inRack && !live.lifted ? slotOffset(slot) : NO_OFFSET;
-    const placement = live
+    // Measuring a fit: its content's own size, no cap on either axis — never
+    // painted (the layout effect above re-docks it first).
+    const placement = fitFrom
+        ? { left: `${fitFrom.left}px`, top: `${fitFrom.top}px`, width: 'max-content', maxWidth: 'none',
+            maxHeight: 'none' }
+        : live
         ? { left: `${live.left - drawnOff.left}px`, top: `${live.top - drawnOff.top}px`,
             ...((reshapingH || dock.w != null || !live.edge)
                 ? { width: `${live.width}px` } : { width: 'max-content', maxWidth: `${limits.autoMaxW}px` }),
@@ -366,10 +409,14 @@ export default function AnchoredPanel({
                 maxHeight: `max(${limits.headPx}px, calc(100% - ${titlePlace.top}px))` }
             : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
                 minW: limits.minW });
-    const shapedWidth = reshapingH ? live.width : (inRack ? slot.width : inTitleBar ? null : dock.w);
+    const shapedWidth = fitFrom ? null
+        : (reshapingH ? live.width : (inRack ? slot.width : inTitleBar ? null : dock.w));
     // The icon-only navbar (`narrow`) has room for the ▾ and the host's extras alone.
     const grip = freeCorner(dock);
     const moving = live && !live.edge;
+    // Dragged where a release would dock it — a rack, the title bar — it says
+    // so (req #3893).
+    const dockCue = moving && (overRack || titleBar.over);
     // Folded, the panel is its head row, tight: nothing to reshape. Racked,
     // the navbar sets its width and its rows its height.
     const edges = open && !inRack && !inTitleBar ? RESIZE_EDGES : [];
@@ -377,6 +424,7 @@ export default function AnchoredPanel({
     const panel = !asIcon && (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
+             data-dock-cue={dockCue ? '1' : '0'}
              {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
                  'data-rack-open': inRack && open ? '1' : '0' } : {})}
              {...(onTitleLockChange ? { 'data-title-locked': inTitleBar ? '1' : '0' } : {})}
@@ -390,6 +438,7 @@ export default function AnchoredPanel({
                     overflow: 'hidden', boxSizing: 'border-box', ...sx,
                     // Over the navbar, see the drop zone through it.
                     ...(overRack && { opacity: 0.75 }),
+                    ...(dockCue && actionPopupDockCue(colors.frame)),
                     // In the stack: square, flat. The rack's row sizes it: open,
                     // the height its rows need and no more (req #3747), giving
                     // way fairly when the rack is short — its body scrolls.
@@ -441,8 +490,9 @@ export default function AnchoredPanel({
             )}
             {edges.map(e => (
                 <Box key={e.id} data-testid={`${testid}-edge-${e.id}`}
-                     title="Drag to reshape"
+                     title={e.h && e.v ? 'Drag to reshape · double-click to fit its content' : 'Drag to reshape'}
                      {...gesture('resize', { h: e.h, v: e.v })}
+                     {...(e.h && e.v && { onDoubleClick: onCornerDoubleClick })}
                      sx={actionPopupReshapeZone(e, limits.headPx, colors.frame)} />
             ))}
         </Box>
@@ -453,11 +503,13 @@ export default function AnchoredPanel({
     const iconPanel = asIcon && (
         <Box ref={boxRef} data-testid={testid} data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
              data-rack-id={rackId} data-racked="1" data-rack-open="0" data-rack-icon="1"
+             data-dock-cue={dockCue ? '1' : '0'}
              {...(onTitleLockChange ? { 'data-title-locked': '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: racking ? 'relative' : 'fixed', zIndex, display: 'flex', justifyContent: 'center',
                     py: '2px', boxSizing: 'border-box', userSelect: 'none',
                     ...(overRack && { opacity: 0.75 }),
+                    ...(dockCue && { borderRadius: '4px', ...actionPopupDockCue(colors.frame) }),
                     ...(racking && { order: rackOrder(rackPos) }) }}>
             <Box role="button" tabIndex={0} aria-label={label} title={label}
                  data-testid={`${testid}-rack-icon`}

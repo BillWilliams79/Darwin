@@ -32,6 +32,42 @@ export const ACTION_POPUP_SX = {
 /** A head-row badge's height, and its width for one digit (a circle). */
 export const ACTION_POPUP_BADGE_EM = '1.45em';
 
+// ── IT SAYS WHEN TO LET GO (req #3893) ────────────────────────────────────
+// While a dragged popup is over a place it would dock on release — a rack (the
+// navbar, a page's toolbar), or the title bar for a popup that locks there — the
+// popup itself shimmers in its frame colour: a sheen sweeping across it and its
+// frame pulsing, so the reader knows to let go. The rack's own glow (rackGlow)
+// says where; this says the popup is in. Reduced motion keeps a steady glow.
+const DOCK_CUE_MS = 900;
+
+/**
+ * The dock cue's sx, spread onto the popup's frame while it would dock.
+ *
+ * @param {string} frame  the popup's frame colour
+ */
+export function actionPopupDockCue(frame) {
+    const ring = (a) => `0 0 0 2px color-mix(in srgb, ${frame} ${a}%, transparent), `
+        + `0 0 1.4em 0.2em color-mix(in srgb, ${frame} ${Math.round(a * 0.7)}%, transparent)`;
+    return {
+        '@keyframes actionPopupDockPulse': { '0%, 100%': { boxShadow: ring(45) }, '50%': { boxShadow: ring(100) } },
+        '@keyframes actionPopupDockSheen': {
+            '0%': { backgroundPosition: '150% 0' }, '100%': { backgroundPosition: '-50% 0' } },
+        animation: `actionPopupDockPulse ${DOCK_CUE_MS}ms ease-in-out infinite`,
+        '&::after': {
+            content: '""', position: 'absolute', inset: 0, borderRadius: 'inherit',
+            pointerEvents: 'none', zIndex: 4,
+            backgroundImage: `linear-gradient(105deg, transparent 35%, `
+                + `color-mix(in srgb, ${frame} 45%, transparent) 50%, transparent 65%)`,
+            backgroundSize: '250% 100%', backgroundRepeat: 'no-repeat',
+            animation: `actionPopupDockSheen ${DOCK_CUE_MS}ms linear infinite`,
+        },
+        '@media (prefers-reduced-motion: reduce)': {
+            animation: 'none', boxShadow: ring(100),
+            '&::after': { animation: 'none', backgroundImage: 'none' },
+        },
+    };
+}
+
 // ── RESHAPED FROM ANY EDGE OR CORNER — every Action Popup (req #3743, #3833) ──
 // Hit zones, px (req #3743: "the activation area is tiny" — they were 5 px /
 // 8 px). Below the head row the sides and bottom are wide and the bottom

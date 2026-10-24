@@ -105,7 +105,7 @@ describe('ActionPopupHead (req #3821)', () => {
 
     it('the + is a button bigger than the × and no taller than the row', () => {
         const onClick = vi.fn();
-        render(<ActionPopupHead open={false} onToggle={noop} name="Requirement" testid="a" badgeSlot={false}
+        render(<ActionPopupHead open onToggle={noop} name="Requirement" testid="a" badgeSlot={false}
                                 actions={<>
                                     <ActionPopupAdd onClick={onClick} label="Create" testid="a-add" />
                                     <ActionPopupClose onClick={noop} label="Close" testid="a-x" />
@@ -125,6 +125,21 @@ describe('ActionPopupHead (req #3821)', () => {
         expect(parseFloat(getComputedStyle(add.firstChild).width)).toBeGreaterThan(parseFloat(x.fontSize));
         fireEvent.click(add);
         expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    // req #3893 — "when any info popup is collapsed, the close button is hidden".
+    it('folded, there is no × — and whatever else the host put there stays', () => {
+        const actions = (<>
+            <ActionPopupAdd onClick={noop} label="Create" testid="a-add" />
+            <ActionPopupClose onClick={noop} label="Close" testid="a-x" />
+        </>);
+        const { rerender } = render(<ActionPopupHead open={false} onToggle={noop} name="Requirement" testid="a"
+                                                     badgeSlot={false} actions={actions} />);
+        expect(screen.queryByTestId('a-x')).toBe(null);
+        expect(screen.getByTestId('a-add')).toBeTruthy();
+        rerender(<ActionPopupHead open onToggle={noop} name="Requirement" testid="a"
+                                  badgeSlot={false} actions={actions} />);
+        expect(screen.getByTestId('a-x')).toBeTruthy();
     });
 
     it('pressing the + (its mark included) never moves or sends home the panel', () => {
