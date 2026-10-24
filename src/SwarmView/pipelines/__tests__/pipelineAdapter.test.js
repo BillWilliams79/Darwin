@@ -319,10 +319,6 @@ describe('adaptComposedPipeline — the plan object', () => {
             pipeline_status: 'active', pipeline_paused: false,
             paused_initiative_ids: [], suppressed_epic_ids: [],
         },
-        serial: {
-            execution_mode: 'serial', serial: true, initiative_order: [9],
-            closed_initiative_ids: [], live_initiative_id: 9, waiting_initiative_ids: [], held_epic_ids: [],
-        },
         eligible_epic_ids: [1],
         violations: [{ invariant: 'topology', message: 'x renders before y', epic_ids: [1, 2] }],
         cycle_detected: false,
@@ -392,14 +388,6 @@ describe('adaptComposedPipeline — the plan object', () => {
         expect(plan.pause).toEqual({
             pipelineStatus: 'active', pipelinePaused: false,
             pausedInitiativeIds: [], suppressedEpicIds: [],
-        });
-    });
-
-    it('reshapes serial verbatim', () => {
-        const plan = adaptComposedPipeline(payload);
-        expect(plan.serial).toEqual({
-            executionMode: 'serial', serial: true, initiativeOrder: [9],
-            closedInitiativeIds: [], liveInitiativeId: 9, waitingInitiativeIds: [], heldEpicIds: [],
         });
     });
 

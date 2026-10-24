@@ -189,22 +189,6 @@ export const initiativeStatus2ChipProps = (status) => ({
     sx: INITIATIVE_STATUS_CHIP[status] || INITIATIVE_STATUS_CHIP.active,
 });
 
-// execution_mode — parallel|serial (req #3388/#3393). NEW: no UI anywhere
-// renders or edits this field today, in either era. Styled as a two-value
-// click-to-toggle chip in the same visual language as `runChipProps` above,
-// deliberately a different hue (teal/amber) so it never reads as a run-mode
-// chip at a glance.
-const EXECUTION_MODE_CHIP = {
-    parallel: { bgcolor: '#0d3d3a', color: '#7fe8da' },
-    serial: { bgcolor: '#3d2b0d', color: '#e8b87f' },
-};
-
-export const executionModeLabel = (mode) => (mode === 'serial' ? 'Serial' : 'Parallel');
-
-export const executionModeChipProps = (mode) => ({
-    sx: EXECUTION_MODE_CHIP[mode] || EXECUTION_MODE_CHIP.parallel,
-});
-
 // ---------------------------------------------------------------------------
 // req #3649 — the epic BARRIER flag and the plan-layer LOCKED flag.
 // ---------------------------------------------------------------------------
@@ -212,8 +196,8 @@ export const executionModeChipProps = (mode) => ({
 // epics.checkpoint — 1 (the column default) HOLDS every epic
 // downstream of this one until it is done; 0 makes it a launch PRIORITY only
 // (its work goes out first, nothing waits on it). Amber for a hold — a
-// deliberately warmer hue than the run chip's blue/magenta and the execution
-// chip's teal/amber-brown — and a quiet grey for priority. `undefined`/`null`
+// deliberately warmer hue than the run chip's blue/magenta — and a quiet grey
+// for priority. `undefined`/`null`
 // reads as a barrier, because that is the column default.
 const BARRIER_CHIP = {
     on: { bgcolor: '#5c3d00', color: '#ffcf70' },

@@ -44,7 +44,7 @@ import { laneParityFor } from '../CalendarFC/swarmGeometry';
 import {
     dateRange, semanticLevel,
     buildModelContext, buildDayModel, phaseBarSegments, durationDashed,
-    recenterDecision, startGlyphPlacement,
+    recenterDecision, fitDayTransform, startGlyphPlacement, SEMANTIC_OUT_MAX,
 } from './konvaSwarmModel';
 import '../CalendarFC/swarmVisualizer.css';
 
@@ -467,6 +467,7 @@ const KonvaSwarmCanvas = ({
     // navigation key and the last centered world-Y.
     const lastNavKeyRef = useRef(null);
     const lastCenterYRef = useRef(null);
+    const recenteredRowsRef = useRef(null); // rows the recenter effect last framed (lets the 36h re-anchor yield)
     useEffect(() => {
         const el = containerRef.current;
         const zb = zoomRef.current;
@@ -492,8 +493,18 @@ const KonvaSwarmCanvas = ({
         lastNavKeyRef.current = navKey;
         lastCenterYRef.current = cy;
         centerDateRef.current = selectedDate;
-        const ty = size.h / 2 - cy * kBase;
-        select(el).call(zb.transform, zoomIdentity.translate(0, ty).scale(kBase));
+        // req #3858 — a day too tall for the viewport at kBase zooms out to fit its
+        // full height; a day that fits keeps the kBase framing.
+        const dayRow = rows.find(rr => rr.date === selectedDate);
+        const { k, tx, ty } = fitDayTransform({
+            rowCenterY: cy, rowHeight: dayRow ? dayRow.height : 0,
+            viewW: size.w, viewH: size.h, worldW: WORLD_W, kBase,
+            // Floor at the 'mid' level: below SEMANTIC_OUT_MAX the canvas swaps beads
+            // for density dots, which would hide the very requirements being fit.
+            axisH: AXIS_H, minK: kBase * SEMANTIC_OUT_MAX * 1.01,
+        });
+        recenteredRowsRef.current = rows;
+        select(el).call(zb.transform, zoomIdentity.translate(tx, ty).scale(k));
     }, [selectedDate, rangeStart, rangeEnd, size.w, size.h, rows, kBase, rowTopFor, resetTick]);
 
     // Window (36h) toggle — re-anchor on the day at the viewport center, PRESERVING
@@ -503,6 +514,9 @@ const KonvaSwarmCanvas = ({
         if (prevWinRef.current === null) { prevWinRef.current = win; return; }
         if (prevWinRef.current === win) return;
         prevWinRef.current = win;
+        // The recenter effect (declared above) already re-framed this day for the new
+        // rows in this same commit — re-anchoring from the stale transform would undo it.
+        if (recenteredRowsRef.current === rows) return;
         const el = containerRef.current;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0 || !rows.length) return;
@@ -724,11 +738,20 @@ const KonvaSwarmCanvas = ({
         }
 
         // ── OUT level: density dots only (one mark per completion) ───────────
+        // Each dot keeps the bead's hover datacard + click-to-open (req #3872)
+        // — only the glyphs are dropped at this level, not the session details.
         if (level === 'out') {
             model.placed.forEach((chip) => {
                 const rad = DOT_R_S * 2.25 * inv * (chip.isUndone ? 1 : costMult(chip));
+                const ds = (devServersOn && !chip.isUndone && chip.session)
+                    ? devServerBySession.get(String(chip.session.id)) : null;
+                const tipChip = ds ? { ...chip, devServer: ds } : chip;
                 nodes.push(<Circle key={chip.chipKey || chip.id} x={xWorld(chip.leftPct)} y={laneY(chip.row)}
-                                   radius={rad} fill={beadFill(chip)} opacity={0.85} />);
+                                   radius={rad} fill={beadFill(chip)} opacity={0.85}
+                                   hitStrokeWidth={6 * inv}
+                                   onMouseEnter={(e) => { cursorPointer(e, true); showTip(tipChip, e); }}
+                                   onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
+                                   onActivate={() => handleChipClick(chip)} />);
             });
             return <Group key={date}>{nodes}</Group>;
         }

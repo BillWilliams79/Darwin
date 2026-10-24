@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, act } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useDevServers: () => ({ data: [{ port: 3000, terminal_number: 7 }] }),
@@ -98,25 +98,26 @@ describe('DevServerActionPopup (req #3727)', () => {
         expect(usePanelRackStore.getState().racked).toEqual([]);
     });
 
-    it('keeps every field in the icon-only navbar (req #3739, #3748)', async () => {
+    it('is one list icon in its orange box in the icon-only navbar, its fields in the tooltip (req #3886)', async () => {
         await load('development');
-        usePanelRackStore.setState({ racked: [], seeded: [], slot: { node: slotNode, width: 64 } });
+        const expand = vi.fn();
+        usePanelRackStore.setState({ racked: [], seeded: [], slot: { node: slotNode, width: 64, expand } });
         renderPanel('darwin');
-        const compact = screen.getByTestId('devserver-info-compact');
-        expect(compact.contains(screen.getByTestId('navbar-dev-terminal'))).toBe(true);
-        expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('T7');
-        expect(screen.getByTestId('navbar-dev-database').textContent).toBe('darwin PROD');
-        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('3727');
-        expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
-        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727 - Dev Server bar dockable');
-        expect(compact.lastElementChild).toBe(screen.getByTestId('navbar-dev-database'));
-        // req #3788 — the requirement leads here too.
-        expect(compact.firstElementChild).toBe(screen.getByTestId('navbar-dev-req-title'));
-        expect(screen.getByTestId('navbar-dev-port').textContent).toBe('3000');
-        expect(screen.getByTestId('navbar-dev-terminal').nextElementSibling)
-            .toBe(screen.getByTestId('navbar-dev-port'));
-        expect(screen.queryByTestId('devserver-info-title')).toBe(null);
-        expect(screen.queryByTestId('devserver-info-port')).toBe(null);
+        const icon = screen.getByTestId('devserver-info-rack-icon');
+        expect(slotNode.contains(icon)).toBe(true);
+        expect(icon.querySelector('[data-testid="FormatListBulletedIcon"]')).not.toBe(null);
+        expect(icon.style.border).toMatch(/rgb\(255, 107, 53\)/);
+        expect(icon.getAttribute('title').split('\n')).toEqual(['Dev Server', '3727 - Dev Server bar dockable',
+            'Terminal 7', 'Port 3000', 'DB - darwin (PROD)', 'Click to expand']);
+        // Nothing but the icon: the fields are not drawn.
+        expect(screen.queryByTestId('navbar-dev-terminal')).toBe(null);
+        expect(screen.queryByTestId('devserver-info-body')).toBe(null);
+        // A click unfolds the navbar.
+        fireEvent.pointerDown(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 30 });
+        fireEvent.pointerUp(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 30 });
+        expect(expand).toHaveBeenCalledTimes(1);
+        fireEvent.keyDown(icon, { key: 'Enter' });
+        expect(expand).toHaveBeenCalledTimes(2);
     });
 
     it('reads the id alone or the title alone, and drops the line with neither (req #3748)', async () => {
