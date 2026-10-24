@@ -53,7 +53,8 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
  * Create an epic under an initiative. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
  * only by the plan visualizer's add-epic actions below (`addDependentEpic`,
- * `insertEpicOnEdge`, req #3586; `precedeEpicWith`, req #3617) — a browser
+ * `insertEpicOnEdge`, req #3586; `precedeEpicWith`, req #3617) and the epics
+ * table's delete (`deleteEpicFreeingDependents`, req #3877) — a browser
  * write racing a Primary `set_epic_deps` on the same epic, the same KNOWN, ACCEPTED race
  * `moveEpicRequirement` records for seats.
  */
@@ -89,6 +90,45 @@ export async function updateEpic(darwinUri, idToken, id, fields) {
 export async function deleteEpic(darwinUri, idToken, id) {
     const r = await call_rest_api(`${darwinUri}/epics`, 'DELETE', { id }, idToken);
     return assertOk(r, 'deleteEpic');
+}
+
+/**
+ * Delete an epic OTHER epics depend on — the epics table's delete (req #3877):
+ * free every dependent of its edge onto this epic, then delete the epic. The
+ * epic's own dependency rows and its requirement seats CASCADE with it, so its
+ * requirements are un-orchestrated, never deleted.
+ *
+ * ## Order of operations — EDGES FIRST, BECAUSE THE SCHEMA SAYS SO
+ *
+ * `dep_epic_fk` is ON DELETE RESTRICT, so the epic cannot go while any edge
+ * still names it. A 404 on an edge means it is already gone, which is the
+ * goal. If any later write fails, the edges already removed are re-created
+ * (best effort) before the ORIGINAL error is rethrown: a dependent freed from
+ * an epic that still exists would read as un-gated on it. A self-edge is the
+ * one edge not restored — it is invalid (`set_epic_deps` refuses one).
+ *
+ * @param {number[]} dependentEpicIds  epics whose `epic_deps` row waits on `epicId`
+ */
+export async function deleteEpicFreeingDependents(darwinUri, idToken, epicId, dependentEpicIds = []) {
+    const undos = [];
+    try {
+        for (const dependentId of dependentEpicIds) {
+            try {
+                await deleteEpicDep(darwinUri, idToken, dependentId, epicId);
+            } catch (error) {
+                if (error?.httpStatus?.httpStatus !== 404) throw error;
+                continue;
+            }
+            // A self-edge goes with the epic either way; nothing to restore.
+            if (dependentId !== epicId) {
+                undos.push(() => createEpicDep(darwinUri, idToken, dependentId, epicId));
+            }
+        }
+        return await deleteEpic(darwinUri, idToken, epicId);
+    } catch (error) {
+        await undoAll(undos);
+        throw error;
+    }
 }
 
 /**
@@ -190,7 +230,7 @@ async function undoAll(undos) {
         try {
             await undo();
         } catch (e) {
-            console.error('epic insert rollback failed', e);
+            console.error('epic write rollback failed', e);
         }
     }
 }
