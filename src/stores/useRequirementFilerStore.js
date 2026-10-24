@@ -28,7 +28,9 @@ import {
 //
 // THE EDITOR — the popup requirement editor the filer opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
-//   • `draft` — the values in the editor's fields (requirementFilerModel.js).
+//   • `draft` — the values in the editor's fields (requirementFilerModel.js);
+//     its `seat` is the plan epic the filer's + was aimed at (req #3854,
+//     filerEpicAim.js) — never sent with the row, Create seats it after the POST.
 //   • `savedId` — the requirement's id once the first Save has POSTed it; null
 //     until then. From then on Save PUTs that row.
 //   • `saved` — the values as last saved, so Save sends only what changed.
@@ -145,12 +147,13 @@ export const useRequirementFilerStore = create(
             setEditorDock: (editorDock) => set({ editorDock }),
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
-            // capture. Returns the new draft's key.
-            startNew: (withCapture = false) => {
+            // capture, and `seat` is the plan epic the + was aimed at (req #3854,
+            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
+            startNew: (withCapture = false, seat = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults),
+                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
@@ -195,6 +198,8 @@ export const useRequirementFilerStore = create(
                 if (get().draftKey === key && get().captureSentDropped == null) set({ captureSentDropped: [...dropped] });
             },
             setFields: (patch) => set({ draft: { ...get().draft, ...patch } }),
+            // The reader's × on the editor's Epic line: file it in no epic.
+            clearSeat: () => { if (get().draft?.seat) set({ draft: { ...get().draft, seat: null } }); },
             clearFocusPending: () => set({ focusPending: false }),
             setCreating: (creating) => set({ creating }),
             endCreating: (key) => { if (get().creating === key) set({ creating: null }); },
