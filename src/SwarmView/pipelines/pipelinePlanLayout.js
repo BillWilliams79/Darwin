@@ -3446,6 +3446,72 @@ export function drawnRulerLabelKeys(slots = [], mag = 1, startRight = -Infinity)
     return drawn;
 }
 
+// ── THE LEFT EDGE ALWAYS NAMES A DAY (req #3873, user directive: "the date bar
+//    should hold the latest date element (even future) and stick it to the
+//    left edge … similar to how initiatives are dragged off the top of the
+//    screen") ────────────────────────────────────────────────────────────────
+// Panned into the plan, the strip's dates are the ones whose boundary is ON
+// screen, so a reader sitting inside one long day saw an empty strip. The
+// sticky-header move the initiative chips make at the top edge
+// (`placeInitiativeChips`), turned on its side: the slot whose label would
+// begin at or left of the strip's visible left edge — any kind, so `future`
+// and `undated` pin too — is drawn flush to that edge, and the next DRAWN
+// label pushes it back off to the left as it arrives, so the two hand off
+// with no gap and no overlap. Below the push it is that slot's own label,
+// moved: its natural copy and any earlier label it would land on are not
+// drawn (`hide`).
+//
+// Against the DRAWN set (`drawnRulerLabelKeys`), not a re-thin from the left
+// edge: unmaximized the drawn set is a function of the zoom alone, so a pan
+// never makes a date blink on or off; only the pinned one changes, and only as
+// a boundary crosses the edge. The edge is the switch's right edge when the maximized
+// Plan page's full screen switch occupies the strip's corner (`startRight`,
+// the same reserve the re-thin honours).
+export const RULER_PIN_PAD = 4;   // SCREEN px between the left edge and the pinned date
+/**
+ * @param {Object[]} slots `ruler.slots` — `{key, kind, label, labelX, labelW}`
+ * @param {Set<string>} drawn `drawnRulerLabelKeys(...)` for the same `mag`
+ * @param {{x:number,k:number}} t  the stage transform
+ * @param {number} mag     `rulerScreenMag(t)`
+ * @param {number} [startRight] world x the first label must clear
+ * @returns {?{key:string, kind:string, text:string, x:number, y:number,
+ *     hide:Set<string>}} the pinned label (world x), or null when the strip's
+ *     first slot is itself on screen
+ */
+export function stickyRulerLabel(slots = [], drawn = new Set(), t,
+    mag = 1, startRight = -Infinity) {
+    if (!t || !(t.k > 0) || typeof t.x !== 'number' || !slots.length) return null;
+    const gap = RULER_LABEL_GAP * mag;
+    const edge = Math.max(-t.x / t.k + RULER_PIN_PAD / t.k, startRight + gap);
+    // The first drawn label after slot `i` — the one that pushes it.
+    const pusherX = (i) => {
+        for (let j = i + 1; j < slots.length; j++) {
+            if (drawn.has(slots[j].key)) return slots[j].labelX;
+        }
+        return Infinity;
+    };
+    // A THINNED day takes the pin only once it fits whole at the edge: handing
+    // it over earlier would show it already pushed, cut off by the left edge.
+    // Until then the day before it keeps the pin and is pushed off as usual.
+    let idx = -1;
+    for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        if (s.labelX > edge) continue;
+        if (drawn.has(s.key)
+            || edge + (s.labelW || 0) * mag + gap <= pusherX(i)) idx = i;
+    }
+    if (idx < 0) return null;
+    const s = slots[idx];
+    const w = (s.labelW || 0) * mag;
+    const x = Math.min(edge, pusherX(idx) - gap - w);
+    const hide = new Set([s.key]);
+    for (let i = 0; i < idx; i++) {
+        const p = slots[i];
+        if (drawn.has(p.key) && p.labelX + (p.labelW || 0) * mag + gap > x) hide.add(p.key);
+    }
+    return { key: s.key, kind: s.kind, text: s.label, x, y: RULER_LABEL_Y, hide };
+}
+
 const truncate = (s, n) => {
     const str = String(s == null ? '' : s);
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
