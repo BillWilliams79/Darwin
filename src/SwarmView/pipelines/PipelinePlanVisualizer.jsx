@@ -5988,15 +5988,12 @@ export default function PipelinePlanVisualizer({
                                     : null),
                                 // req #3695 — A FOLDED INITIATIVE IS A FLOATING TITLE
                                 // BAR: no rectangle beneath it, so the chip is
-                                // drawn at the bar width `placeInitiativeChips`
-                                // measured (never narrower than its name), in
-                                // the initiative's own colour, lifted off the plan by
-                                // a shadow. `e.bar` is the band's folded
-                                // fraction, so the bar grows out of the chip and
-                                // back into it with the fold's animation.
-                                ...(e.bar > 0 && !e.clipped && !editing
-                                    ? { minWidth: e.w }
-                                    : null),
+                                // tinted in the initiative's own colour and
+                                // lifted off the plan by a shadow. `e.bar` is
+                                // the band's folded fraction, so the styling
+                                // fades in and out with the fold's animation.
+                                // Its WIDTH is the open chip's (req #3862):
+                                // folding never elongates it.
                                 display: 'flex', alignItems: 'center', gap: '4px',
                                 fontFamily: MONO, fontSize: e.fontSize,
                                 fontWeight: 700,

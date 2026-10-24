@@ -6,7 +6,8 @@
 // Circle's props are inspectable; a wheel event drives d3-zoom to the Overview.
 
 import React from 'react';
-import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll, vi } from 'vitest';
+import { createTheme } from '@mui/material/styles';
 import { render, cleanup, fireEvent, act } from '@testing-library/react';
 
 const circles = [];
@@ -89,5 +90,51 @@ describe('KonvaSwarmCanvas — Overview hover (req #3872)', () => {
 
         dot.onActivate();
         expect(onChipClick).toHaveBeenCalledWith(901);
+    });
+
+});
+
+// req #3876 — an in-flight requirement's dot keeps the incomplete look at
+// Overview: a category-colour ring on the outside, the larger centre clear.
+describe('KonvaSwarmCanvas — Overview in-flight dot (req #3876)', () => {
+    // Pinned mid-day: with the 36h window a start just after UTC midnight
+    // would put both chips on two rows.
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-10-24T12:00:00Z'));
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('draws an in-flight dot as a category ring with a clear centre; a completed dot stays solid', () => {
+        const fmt = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+        const now = new Date();
+        const start = new Date(now.getTime() - 5 * 60 * 1000);
+        const today = fmt(now).slice(0, 10);
+        const startDay = fmt(start).slice(0, 10);
+        const done = { ...requirements[0], completed_at: `${today} 00:00:01` };
+        const open = {
+            id: 902, title: 'Open req', completed_at: null,
+            category_fk: 1, requirement_status: 'development', coordination_type: 'implemented',
+        };
+        const live = { id: 5002, source_ref: 'requirement:902', swarm_status: 'active', started_at: fmt(start) };
+        render(<KonvaSwarmCanvas {...props}
+            requirements={[done, open]} allRequirements={[done, open]}
+            sessions={[{ ...sessions[0], started_at: `${today} 00:00:00` }, live]}
+            swarmStarts={[{ id: 77, started_at: fmt(start), arguments: '902' }]}
+            swarmStartSessions={[{ swarm_start_fk: 77, session_fk: 5002 }]}
+            selectedDate={today} rangeStart={startDay} rangeEnd={today} />);
+        const canvas = document.querySelector('[data-testid="konva-swarm-canvas"]');
+        act(() => { fireEvent.wheel(canvas, { deltaY: 2000, clientX: 600, clientY: 350 }); });
+        expect(document.querySelector('[data-testid="konva-zoom-level"]').textContent).toMatch(/^Overview/);
+
+        expect(circles).toHaveLength(2);
+        const ringed = circles.filter(c => c.strokeWidth > 0);
+        const solid = circles.filter(c => !(c.strokeWidth > 0));
+        expect(ringed).toHaveLength(1);
+        expect(solid).toHaveLength(1);
+        expect(ringed[0].stroke).toBe('#1976d2');
+        expect(ringed[0].fill).toBe(createTheme().palette.text.secondary);
+        expect(solid[0].fill).toBe('#1976d2');
+        expect(solid[0].stroke).toBeUndefined();
     });
 });
