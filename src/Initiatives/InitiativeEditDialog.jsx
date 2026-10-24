@@ -57,10 +57,14 @@ const parseSortOrder = (raw) => {
  * @param {boolean} props.open
  * @param {?Object} props.initiative           the initiative row being edited, or null to create one
  * @param {Object[]} props.pipelineOptions  `{ id, title }` for the Pipeline select
+ * @param {?number} [props.defaultPipelineFk] a new initiative's pipeline (req #3864),
+ *                                          else the first option; ignored on edit
  * @param {function} props.onClose
  * @param {function} props.onSaved          after a successful write, before onClose
  */
-export default function InitiativeEditDialog({ open, initiative, pipelineOptions, onClose, onSaved }) {
+export default function InitiativeEditDialog({
+    open, initiative, pipelineOptions, defaultPipelineFk, onClose, onSaved,
+}) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
@@ -82,7 +86,8 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
     }, [categories, initiative]);
 
     const [formPipelineFk, setFormPipelineFk] = useState(
-        initiative ? (initiative.pipeline_fk ?? '') : (pipelineOptions[0]?.id ?? ''));
+        initiative ? (initiative.pipeline_fk ?? '')
+            : (defaultPipelineFk ?? pipelineOptions[0]?.id ?? ''));
     const [formTitle, setFormTitle] = useState(initiative?.title || '');
     const [formDescription, setFormDescription] = useState(initiative?.description || '');
     // A new initiative's category is the first open one, once the list has loaded.
