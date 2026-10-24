@@ -14,8 +14,8 @@
 import { DEFAULT_PLAN_PALETTE, planPalette } from '../pipelines/pipelinePlanLayout';
 
 // core.py EPIC_CODES / ITEM_CODES / EVENT_CODES, in the charter's precedence order.
-export const EPIC_CODES = ['ENGINE_HOLD', 'PAUSED', 'BARRIER', 'NOT_BEFORE', 'NO_WORK',
-    'MANUAL'];
+export const EPIC_CODES = ['ENGINE_HOLD', 'PAUSED', 'INITIATIVE_GATE', 'BARRIER', 'NOT_BEFORE',
+    'NO_WORK', 'MANUAL'];
 export const ITEM_CODES = ['MACHINE_PIN', 'IN_FLIGHT', 'DEP_PRIORITY', 'CAPACITY', 'ADMITTED'];
 export const HOLD_CODES = [...EPIC_CODES, ...ITEM_CODES];
 export const EVENT_CODES = ['REGRESSION', 'TOP_UP', 'DRAINED', 'LANDED', 'STALL', 'VIOLATION'];
@@ -29,6 +29,7 @@ export const VERDICT_OK = 'OK';
 export const PLAIN_WORDS = {
     ENGINE_HOLD: 'the engine cannot trust this cycle, so everything waits',
     PAUSED: 'someone paused the plan or the initiative',
+    INITIATIVE_GATE: 'an initiative its initiative waits for still holds open work',
     BARRIER: 'a barrier epic upstream still holds open work',
     NOT_BEFORE: 'its start time has not come',
     NO_WORK: 'its open work holds nothing swarm-ready',
@@ -54,6 +55,7 @@ export const plainWords = (code) => PLAIN_WORDS[code] || `unrecognised code ${co
 export const CODE_LABELS = {
     ENGINE_HOLD: 'Engine hold',
     PAUSED: 'Paused',
+    INITIATIVE_GATE: 'Initiative gate',
     BARRIER: 'Barrier',
     NOT_BEFORE: 'Not before',
     NO_WORK: 'No work',
@@ -140,6 +142,7 @@ const ATTENTION = PALETTE.session.review;
 export const CODE_COLORS = {
     ENGINE_HOLD: ATTENTION,
     PAUSED: S.deferred,
+    INITIATIVE_GATE: S.deferred,
     BARRIER: S.deferred,
     NOT_BEFORE: S.deferred,
     NO_WORK: S.wontfix,
@@ -204,6 +207,8 @@ export function detailText(code, detail, names) {
         case 'PAUSED':
             return Array.isArray(detail.by) && detail.by.length
                 ? `paused at the ${detail.by.join(' and the ')}` : '';
+        case 'INITIATIVE_GATE':
+            return `waiting for ${list(detail.initiative_ids, 'initiative', names)}`;
         case 'BARRIER':
             return `held by barrier ${list(detail.barrier_epic_ids, 'epic', names)}`;
         case 'NOT_BEFORE':

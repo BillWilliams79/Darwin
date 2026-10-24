@@ -100,6 +100,7 @@ let epicRequirements;
 let requirements;
 let orchestrationClaims;
 let loading;
+let initiativeDeps = [];
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -113,6 +114,8 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
             data: epicRequirements, isLoading: loading.links }),
         useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
+        // req #3823 — initiative-to-initiative edges (none unless a test seeds them).
+        useAllInitiativeDeps: () => ({ data: initiativeDeps }),
     };
 });
 
