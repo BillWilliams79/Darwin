@@ -254,7 +254,7 @@ test.describe('Plan view engine overlay (req #3762)', () => {
   // Each plan-overlay action: every state of its scenario whose engine runs on
   // this machine, drawn from the engine's record — and with the engine off,
   // the prediction from the same derived block.
-  for (const id of ['A8', 'A9', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A21']) {
+  for (const id of ['A8', 'A9', 'A10', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A21', 'A22']) {
     test(`OVL-${id}: ${action(id).scenario} — the engine's reaction on the plan`, async ({ page }) => {
       const states = action(id).states
         .map((s: any, i: number) => ({ s, i }))

@@ -255,6 +255,10 @@ export function epicHold(row, derivedNow) {
     const paused = by.filter((s) => s === 'pipeline' || s === 'initiative')
         .map((s) => (s === 'pipeline' ? 'plan' : 'initiative'));
     if (paused.length) return ['PAUSED', { by: paused }];
+    // req #3823 — an initiative this epic's initiative waits for holds open work.
+    if (asList(row.initiative_blocked_by).length) {
+        return ['INITIATIVE_GATE', { initiative_ids: [...row.initiative_blocked_by] }];
+    }
     if (asList(row.checkpoint_blocked_by).length) {
         return ['BARRIER', { barrier_epic_ids: [...row.checkpoint_blocked_by] }];
     }

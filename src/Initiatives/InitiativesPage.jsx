@@ -59,9 +59,13 @@ import {
     useAllPipelines,
     useAllInitiatives,
     useAllPipelineEpics,
+    useAllInitiativeDeps,
     initiativeKeys,
+    initiativeDepKeys,
     pipelineEpicKeys,
 } from '../hooks/useDataQueries';
+import { dependencyChoices, initiativeDepCounts, initiativeDepEdges }
+    from '../SwarmView/pipelines/pipelineInitiativeDeps';
 import { pipelineComposeKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
@@ -98,6 +102,10 @@ export default function InitiativesPage() {
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
     const { data: initiatives = [], isLoading: initiativesLoading } = useAllInitiatives(creatorFk);
     const { data: epics = [], isLoading: epicsLoading } = useAllPipelineEpics(creatorFk);
+    // req #3823 — the initiative-to-initiative edges: the Waits for column and
+    // the editor's current set.
+    const { data: initiativeDepRows = [], isSuccess: initiativeDepsLoaded } =
+        useAllInitiativeDeps(creatorFk);
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
 
@@ -138,6 +146,9 @@ export default function InitiativesPage() {
     const pipelineOptions = useMemo(() => pipelines.map(
         p => ({ id: p.id, title: p.title })), [pipelines]);
 
+    const depCounts = useMemo(() => initiativeDepCounts(initiativeDepRows, initiatives),
+        [initiativeDepRows, initiatives]);
+    const titleById = useMemo(() => new Map(initiatives.map((i) => [i.id, i.title])), [initiatives]);
     // ── PIPELINE FILTER (req #3864) ─────────────────────────────────────────────
     // EpicsPage's contract, Pipeline half only: the URL is the ONLY store, so a
     // filtered view is a link and a link followed while the page is open
@@ -163,6 +174,7 @@ export default function InitiativesPage() {
             .map(e => ({
                 ...e,
                 epic_count: epicCountByInitiative[e.id] || 0,
+                waits_for: depCounts.byInitiative.get(e.id)?.dependsOn || [],
                 pipeline_title: pipelineById[e.pipeline_fk]?.title
                     ?? (e.pipeline_fk != null ? `#${e.pipeline_fk}` : ''),
             }))
@@ -171,12 +183,14 @@ export default function InitiativesPage() {
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [initiatives, closedFilter, activePipeline, epicCountByInitiative, pipelineById]);
+    }, [initiatives, closedFilter, activePipeline, epicCountByInitiative, pipelineById,
+        depCounts]);
 
     // An initiative write also invalidates the composed plan reads (req #3742), so a
     // plan open elsewhere — or opened next — never draws the pre-save initiative.
     const invalidateInitiatives = () => {
         queryClient.invalidateQueries({ queryKey: initiativeKeys.all(creatorFk) });
+        queryClient.invalidateQueries({ queryKey: initiativeDepKeys.all(creatorFk) });
         queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
@@ -246,6 +260,13 @@ export default function InitiativesPage() {
             // dependency/link caches after a cascading delete.
             queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(creatorFk) });
         } catch (err) {
+            // A named refusal (deleteInitiative's own pre-check — a lock, an
+            // epic or, req #3823, an initiative depending on it) says WHICH; show it.
+            if (err?.namedRefusal) {
+                const status = err.httpStatus?.httpStatus;
+                showError(`Could not delete initiative${status ? ` (${status})` : ''} — ${err.message}`);
+                return;
+            }
             showError(err, 'Could not delete initiative — if another epic outside it depends on one '
                 + 'of its epics, remove that dependency first');
         }
@@ -274,6 +295,24 @@ export default function InitiativesPage() {
             field: 'description', headerName: 'Description', flex: 2, minWidth: 260,
             valueGetter: (value) => oneLine(value),
             valueFormatter: (value) => value || '—',
+        },
+        {
+            // req #3823 — the initiatives this one waits for (its edges), by name.
+            field: 'waits_for', headerName: 'Waits for', width: 170, sortable: false,
+            valueGetter: (value) => (Array.isArray(value) ? value.length : 0),
+            renderCell: (params) => {
+                const ids = params.row.waits_for || [];
+                if (!ids.length) return '—';
+                const names = ids.map((id) => titleById.get(id) ?? `#${id}`);
+                return (
+                    <Tooltip title={`No epic of this initiative launches while ${names.join(', ')} `
+                        + 'hold open work'}>
+                        <Box component="span" data-testid={`initiative-waits-for-${params.row.id}`}>
+                            {`${ids.length} · ${names.join(', ')}`}
+                        </Box>
+                    </Tooltip>
+                );
+            },
         },
         {
             field: 'epic_count', headerName: 'Epics', width: 90, type: 'number',
@@ -450,6 +489,13 @@ export default function InitiativesPage() {
                 initiative={dialog.initiative}
                 pipelineOptions={pipelineOptions}
                 defaultPipelineFk={activePipeline === ALL_PIPELINES ? null : activePipeline}
+                // Only once the edges are READ: a field seeded from a read still
+                // in flight would show none and invite a save that drops them.
+                dependencies={dialog.initiative && initiativeDepsLoaded ? {
+                    choices: dependencyChoices(initiatives, dialog.initiative.id,
+                        initiativeDepEdges(initiativeDepRows)),
+                    rows: initiativeDepRows.filter((r) => r.initiative_fk === dialog.initiative.id),
+                } : null}
                 onClose={() => setDialog((d) => ({ ...d, open: false }))}
                 onSaved={invalidateInitiatives}
             />
