@@ -78,10 +78,10 @@ describe('AnchoredPanel rack (req #3720)', () => {
         // Moving, not over: the navbar is not lit. The drag carries the
         // panel's frame colour, which the navbar glows in once over (req #3728).
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, over: false, index: null, color: COLORS.frame });
+            { id: 'a', fromRack: false, from: null, over: false, rack: null, index: null, color: COLORS.frame });
         moveTo('a', [90, 400]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, over: true, index: 0, color: COLORS.frame });
+            { id: 'a', fromRack: false, from: null, over: true, rack: 'nav', index: 0, color: COLORS.frame });
         release('a', [90, 400]);
 
         expect(usePanelRackStore.getState().drag).toBe(null);
@@ -153,7 +153,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         // Below the stack (it ends at 400): the bottom.
         moveTo('b', [90, 800]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'b', fromRack: false, over: true, index: 1, color: COLORS.frame });
+            { id: 'b', fromRack: false, from: null, over: true, rack: 'nav', index: 1, color: COLORS.frame });
         // Above it (the nav buttons): not in the list either, the bottom.
         moveTo('b', [90, 100]);
         expect(usePanelRackStore.getState().drag.index).toBe(1);
@@ -176,7 +176,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         press('a', [60, 310]);
         moveTo('a', [60, 500]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: true, over: true, index: 1, color: COLORS.frame });
+            { id: 'a', fromRack: true, from: 'nav', over: true, rack: 'nav', index: 1, color: COLORS.frame });
         release('a', [60, 500]);
         expect(usePanelRackStore.getState().racked).toEqual(['b', 'a', 'c']);
         // Reordered, not floated: still in the slot, its dock untouched.
@@ -207,7 +207,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         press('a', [60, 310]);
         moveTo('a', [860, 510]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: true, over: false, index: null, color: COLORS.frame });
+            { id: 'a', fromRack: true, from: 'nav', over: false, rack: null, index: null, color: COLORS.frame });
         // Mid-drag it is drawn fixed under the pointer, at the navbar's width.
         const live = screen.getByTestId('p-a');
         expect(getComputedStyle(live).position).toBe('fixed');
