@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { database } from '../Context/AppContext';
 import {
     carriedSettings, draftFromRow, newRequirementDraft, savedValues, withFiled,
 } from '../RequirementFiler/requirementFilerModel';
@@ -20,12 +21,16 @@ import {
 //     kept for the next page that has one.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here.
+//   • `filedInto` — the database every id here names: production, from every
+//     build since req #3888 (FilerDataScope); see migrateFilerState.
 //   • `reopened` — the editor holds one of them again (`openFiled`), not a new
 //     one: its saves do not move `lastProjectId`/`lastCategoryId`/`defaults`.
 //
 // THE EDITOR — the popup requirement editor the filer opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
-//   • `draft` — the values in the editor's fields (requirementFilerModel.js).
+//   • `draft` — the values in the editor's fields (requirementFilerModel.js);
+//     its `seat` is the plan epic the filer's + was aimed at (req #3854,
+//     filerEpicAim.js) — never sent with the row, Create seats it after the POST.
 //   • `savedId` — the requirement's id once the first Save has POSTed it; null
 //     until then. From then on Save PUTs that row.
 //   • `saved` — the values as last saved, so Save sends only what changed.
@@ -67,6 +72,42 @@ import {
 // Kept here rather than in the editor's own state because racking a panel
 // re-mounts its subtree (AnchoredPanel). Persisted per browser — where the
 // reader parks the windows, and an unsaved draft, survive a reload.
+/** Where the ids this store holds were filed (req #3888) — always production now. */
+export const FILED_INTO = 'darwin';
+
+/** Brings persisted filer state of `version` up to date in a build reading
+ *  `db`. v1 → v2 (req #3815): `defaults` is the last requirement's settings and
+ *  the defaults mode is gone. v2 → v3 (req #3888): until v3 a dev build filed
+ *  into `darwin_dev`, so its filed list, the draft's saved row and the last
+ *  place and machine are darwin_dev ids — which name OTHER rows in production,
+ *  where the filer now files. They are dropped (the editor closes on a draft
+ *  started anew); window positions and the last enum settings carry over. A
+ *  production build's ids were production's all along and are kept.
+ *  The `filedInto` mark, not the version alone, says whose ids they are: a
+ *  branch older than #3888 sharing a dev port keeps the mark when it writes the
+ *  store back as v2, so its round trip does not cost this code a production draft. */
+export function migrateFilerState(persisted, version, db) {
+    if (!persisted) return persisted;
+    let state = persisted;
+    if (version < 2) {
+        const { editorMode, ...rest } = state;
+        // A v1 draft may wait on a check v2 no longer makes ('seat'): keep
+        // only the ones it does, or File would wait forever.
+        const draft = rest.draft ? { ...rest.draft, defaultsUnchecked:
+            (rest.draft.defaultsUnchecked || []).filter(f => f === 'category' || f === 'machine') } : rest.draft;
+        state = { ...rest, draft, defaults: carriedSettings(state.defaults || {}) };
+    }
+    if (version < 3 && db !== 'darwin' && state.filedInto !== FILED_INTO) {
+        const { machine_fk, ...defaults } = state.defaults || {};
+        state = {
+            ...state, filed: [], draft: null, savedId: null, saved: null, editorShow: false,
+            reopened: false, orphaned: false, lastProjectId: null, lastCategoryId: null, defaults,
+            captureDropped: [], captureSentDropped: null, captureStage: null,
+        };
+    }
+    return { ...state, filedInto: FILED_INTO };
+}
+
 export const useRequirementFilerStore = create(
     persist(
         (set, get) => ({
@@ -80,6 +121,7 @@ export const useRequirementFilerStore = create(
             titleLock: null,
             setTitleLock: (titleLock) => set({ titleLock }),
             filed: [],
+            filedInto: FILED_INTO,
             reopened: false,
             forgetFiled: (id) => set({ filed: get().filed.filter(f => f.id !== id) }),
 
@@ -105,12 +147,13 @@ export const useRequirementFilerStore = create(
             setEditorDock: (editorDock) => set({ editorDock }),
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
-            // capture. Returns the new draft's key.
-            startNew: (withCapture = false) => {
+            // capture, and `seat` is the plan epic the + was aimed at (req #3854,
+            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
+            startNew: (withCapture = false, seat = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults),
+                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
@@ -144,11 +187,19 @@ export const useRequirementFilerStore = create(
                 set({ captureDropped: captureDropped.includes(category)
                     ? captureDropped.filter(c => c !== category) : [...captureDropped, category] });
             },
+            // The trash can (req #3887): every category dropped at once.
+            dropAllCaptureCategories: () => {
+                const { capture, captureStage, captureSentDropped } = get();
+                if (!capture || captureStage !== 'ready' || captureSentDropped != null) return;
+                set({ captureDropped: capture.categories.map(c => c.key) });
+            },
             setCaptureStage: (key, captureStage) => { if (get().draftKey === key) set({ captureStage }); },
             markCaptureSent: (key, dropped) => {
                 if (get().draftKey === key && get().captureSentDropped == null) set({ captureSentDropped: [...dropped] });
             },
             setFields: (patch) => set({ draft: { ...get().draft, ...patch } }),
+            // The reader's × on the editor's Epic line: file it in no epic.
+            clearSeat: () => { if (get().draft?.seat) set({ draft: { ...get().draft, seat: null } }); },
             clearFocusPending: () => set({ focusPending: false }),
             setCreating: (creating) => set({ creating }),
             endCreating: (key) => { if (get().creating === key) set({ creating: null }); },
@@ -177,16 +228,10 @@ export const useRequirementFilerStore = create(
             // v2 (req #3815): `defaults` is the last requirement's settings —
             // #3812's Defaults form is gone, and with it a default place, seat or
             // repos nothing could show any more; the defaults mode goes too.
-            version: 2,
-            migrate: (persisted, version) => {
-                if (!persisted || version >= 2) return persisted;
-                const { editorMode, ...rest } = persisted;
-                // A v1 draft may wait on a check v2 no longer makes ('seat'): keep
-                // only the ones it does, or File would wait forever.
-                const draft = rest.draft ? { ...rest.draft, defaultsUnchecked:
-                    (rest.draft.defaultsUnchecked || []).filter(f => f === 'category' || f === 'machine') } : rest.draft;
-                return { ...rest, draft, defaults: carriedSettings(persisted.defaults || {}) };
-            },
+            // v3 (req #3888): the filer files into production from every build,
+            // so a dev build's v2 state names darwin_dev rows — see migrateFilerState.
+            version: 3,
+            migrate: (persisted, version) => migrateFilerState(persisted, version, database),
             // The capture stays in memory; a reload that loses it before its
             // row is saved says so ('lost') rather than waiting on it forever.
             // A reload mid-create (req #3860) brings its draft back into view —

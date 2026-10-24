@@ -99,12 +99,6 @@ export const BLOCK_NO_LINKS = 'no-links';
 export const BLOCK_CONTAINERS = 'containers';
 export const BLOCK_NOT_READY = 'not-ready';
 
-// How a plan runs its initiatives (req #3388). `parallel` is every initiative at once — the
-// behaviour that existed before this column, which is why it is the DEFAULT and
-// why an ABSENT value reads as parallel.
-export const MODE_PARALLEL = 'parallel';
-export const MODE_SERIAL = 'serial';
-
 const STATE_RANK = { [EPIC_DONE]: 0, [EPIC_RUNNING]: 1, [EPIC_PENDING]: 2 };
 const RUN_RANK = { auto: 0, manual: 1 };
 
@@ -1442,89 +1436,6 @@ export function pauseState(model, rows) {
     };
 }
 
-/**
- * Which initiative's turn it is, and therefore which epics must WAIT for it (req #3388).
- *
- * The browser half of `pipeline_derive.py::serial_state`. That module's
- * docstring carries the full rationale — the order is FIRST APPEARANCE IN
- * DISPLAY ORDER, an initiative is CLOSED when every epic it owns is `done`, and the
- * live initiative is the first one not closed.
- *
- * REQ #3430 REVERSED THIS FUNCTION'S RECORDED OBJECTION TO `initiatives.sort_order`,
- * without changing a line of it. The objection was that the column measured
- * BACKWARDS on pipeline 79 — which measured stale data nobody was maintaining,
- * not unfitness of the column. It is maintained now and the user has ruled it
- * authoritative, so `displayOrder` orders initiatives by it. This function still
- * reads FIRST APPEARANCE IN DISPLAY ORDER and therefore inherits that ordering
- * rather than duplicating it: still one source, still no second stored fact.
- *
- * Called AFTER `pauseState`, whose `suppressedBy` list this APPENDS to rather
- * than replacing: an epic held by both a pause and a turn must name both, or
- * unpausing it looks like it should start and does not. `turn` stays a distinct
- * reason from `initiative`/`pipeline` because they clear differently — a pause needs a
- * person, a turn passes by itself when the initiative ahead closes.
- *
- * An initiative is BEHIND, LIVE or AHEAD, and only the ones AHEAD are held — a CLOSED
- * initiative is never suppressed, because `turn` means "has not had its turn yet",
- * which is false of an initiative that has finished. That is the one place serial does
- * NOT copy `pauseState`, whose `initiative` reason means "this scope is paused" and is
- * true of its done epics too. Within an initiative that IS ahead, suppression is by
- * MEMBERSHIP and not eligibility, exactly as `pauseState` does it.
- *
- * An epic with no initiative label is never suppressed by turn: it has no turn to wait
- * for, and holding it would deadlock a plan no unpause could rescue.
- */
-export function serialState(model, rows) {
-    const pipeline = (model && model.pipeline) || {};
-    const mode = pipeline.execution_mode || MODE_PARALLEL;
-    const serial = mode === MODE_SERIAL;
-
-    // `rows` arrive in DISPLAY order — the caller's contract, and the whole
-    // basis of the sequence.
-    const initiativeOrder = [];
-    for (const row of rows || []) {
-        if (row.initiativeId != null && !initiativeOrder.includes(row.initiativeId)) {
-            initiativeOrder.push(row.initiativeId);
-        }
-    }
-
-    const closedInitiativeIds = initiativeOrder.filter((initiativeId) => (rows || [])
-        .filter((row) => row.initiativeId === initiativeId)
-        .every((row) => row.state === EPIC_DONE));
-    const closed = new Set(closedInitiativeIds);
-
-    let liveInitiativeId = null;
-    for (const initiativeId of initiativeOrder) {
-        if (!closed.has(initiativeId)) { liveInitiativeId = initiativeId; break; }
-    }
-
-    // AHEAD of the live initiative: not closed (behind) and not live.
-    const waitingInitiativeIds = initiativeOrder.filter(
-        (initiativeId) => !closed.has(initiativeId) && initiativeId !== liveInitiativeId);
-    const waiting = new Set(waitingInitiativeIds);
-
-    const heldEpicIds = [];
-    if (serial && liveInitiativeId != null) {
-        for (const row of rows || []) {
-            if (row.initiativeId == null || !waiting.has(row.initiativeId)) continue;
-            row.suppressedBy = [...(row.suppressedBy || []), 'turn'];
-            row.launchSuppressed = true;
-            heldEpicIds.push(row.id);
-        }
-    }
-
-    return {
-        executionMode: mode,
-        serial,
-        // In display order, which IS the running order. Not sorted by id.
-        initiativeOrder,
-        closedInitiativeIds,
-        liveInitiativeId,
-        waitingInitiativeIds,
-        heldEpicIds,
-    };
-}
-
 // ── The two composers moved out of `../pipelineViewModel.js` (req #3356) ───
 //
 // `buildPipelineModel` narrowed Pipeline 1.0's whole-table reads to ONE plan;
@@ -1619,11 +1530,7 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         }
     }
 
-    // Pause first, then serial: `serialState` APPENDS to the `suppressedBy` list
-    // `pauseState` writes, so calling it earlier (or not at all) leaves an epic
-    // reading as launchable while a turn holds it.
     const pause = pauseState(model || {}, rows);
-    const serial = serialState(model || {}, rows);
 
     // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
     // call owns (buildPlanRows returns new objects every time), never the
@@ -1645,6 +1552,5 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         unresolvedReqIds,
         requirementCounts: requirementCounts(model || {}),
         pause,
-        serial,
     };
 }

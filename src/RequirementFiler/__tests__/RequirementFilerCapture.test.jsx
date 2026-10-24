@@ -159,7 +159,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
             .mockResolvedValueOnce({ data: {}, httpStatus: { httpStatus: 200 } });   // PUT description
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
         await filedThenShown(3901);
-        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('saved');
+        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toMatch(/^\d+(\.\d)? (B|KB)$/);
 
         const [[u1, m1], [u2, m2, capture], [u3, m3, put]] = rest.mock.calls;
         expect([u1, m1]).toEqual(['https://api/darwin_dev/requirements', 'POST']);
@@ -266,7 +266,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
             .toBe('#3902 saved, but its debug capture was not (HTTP 500 boom)'));
         expect(rest).toHaveBeenCalledTimes(2);                  // no description PUT
-        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('not saved');
+        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toMatch(/^\d+(\.\d)? (B|KB)$/);
         // The selection that first send carried is fixed: no category can be dropped now.
         expect(screen.getByTestId('requirement-editor-capture-toggle-storage').disabled).toBe(true);
         const sentBundle = rest.mock.calls[1][2].bundle;
@@ -281,7 +281,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         rest.mockRejectedValueOnce({ data: null, httpStatus: { httpStatus: 409, httpDetail: { errno: 1062 } } })
             .mockResolvedValueOnce({ data: {}, httpStatus: { httpStatus: 200 } });
         fireEvent.click(screen.getByTestId('requirement-editor-capture-retry'));
-        await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('saved'));
+        await waitFor(() => expect(useRequirementFilerStore.getState().captureStage).toBe('done'));
         expect(rest.mock.calls[4][1]).toBe('PUT');
         expect(rest.mock.calls[4][2][0].description).toContain('darwin://requirement-debug/3902');
         expect(screen.queryByTestId('requirement-editor-error')).toBe(null);
@@ -334,10 +334,37 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         rest.mockResolvedValueOnce(ok([{ id: 3905 }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
         await filedThenShown(3905);
-        expect(screen.getByTestId('requirement-editor-capture-status').textContent)
-            .toBe('every category dropped — filed without one');
+        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('0 B');
         expect(rest).toHaveBeenCalledTimes(1);
         expect(rest.mock.calls[0][2]).not.toHaveProperty('description');
+    });
+
+    it('the trash can drops every category at once, and sits between Debug Capture and the size (req #3887)', async () => {
+        renderAll();
+        await pressFile();
+        const toggle = screen.getByTestId('requirement-editor-capture-details-toggle');
+        const trash = screen.getByTestId('requirement-editor-capture-drop-all');
+        const size = screen.getByTestId('requirement-editor-capture-status');
+        expect(toggle.nextElementSibling).toBe(trash);
+        expect(trash.nextElementSibling).toBe(size);
+        expect(trash.disabled).toBe(false);
+        fireEvent.click(trash);
+        const { capture, captureDropped } = useRequirementFilerStore.getState();
+        expect(captureDropped.sort()).toEqual(capture.categories.map(c => c.key).sort());
+        expect(trash.disabled).toBe(true);
+    });
+
+    it('the categories list Filed from first, a dashed rule, then the rest biggest to smallest (req #3887)', async () => {
+        renderAll();
+        await pressFile();
+        fireEvent.click(screen.getByTestId('requirement-editor-capture-details-toggle'));
+        const rows = [...screen.getByTestId('requirement-editor-capture-details').querySelectorAll('ul > li')];
+        expect(rows[0].getAttribute('data-testid')).toBe('requirement-editor-capture-filedFrom');
+        expect(rows[1].getAttribute('data-testid')).toBe('requirement-editor-capture-rule');
+        const sizes = rows.slice(2).map(li => useRequirementFilerStore.getState().capture.categories
+            .find(c => li.getAttribute('data-testid') === `requirement-editor-capture-${c.key}`).bytes);
+        expect(sizes.length).toBe(useRequirementFilerStore.getState().capture.categories.length - 1);
+        expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
     });
 
     it('a + pressed while the last create is still being written keeps its capture (req #3860)', async () => {

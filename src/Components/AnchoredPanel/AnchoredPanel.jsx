@@ -64,8 +64,19 @@
 // rows dropping below the bar. Dragged along the bar it re-locks where dropped
 // (straight out of the rack, too); off the bar it floats again; onto the navbar
 // it racks (the lock is dropped).
+//
+// ── TWO RACKS, AND AN ICON IN A MINIMIZED ONE (req #3886) ──────────────────
+// The navbar and a page's own toolbar are both drop zones at once, and each
+// keeps the panels dropped on it (usePanelRackStore `rackPlacement`): dragged
+// from one onto the other, a panel moves there; folding a bar never moves it.
+// In a MINIMIZED bar (`narrow` — the icon-only navbar, the folded toolbar) a
+// host that names a `rackIcon` is drawn as that ONE icon, like the bar's own
+// nav icons, in a box framed in the panel's own colour: its label is the
+// tooltip, a click runs `onRackIcon` (the Requirement Filer's + files a new
+// requirement) or else unfolds the bar (`slot.expand`), and dragging it moves
+// the panel as its head does. A host without one keeps its head row there.
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 
@@ -122,10 +133,17 @@ const viewport = () => ({
  *   title bar; null = not locked (req #3857)
  * @param {function} [props.onTitleLockChange]  ({side, x} | null); absent =
  *   it never locks into a title bar
+ * @param {React.ElementType} [props.rackIcon]  its icon in a minimized bar
+ *   (req #3886); absent = its head row is drawn there
+ * @param {string} [props.rackIconLabel]  the icon's tooltip; default its name
+ * @param {function} [props.onRackIcon]  the icon's click; default: unfold the bar
+ * @param {function} [props.onRackIconPress]  a press on the icon begins, before
+ *   focus moves (the Filer notes the field being typed in, req #3829)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
     limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, titleLock = null, onTitleLockChange,
+    rackIcon, rackIconLabel, onRackIcon, onRackIconPress,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -142,6 +160,9 @@ export default function AnchoredPanel({
     const { rackPos, inRack, slot, overRack, narrow } = rackApi;
     // What the rack is called on the page: the navbar, or a page's toolbar.
     const rackName = slot?.name || 'navbar';
+    // In a minimized bar, the host's icon stands for the whole panel (req #3886).
+    const asIcon = narrow && !!rackIcon;
+    const iconAction = () => (onRackIcon ? onRackIcon() : slot?.expand?.());
     // Locked into the page's title bar (req #3857): `titlePlace` is where, or
     // null — not locked, racked, or no bar with room drawn — and it floats.
     const titleBar = useTitleBarLock({ lock: titleLock, offered: !!onTitleLockChange, racked: inRack,
@@ -187,7 +208,7 @@ export default function AnchoredPanel({
             // (the drawn height is capped below the pointer anyway).
             r0: { left: r.left + off.left, top: r.top + off.top, width: r.width,
                 height: kind === 'move' && inRack ? Math.min(r.height, limits.headPx) : r.height },
-            last: null, fromRack: inRack,
+            last: null, fromRack: inRack, icon: asIcon,
         };
     };
     // The pointer in Darwin's viewport px — offset when it reports in the
@@ -217,8 +238,8 @@ export default function AnchoredPanel({
         g.last = g.kind === 'move'
             ? moveRect(g.r0, dx, dy, vw, vh)
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
-        // Lifted only off the rack: a reorder inside it is drawn where it is.
-        setLive({ ...g.last, edge: g.edge, lifted: !!g.slotDoc && !rackApi.isOver(x, y, g.fromRack) });
+        // Lifted only off its own rack: a reorder inside it is drawn where it is.
+        setLive({ ...g.last, edge: g.edge, lifted: !!g.slotDoc && !rackApi.isOverOwn(x, y, g.fromRack) });
         if (g.kind === 'move') {
             rackApi.track(x, y, g.fromRack, colors.frame);
             titleBar.track(x, y, colors.frame);
@@ -233,6 +254,8 @@ export default function AnchoredPanel({
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
         setLive(null);
+        // A press on the icon that never moved is its click.
+        if (!g.last && g.icon && e.type === 'pointerup') { rackApi.cancel(); iconAction(); return; }
         // Only a release places it: a cancelled pointer (or capture lost
         // without one) puts the panel back where it was.
         if (!g.last || e.type !== 'pointerup') {
@@ -351,7 +374,7 @@ export default function AnchoredPanel({
     // the navbar sets its width and its rows its height.
     const edges = open && !inRack && !inTitleBar ? RESIZE_EDGES : [];
 
-    const panel = (
+    const panel = !asIcon && (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
              {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
@@ -424,6 +447,38 @@ export default function AnchoredPanel({
             ))}
         </Box>
     );
+    // Its icon in a minimized bar (req #3886): the panel's frame and place in
+    // the stack, holding one icon in a box of its frame colour.
+    const label = rackIconLabel || name;
+    const iconPanel = asIcon && (
+        <Box ref={boxRef} data-testid={testid} data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
+             data-rack-id={rackId} data-racked="1" data-rack-open="0" data-rack-icon="1"
+             {...(onTitleLockChange ? { 'data-title-locked': '0' } : {})}
+             style={{ fontSize: `${fontPx}px`, ...placement }}
+             sx={{ position: racking ? 'relative' : 'fixed', zIndex, display: 'flex', justifyContent: 'center',
+                    py: '2px', boxSizing: 'border-box', userSelect: 'none',
+                    ...(overRack && { opacity: 0.75 }),
+                    ...(racking && { order: rackOrder(rackPos) }) }}>
+            <Box role="button" tabIndex={0} aria-label={label} title={label}
+                 data-testid={`${testid}-rack-icon`}
+                 onPointerDownCapture={onRackIconPress}
+                 // The box in the panel's own frame colour.
+                 style={{ border: `${border}px solid ${colors.frame}` }}
+                 {...gesture('move')}
+                 onKeyDown={(e) => {
+                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); iconAction(); }
+                 }}
+                 sx={{ width: 'min(30px, 100%)', aspectRatio: '1', flex: '0 0 auto',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxSizing: 'border-box', borderRadius: '4px',
+                        background: colors.background, color: colors.frame, outline: 'none',
+                        cursor: moving ? 'grabbing' : 'pointer',
+                        '&:hover, &:focus-visible': { boxShadow: 'inset 0 0 0 99px rgba(255, 255, 255, 0.1)' } }}>
+                {createElement(rackIcon, { sx: { fontSize: 18 } })}
+            </Box>
+        </Box>
+    );
+    const drawnPanel = iconPanel || panel;
     // Lifted out of a rack in another document, it is drawn in Darwin's page.
-    return inRack && !lifted ? rackPortal(panel, slot) : panel;
+    return inRack && !lifted ? rackPortal(drawnPanel, slot) : drawnPanel;
 }
