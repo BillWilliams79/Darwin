@@ -12,7 +12,8 @@
 // schema-driven:
 //
 //   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
-//     DISABLED once editing — re-homing an initiative is `move_initiative`, an
+//     read-only text once editing, req #3800 — re-homing an initiative is
+//     `move_initiative`, an
 //     MCP-only tool with cross-plan-edge checks this page does not
 //     reproduce, matching EpicsPage.jsx's identical rule for its own
 //     `pipeline_fk` field).
@@ -26,6 +27,8 @@
 //   - No orchestration-claim "orchestrated by" badge — not in the
 //     requirement's field matrix; left out deliberately rather than folded
 //     in silently.
+//   - The title bar filters by Pipeline (req #3864), the same select and URL
+//     contract as EpicsPage's (`?pipeline=<id>`), without its Initiative half.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useContext } from 'react';
@@ -40,6 +43,10 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import InputLabel from '@mui/material/InputLabel';
+import FormControl from '@mui/material/FormControl';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -75,6 +82,10 @@ const CLOSED_FILTER_OPTIONS = [
 ];
 
 const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : '');
+
+const ALL_PIPELINES = '';
+
+const parseIdParam = (raw) => (raw && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null);
 
 export default function InitiativesPage() {
     const { idToken, profile } = useContext(AuthContext);
@@ -138,10 +149,26 @@ export default function InitiativesPage() {
     const depCounts = useMemo(() => initiativeDepCounts(initiativeDepRows, initiatives),
         [initiativeDepRows, initiatives]);
     const titleById = useMemo(() => new Map(initiatives.map((i) => [i.id, i.title])), [initiatives]);
+    // ── PIPELINE FILTER (req #3864) ─────────────────────────────────────────────
+    // EpicsPage's contract, Pipeline half only: the URL is the ONLY store, so a
+    // filtered view is a link and a link followed while the page is open
+    // re-filters it. An id that names nothing (stale link, or a plan since
+    // deleted) resolves to "All" for the select AND the filter, so the grid
+    // never filters by a choice the toolbar does not show.
+    const pipelineFilter = parseIdParam(searchParams.get('pipeline'));
+    const activePipeline = pipelineById[pipelineFilter] ? pipelineFilter : ALL_PIPELINES;
+
+    const choosePipeline = (value) => {
+        const next = new URLSearchParams(searchParams);
+        if (value === ALL_PIPELINES) next.delete('pipeline');
+        else next.set('pipeline', String(value));
+        setSearchParams(next, { replace: true, state: location.state });
+    };
 
     const rows = useMemo(() => {
         const visible = initiatives.filter(e => (
             closedFilter.includes(e.closed ? 'closed' : 'open')
+            && (activePipeline === ALL_PIPELINES || e.pipeline_fk === activePipeline)
         ));
         return [...visible]
             .map(e => ({
@@ -156,7 +183,8 @@ export default function InitiativesPage() {
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [initiatives, closedFilter, epicCountByInitiative, pipelineById, depCounts]);
+    }, [initiatives, closedFilter, activePipeline, epicCountByInitiative, pipelineById,
+        depCounts]);
 
     // An initiative write also invalidates the composed plan reads (req #3742), so a
     // plan open elsewhere — or opened next — never draws the pre-save initiative.
@@ -401,6 +429,17 @@ export default function InitiativesPage() {
              data-testid="initiatives-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
                 <Typography variant="h5">Initiatives</Typography>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Pipeline</InputLabel>
+                    <Select label="Pipeline" value={activePipeline}
+                            onChange={(e) => choosePipeline(e.target.value)}
+                            data-testid="initiatives-pipeline-filter">
+                        <MenuItem value={ALL_PIPELINES}>All pipelines</MenuItem>
+                        {pipelineOptions.map(p => (
+                            <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
                 <ChipFilter
                     options={CLOSED_FILTER_OPTIONS}
                     selected={closedFilter}
@@ -449,6 +488,7 @@ export default function InitiativesPage() {
                 open={dialog.open}
                 initiative={dialog.initiative}
                 pipelineOptions={pipelineOptions}
+                defaultPipelineFk={activePipeline === ALL_PIPELINES ? null : activePipeline}
                 // Only once the edges are READ: a field seeded from a read still
                 // in flight would show none and invite a save that drops them.
                 dependencies={dialog.initiative && initiativeDepsLoaded ? {

@@ -66,6 +66,67 @@ describe('AnchoredPanel (req #3643)', () => {
         expect(screen.getByTestId('ap').firstChild).toBe(head);
     });
 
+    // req #3893 — the 2-D thumb double-clicked: the panel fits its content.
+    it('double-clicking a reshape corner fits the panel to its content, capped at the viewport', () => {
+        render(<Harness initialDock={{ ...HOME, w: 200, ht: 150 }} />);
+        const panel = screen.getByTestId('ap');
+        // Drawn at r16, b16, 200×150. Measured with every cap lifted, its
+        // content is 700 wide and 2000 tall.
+        let measuring = null;
+        panel.getBoundingClientRect = () => {
+            if (panel.style.width !== 'max-content') {
+                return { left: 1384, top: 834, width: 200, height: 150, right: 1584, bottom: 984 };
+            }
+            measuring = { maxWidth: panel.style.maxWidth, maxHeight: panel.style.maxHeight,
+                height: panel.style.height, shaped: screen.getByTestId('ap-content').getAttribute('data-w') };
+            return { left: 1384, top: 834, width: 699.4, height: 2000, right: 2083.4, bottom: 2834 };
+        };
+        // A plain edge is no thumb.
+        fireEvent.doubleClick(screen.getByTestId('ap-edge-s'));
+        expect(onDock).not.toHaveBeenCalled();
+        fireEvent.doubleClick(screen.getByTestId('ap-edge-sw'));
+        // The host was told it is content-sized, so a small view gives its rows back.
+        expect(measuring).toEqual({ maxWidth: 'none', maxHeight: 'none', height: '', shaped: 'null' });
+        // Its docked corner (bottom-right) held; the full height of the viewport.
+        expect(onDock).toHaveBeenCalledTimes(1);
+        expect(onDock.mock.calls[0][0]).toEqual({ h: 'r', x: 16, v: 'b', y: 0, w: 700, ht: 1000 });
+        expect(screen.getByTestId('ap-edge-sw').title).toMatch(/double-click to fit/);
+    });
+
+    it('a corner double-click that drifts a pixel is still a fit, not a 1 px reshape', () => {
+        render(<Harness />);
+        const panel = screen.getByTestId('ap');
+        panel.getBoundingClientRect = () => (panel.style.width === 'max-content'
+            ? { left: 1384, top: 834, width: 300, height: 100 }
+            : { left: 1384, top: 834, width: 200, height: 150 });
+        const corner = screen.getByTestId('ap-edge-sw');
+        drag(corner, [1384, 984], [1385, 984]);
+        expect(onDock).not.toHaveBeenCalled();
+        fireEvent.doubleClick(corner);
+        expect(onDock).toHaveBeenCalledTimes(1);
+        expect(onDock.mock.calls[0][0]).toMatchObject({ w: 300, ht: 100 });
+    });
+
+    it('a fit is never narrower than the host\'s full layout (`fitMinW`)', () => {
+        function Fit() {
+            const [dock, setDock] = useState(HOME);
+            return (
+                <AnchoredPanel dock={dock} onDockChange={(d) => { onDock(d); setDock(d || HOME); }}
+                               open onToggle={() => {}} name="Things" testid="fp"
+                               limits={{ ...LIMITS, fitMinW: 260 }} colors={COLORS}>
+                    {() => <div>rows</div>}
+                </AnchoredPanel>
+            );
+        }
+        render(<Fit />);
+        const panel = screen.getByTestId('fp');
+        panel.getBoundingClientRect = () => (panel.style.width === 'max-content'
+            ? { left: 1384, top: 834, width: 180, height: 100 }
+            : { left: 1384, top: 834, width: 200, height: 150 });
+        fireEvent.doubleClick(screen.getByTestId('fp-edge-sw'));
+        expect(onDock.mock.calls[0][0]).toMatchObject({ w: 260, ht: 100 });
+    });
+
     it('toggling pins the panel at its left and top, folds it tight, then re-docks it where it is', () => {
         render(<Harness />);
         // Drawn at its dock: r16, b16 in a 1600×1000 viewport.

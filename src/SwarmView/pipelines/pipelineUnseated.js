@@ -168,6 +168,50 @@ export function unseatedResizedBox(widthPx, fontPx, size) {
     };
 }
 
+/** A fit never asks for more than a stored stretch may hold. */
+const MAX_FIT_WS = 20;
+
+/**
+ * The stretch that FITS the box to its content (req #3893 — a double-click on
+ * the grip or a corner, as every Action Popup does): every title on one line
+ * and the whole list, capped at the room there is. Measured once at the type
+ * it is drawn in; everything but the frame is in em, so the box scales with
+ * the type — and the type is the one the fitted width itself selects (the
+ * three sizes are a function of the width), the current one where it agrees.
+ *
+ * @param {Object} m
+ * @param {number} m.naturalW     the box's width with every title on one line, px
+ * @param {number} m.fixedW       the part of it that is px, not em (frame, edge)
+ * @param {number} m.naturalListH the list's height with every row shown, px
+ * @param {number} m.frameH       everything but the list, px, at the drawn type
+ * @param {number} m.drawnFontPx  the type it was measured in
+ * @param {number} m.step         that type's step (−1, 0, +1)
+ * @param {number} m.widthPx      the zoom width (`unseatedBoxWidthPx`)
+ * @param {number} m.fontPx       the zoom type (`unseatedBoxFontPx`)
+ * @param {number} m.maxW         the widest the box may be drawn, px
+ * @param {number} m.maxH         the tallest the whole box may be drawn, px
+ * @returns {{ws: number, hEm: number}}
+ */
+export function unseatedFitSize({
+    naturalW, fixedW, naturalListH, frameH, drawnFontPx, step, widthPx, fontPx, maxW, maxH,
+}) {
+    const fontAt = (s) => (s > 0 ? fontPx * UNSEATED_TEXT_RATIO : (s < 0 ? fontPx / UNSEATED_TEXT_RATIO : fontPx));
+    const at = (s) => {
+        const k = fontAt(s) / drawnFontPx;
+        // A pixel of slack: a measured width is fractional, a title one px
+        // short of its line wraps.
+        const w = Math.min((naturalW - fixedW) * k + fixedW + 1, maxW);
+        const listH = Math.min(naturalListH * k, Math.max(0, maxH - frameH * k));
+        return { s, ws: w / widthPx, hEm: listH / fontPx };
+    };
+    const fits = [step, 0, 1, -1].map(at).find(c => unseatedTextStep(c.ws) === c.s) || at(0);
+    // Rounded UP to the hundredth: rounded down, the box is drawn a px or two
+    // narrower than its widest title, which wraps.
+    const up = (v) => Math.ceil(v * 100 - 1e-6) / 100;
+    return { ws: up(Math.min(fits.ws, MAX_FIT_WS)),
+        hEm: up(Math.max(UNSEATED_MIN_LIST_EM, fits.hEm)) };
+}
+
 /** The dnd-kit draggable type a box row carries (req #3665), so the canvas's
  *  collision detection answers for a box row and nothing else. */
 export const UNSEATED_DRAG_TYPE = 'unseated-req';

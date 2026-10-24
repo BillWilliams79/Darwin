@@ -79,10 +79,14 @@ describe('AnchoredPanel rack (req #3720)', () => {
         // panel's frame colour, which the navbar glows in once over (req #3728).
         expect(usePanelRackStore.getState().drag).toEqual(
             { id: 'a', fromRack: false, from: null, over: false, rack: null, index: null, color: COLORS.frame });
+        expect(panel.getAttribute('data-dock-cue')).toBe('0');
         moveTo('a', [90, 400]);
         expect(usePanelRackStore.getState().drag).toEqual(
             { id: 'a', fromRack: false, from: null, over: true, rack: 'nav', index: 0, color: COLORS.frame });
+        // req #3893 — over the navbar, the panel shimmers: let go to rack it.
+        expect(panel.getAttribute('data-dock-cue')).toBe('1');
         release('a', [90, 400]);
+        expect(screen.getByTestId('p-a').getAttribute('data-dock-cue')).toBe('0');
 
         expect(usePanelRackStore.getState().drag).toBe(null);
         expect(usePanelRackStore.getState().racked).toEqual(['a']);

@@ -107,6 +107,31 @@ export function dockFromResize(rect, vw, vh, dock, edge) {
     };
 }
 
+/**
+ * Where a panel FITTED TO ITS CONTENT docks (req #3893 — a double-click on a
+ * reshape corner): its natural size, capped at the viewport and never under
+ * the minimum, on the sides it already had — its docked corner held, so it
+ * grows away from it — and moved only as far as it must to stay on screen.
+ * Both axes are shaped, so the size is kept until the reader reshapes it.
+ *
+ * @param {{left, top, width, height}} r0  the panel's rect before the fit.
+ * @param {{width, height}} natural  its content's size, uncapped.
+ * @param {Object} dock   the dock it was drawn from.
+ */
+export function dockToFit(r0, natural, vw, vh, dock, minW, minH) {
+    const width = Math.min(Math.max(Math.ceil(natural.width), minW), vw);
+    const height = Math.min(Math.max(Math.ceil(natural.height), minH), vh);
+    const left = clampTo(dock.h === 'r' ? r0.left + r0.width - width : r0.left, 0, vw - width);
+    const top = clampTo(dock.v === 'b' ? r0.top + r0.height - height : r0.top, 0, vh - height);
+    const right = Math.max(0, vw - left - width);
+    const bottom = Math.max(0, vh - top - height);
+    return {
+        h: dock.h, x: Math.round(dock.h === 'r' ? right : left),
+        v: dock.v, y: Math.round(dock.v === 'b' ? bottom : top),
+        w: width, ht: height,
+    };
+}
+
 /** The rect a head drag moves to, kept whole inside the viewport. */
 export function moveRect(r0, dx, dy, vw, vh) {
     return {

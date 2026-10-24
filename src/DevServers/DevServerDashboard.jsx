@@ -55,7 +55,9 @@ import {
 } from './devServerDashboardModel';
 
 const FONT_PX = ACTION_POPUP_FONT_PX;
-const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX };
+// A fit (req #3893) keeps the layout it measured: titles and the wide pill.
+const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX,
+    fitMinW: DASH_PILL_WIDE_W };
 
 const HALF_SX = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

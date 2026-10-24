@@ -62,6 +62,8 @@ const parseSortOrder = (raw) => {
  * @param {boolean} props.open
  * @param {?Object} props.initiative           the initiative row being edited, or null to create one
  * @param {Object[]} props.pipelineOptions  `{ id, title }` for the Pipeline select
+ * @param {?number} [props.defaultPipelineFk] a new initiative's pipeline (req #3864),
+ *                                          else the first option; ignored on edit
  * @param {function} props.onClose
  * @param {function} props.onSaved          after a successful write, before onClose
  * @param {?Object} [props.dependencies]    req #3823 — editing an EXISTING initiative's
@@ -69,8 +71,10 @@ const parseSortOrder = (raw) => {
  *   (the other initiatives of its plan, a cycle-closing one disabled), `rows`
  *   its own `initiative_deps` rows. Absent, the field is not shown.
  */
-export default function InitiativeEditDialog({ open, initiative, pipelineOptions, onClose, onSaved,
-    dependencies = null }) {
+export default function InitiativeEditDialog({
+    open, initiative, pipelineOptions, defaultPipelineFk, onClose, onSaved,
+    dependencies = null,
+}) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
@@ -92,7 +96,8 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
     }, [categories, initiative]);
 
     const [formPipelineFk, setFormPipelineFk] = useState(
-        initiative ? (initiative.pipeline_fk ?? '') : (pipelineOptions[0]?.id ?? ''));
+        initiative ? (initiative.pipeline_fk ?? '')
+            : (defaultPipelineFk ?? pipelineOptions[0]?.id ?? ''));
     const [formTitle, setFormTitle] = useState(initiative?.title || '');
     const [formDescription, setFormDescription] = useState(initiative?.description || '');
     // A new initiative's category is the first open one, once the list has loaded.
@@ -103,6 +108,10 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
     const [formInitiativeStatus, setFormInitiativeStatus] = useState(
         initiative?.initiative_status === 'paused' ? 'paused' : 'active');
     const [submitting, setSubmitting] = useState(false);
+    const pipelineName = initiative
+        ? (pipelineOptions.find((p) => String(p.id) === String(initiative.pipeline_fk))?.title
+            || `Pipeline ${initiative.pipeline_fk}`)
+        : null;
     // req #3823 — the initiatives this one WAITS FOR: no epic under it launches
     // while any epic under one of them holds open work.
     // The field shows the rows AS THEY ARE until the reader changes it; from
@@ -160,7 +169,7 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
             }
             if (initiative) {
                 // `pipeline_fk` is deliberately never sent here — the field is
-                // disabled once editing (see InitiativesPage's header).
+                // read-only text once editing (see InitiativesPage's header).
                 await updateInitiative(darwinUri, idToken, initiative.id, {
                     title,
                     description: description || REST_NULL,
@@ -209,22 +218,9 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
             <DialogTitle>{initiative ? 'Edit initiative' : 'New initiative'}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
-                    <FormControl fullWidth required disabled={!!initiative}>
-                        <InputLabel>Pipeline</InputLabel>
-                        <Select label="Pipeline" value={formPipelineFk}
-                                onChange={(e) => setFormPipelineFk(e.target.value)}
-                                data-testid="initiative-pipeline-select">
-                            {pipelineOptions.map(p => (
-                                <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    {initiative && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                            An initiative&apos;s plan membership is not editable from this dialog —
-                            use the move tool (MCP `move_initiative`) to re-home it.
-                        </Typography>
-                    )}
+                    {/* req #3800 — the NAME is the first field. A greyed-out Pipeline
+                        select used to open this dialog, captioned with an MCP tool
+                        name, and read as "the name cannot be edited". */}
                     <TextField
                         label="Title"
                         value={formTitle}
@@ -232,6 +228,26 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                         autoFocus required fullWidth
                         slotProps={{ htmlInput: { 'data-testid': 'initiative-title-input', maxLength: 256 } }}
                     />
+                    {initiative ? (
+                        // Its plan is a fact on edit (pipeline_fk is never sent), so
+                        // it is shown as text rather than as a disabled control.
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}
+                                    data-testid="initiative-pipeline-readonly">
+                            Plan: <strong>{pipelineName}</strong> — moving an initiative to
+                            another plan is not done from this editor.
+                        </Typography>
+                    ) : (
+                        <FormControl fullWidth required>
+                            <InputLabel>Pipeline</InputLabel>
+                            <Select label="Pipeline" value={formPipelineFk}
+                                    onChange={(e) => setFormPipelineFk(e.target.value)}
+                                    data-testid="initiative-pipeline-select">
+                                {pipelineOptions.map(p => (
+                                    <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    )}
                     <TextField
                         label="Description"
                         value={formDescription}
