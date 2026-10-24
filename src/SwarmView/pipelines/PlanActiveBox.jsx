@@ -57,7 +57,9 @@ export const ACTIVE_MIN_H = 64;
 export const ACTIVE_TINY_W = 170;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const ACTIVE_AUTO_MAX_W = 420;
-const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX };
+// A fit (req #3893) never lands in the small view, which drops the titles.
+const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX,
+    fitMinW: ACTIVE_TINY_W };
 /** Home: the viewport's bottom-left, just clear of the full-width navbar —
  *  the plan's free corner (the key is a toolbar popup, the Orchestrables box
  *  top-right, the initiative names and — maximized — the full screen switch

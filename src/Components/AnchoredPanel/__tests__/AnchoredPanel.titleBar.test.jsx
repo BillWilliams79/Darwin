@@ -84,7 +84,10 @@ describe('AnchoredPanel locked into the title bar (req #3857)', () => {
         drag([1010, 610], [810, 40], () => {
             expect(bar.getAttribute('data-title-bar-over')).toBe('1');
             expect(bar.style.boxShadow).not.toBe('');
+            // req #3893 — the popup itself says a release would lock it.
+            expect(panel().getAttribute('data-dock-cue')).toBe('1');
         });
+        expect(panel().getAttribute('data-dock-cue')).toBe('0');
         expect(bar.getAttribute('data-title-bar-over')).toBe(null);
         expect(bar.style.boxShadow).toBe('');
         // Dropped with its left at 800: 600 from the bar's left end, nearer the left.

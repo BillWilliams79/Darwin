@@ -26,8 +26,9 @@
 // memory/anchored-collapse-pattern.md) in the Action Popups' own chrome
 // (actionPopupChrome.js): the ▾ head and the REQUIREMENT title, + and × at the
 // far right. It has no badge slot: the title sits against the ▾, and folded
-// the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
-// folded in the rack (user ruling 2026-10-23, req #3830). In a minimized bar
+// the + follows the title — `▸ REQUIREMENT +` — so the filer can live
+// folded in the rack (user ruling 2026-10-23, req #3830); folded, there is no ×
+// (req #3893). In a minimized bar
 // (the icon-only navbar, the folded topology toolbar) it is ONE + in its purple
 // box, and a click on it creates a new requirement as the + does (req #3886). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
@@ -271,7 +272,7 @@ export default function RequirementFiler() {
                        sx={ACTION_POPUP_SX}
                        actions={<>
                            {/* The one way to create (req #3830): after the title folded, far right open. */}
-                           <Box sx={{ mr: '0.3em', display: 'flex' }}
+                           <Box sx={{ mr: open ? '0.3em' : 0, display: 'flex' }}
                                 onPointerDownCapture={notePress}>
                                <ActionPopupAdd onClick={fileRequirement}
                                                label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
