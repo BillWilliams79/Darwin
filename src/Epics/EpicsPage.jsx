@@ -12,7 +12,8 @@
 // dialog for create/edit. Differences from the 1.0 page, all schema-driven:
 //
 //   - The dialog's parent selector is INITIATIVE, not Pipeline (`initiative_fk`,
-//     required, disabled on edit — an epic's initiative is its identity, same
+//     required; read-only text on edit (req #3800) — an epic's initiative
+//     is its identity, same
 //     "delete and recreate to move" doctrine 1.0 states for its own
 //     `pipeline_fk` field).
 //   - `not_before` (nullable TIMESTAMP, one instant, clearable) is a new

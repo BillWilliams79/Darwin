@@ -98,6 +98,10 @@ export default function InitiativeEditDialog({
     const [formInitiativeStatus, setFormInitiativeStatus] = useState(
         initiative?.initiative_status === 'paused' ? 'paused' : 'active');
     const [submitting, setSubmitting] = useState(false);
+    const pipelineName = initiative
+        ? (pipelineOptions.find((p) => String(p.id) === String(initiative.pipeline_fk))?.title
+            || `Pipeline ${initiative.pipeline_fk}`)
+        : null;
 
     const handleSubmit = async () => {
         const title = formTitle.trim();
@@ -132,7 +136,7 @@ export default function InitiativeEditDialog({
         try {
             if (initiative) {
                 // `pipeline_fk` is deliberately never sent here — the field is
-                // disabled once editing (see InitiativesPage's header).
+                // read-only text once editing (see InitiativesPage's header).
                 await updateInitiative(darwinUri, idToken, initiative.id, {
                     title,
                     description: description || REST_NULL,
@@ -165,22 +169,9 @@ export default function InitiativeEditDialog({
             <DialogTitle>{initiative ? 'Edit initiative' : 'New initiative'}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
-                    <FormControl fullWidth required disabled={!!initiative}>
-                        <InputLabel>Pipeline</InputLabel>
-                        <Select label="Pipeline" value={formPipelineFk}
-                                onChange={(e) => setFormPipelineFk(e.target.value)}
-                                data-testid="initiative-pipeline-select">
-                            {pipelineOptions.map(p => (
-                                <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    {initiative && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                            An initiative&apos;s plan membership is not editable from this dialog —
-                            use the move tool (MCP `move_initiative`) to re-home it.
-                        </Typography>
-                    )}
+                    {/* req #3800 — the NAME is the first field. A greyed-out Pipeline
+                        select used to open this dialog, captioned with an MCP tool
+                        name, and read as "the name cannot be edited". */}
                     <TextField
                         label="Title"
                         value={formTitle}
@@ -188,6 +179,26 @@ export default function InitiativeEditDialog({
                         autoFocus required fullWidth
                         slotProps={{ htmlInput: { 'data-testid': 'initiative-title-input', maxLength: 256 } }}
                     />
+                    {initiative ? (
+                        // Its plan is a fact on edit (pipeline_fk is never sent), so
+                        // it is shown as text rather than as a disabled control.
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}
+                                    data-testid="initiative-pipeline-readonly">
+                            Plan: <strong>{pipelineName}</strong> — moving an initiative to
+                            another plan is not done from this editor.
+                        </Typography>
+                    ) : (
+                        <FormControl fullWidth required>
+                            <InputLabel>Pipeline</InputLabel>
+                            <Select label="Pipeline" value={formPipelineFk}
+                                    onChange={(e) => setFormPipelineFk(e.target.value)}
+                                    data-testid="initiative-pipeline-select">
+                                {pipelineOptions.map(p => (
+                                    <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    )}
                     <TextField
                         label="Description"
                         value={formDescription}

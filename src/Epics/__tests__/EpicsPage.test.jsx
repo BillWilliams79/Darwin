@@ -377,10 +377,18 @@ describe('EpicsPage2 create', () => {
 });
 
 describe('EpicsPage2 edit', () => {
-    it('disables the Initiative select once editing', () => {
+    // req #3800 — a greyed-out parent selector opening the dialog read as "the
+    // name cannot be edited". The name leads, enabled; the initiative is text.
+    it('leads with the editable name and shows the initiative as text once editing', () => {
         mount();
         click(node('epic-edit-100'));
-        expect(node('epic-initiative-select').className).toContain('Mui-disabled');
+        const dialog = node('epic-edit-dialog');
+        expect(dialog.querySelector('input:not([type="hidden"]), textarea'))
+            .toBe(node('epic-title-input'));
+        expect(node('epic-title-input').disabled).toBe(false);
+        expect(node('epic-initiative-select')).toBeNull();
+        expect(node('epic-initiative-readonly').textContent).toContain('Core rebuild');
+        expect(dialog.textContent).not.toMatch(/MCP/);
     });
 
     it("clears notes with the REST 'NULL' sentinel", async () => {
