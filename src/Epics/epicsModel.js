@@ -71,9 +71,10 @@ export function gatingRequirementIds2(reqIds, requirements) {
 }
 
 /**
- * The epics whose dependency row references `epicId` — a PREVIEW of the
- * database's ON DELETE RESTRICT answer, not the enforcement (see
- * `epicsApi.js`'s `deleteEpic`). No `time_at` branch to skip: 2.0's
+ * The epics whose dependency row references `epicId` — the edges the epics
+ * table's delete FREES before deleting the epic (req #3877; `dep_epic_fk` is
+ * ON DELETE RESTRICT — see `epicsApi.js`'s `deleteEpicFreeingDependents`).
+ * No `time_at` branch to skip: 2.0's
  * `epic_deps` carries no wall-clock rows — the one time gate lives
  * on the epic itself (`not_before`).
  *
@@ -93,7 +94,7 @@ export function dropBlockers2(epicId, epicDeps) {
 
 /**
  * Every epic, decorated for the editor grid with its plan labels, its
- * gating/tracking split and its delete-blocker preview. Pure CPU over rows already fetched — no
+ * gating/tracking split and the dependents its delete frees. Pure CPU over rows already fetched — no
  * per-epic derivation, no gateway read of its own.
  *
  * @param {Object} args
