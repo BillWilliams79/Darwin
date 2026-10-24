@@ -740,14 +740,22 @@ const KonvaSwarmCanvas = ({
         // ── OUT level: density dots only (one mark per completion) ───────────
         // Each dot keeps the bead's hover datacard + click-to-open (req #3872)
         // — only the glyphs are dropped at this level, not the session details.
+        // req #3876 — an in-flight dot keeps the bead's incomplete look: a single
+        // category-colour ring on the outside, the larger centre clear (the same
+        // gray core the in-flight bead has at Tracks / Detail).
         if (level === 'out') {
             model.placed.forEach((chip) => {
                 const rad = DOT_R_S * 2.25 * inv * (chip.isUndone ? 1 : costMult(chip));
                 const ds = (devServersOn && !chip.isUndone && chip.session)
                     ? devServerBySession.get(String(chip.session.id)) : null;
                 const tipChip = ds ? { ...chip, devServer: ds } : chip;
+                // Capped at 30% of the radius so a small (cost-scaled) dot keeps its large clear centre.
+                const ring = chip.isPhantom ? Math.min(2.2 * inv, rad * 0.3) : 0;
                 nodes.push(<Circle key={chip.chipKey || chip.id} x={xWorld(chip.leftPct)} y={laneY(chip.row)}
-                                   radius={rad} fill={beadFill(chip)} opacity={0.85}
+                                   radius={rad - ring / 2}
+                                   fill={chip.isPhantom ? C.textDim : beadFill(chip)}
+                                   stroke={chip.isPhantom ? beadFill(chip) : undefined}
+                                   strokeWidth={ring} opacity={0.85}
                                    hitStrokeWidth={6 * inv}
                                    onMouseEnter={(e) => { cursorPointer(e, true); showTip(tipChip, e); }}
                                    onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
