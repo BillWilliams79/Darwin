@@ -65,6 +65,7 @@ import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles'
 import { orchestrationBadges } from './orchestrationHolder';
 import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
+import PlanTitle from './PlanTitle';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -282,6 +283,13 @@ export default function PipelineDetail() {
     // for "8" again must bring you back, and a bare value would be unchanged
     // state and do nothing.
     const [epicsAcross, setEpicsAcross] = useState({ n: null, nonce: 0 });
+    // req #3853 — the plan title's zoom reaches the canvas the same way: the
+    // title is in the header, the camera in the panel, and the nonce makes a
+    // second click fire again (it advances the canvas's zoom cycle).
+    const [titleZoom, setTitleZoom] = useState({ deep: false, nonce: 0 });
+    const handleTitleZoom = useCallback(({ deep = false } = {}) => {
+        setTitleZoom((prev) => ({ deep, nonce: prev.nonce + 1 }));
+    }, []);
     // The epic label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -500,6 +508,8 @@ export default function PipelineDetail() {
     if (nonceMode !== activeMode) {
         setNonceMode(activeMode);
         setResetViewNonce(0);
+        // req #3853 — the title's zoom nonce too, for the same reason.
+        setTitleZoom({ deep: false, nonce: 0 });
     }
 
     // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
@@ -1083,52 +1093,15 @@ export default function PipelineDetail() {
                     Rigid, so the plan's name is what clips first; they render
                     only while somebody orchestrates this plan. */}
                 <OrchestrationBadges badges={orchestrationBadgeList} />
-                <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
-                            sx={{ flex: '0 1 auto', minWidth: 0 }}
-                            data-testid="pipeline-title">
-                    {pipeline.title}
-                    {/* A REAL SPACE, not just the margin below (measured —
-                        the first cut had only the margin and the row's
-                        `textContent` read "…Agent Harness4 Initiatives, 73/115…").
-                        The margin is what the eye sees; this is what a
-                        COPY-PASTE carries, and the two must not disagree.
-                        With the tooltip gone (req #3648) the text content
-                        is also the accessible name, so the space reaches a
-                        screen reader too. */}
-                    {countsText && ' '}
-                    {countsText && (
-                        <Box component="span"
-                             data-testid="pipeline-title-counts"
-                             sx={{
-                                 // `em`, so the counts stay in proportion
-                                 // through the `h6`/`h5` breakpoint swap
-                                 // instead of needing a second media query.
-                                 fontSize: '0.62em',
-                                 fontWeight: 400,
-                                 color: 'text.secondary',
-                                 // The gap is a margin rather than a space
-                                 // in the string so it does not collapse
-                                 // against the ellipsis when the line clips.
-                                 ml: 1,
-                                 // NO `whiteSpace` HERE, deliberately. The
-                                 // first cut set `nowrap` to stop a count
-                                 // breaking across the clip ("73/1…"), and
-                                 // that was two mistakes at once: the
-                                 // parent's `noWrap` already inherits down,
-                                 // so it was a no-op, and no `white-space`
-                                 // value could have done it anyway —
-                                 // `text-overflow: ellipsis` clips at the
-                                 // box edge without regard to word or token
-                                 // boundaries. What actually protects the
-                                 // numbers is ORDER: the counts come last,
-                                 // so the name is spent first and the clip
-                                 // reaches them only once the name is
-                                 // already gone.
-                             }}>
-                            {countsText}
-                        </Box>
-                    )}
-                </Typography>
+                {/* req #3853 — the name and its counts carry the initiative
+                    and epic names' gestures (click: the plan's editor; double
+                    click: zoom to the active epics; long press / F2: rename in
+                    place; a click on the counts: active epics ↔ whole plan). */}
+                {/* Keyed on the plan: this page survives an `:id` change, and
+                    a rename or editor left open must not commit to the next plan. */}
+                <PlanTitle key={pipeline.id} pipeline={pipeline} countsText={countsText}
+                           variant={isMobile ? 'h6' : 'h5'} machines={machines}
+                           onZoom={planMaximizable ? handleTitleZoom : null} />
 
                 {/* ── REQUIREMENT LAUNCHER (req #3798) ────────────────────────
                     The Requirements page's title-row "Req #" field, unchanged —
@@ -1323,6 +1296,7 @@ export default function PipelineDetail() {
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              epicsAcross={epicsAcross}
+                             titleZoom={titleZoom}
                              epicWidthLevel={epicWidthLevel}
                              hideClosed={hideClosed}
                              showTimes={showTimes}

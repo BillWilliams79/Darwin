@@ -323,3 +323,27 @@ export function initiativeZoomHint(workIds) {
 export function initiativeSeatedHint(hasCounts) {
     return hasCounts ? ' — the count is requirements seated under this initiative' : '';
 }
+
+// ── THE PLAN TITLE'S ZOOM (req #3853) ───────────────────────────────────────
+// User directive: *"I want the zoom from pipeline title to active epics view.
+// so we identify the epics with active work and frame zoom that."* The plan's
+// name in the page header is the initiative name's control one level up: its
+// first stop frames the plan's ACTIVE work — `activeEpicIds`, the epics-across
+// buttons' own answer (running epics; failing that, unfinished; failing that,
+// every placed epic) — and its second the whole plan, Reset's view. The SAME
+// cycle (`nextInitiativeZoom`) and the SAME state slot as the initiative names,
+// under a key no band can produce: a click on an initiative and then on the
+// title starts the title at the work, and every camera move that ends an
+// initiative's cycle ends this one too, with no second list of clearing sites.
+
+/**
+ * The cycle-state key for a plan's title.
+ * @param {?number} pipelineId
+ * @returns {string}
+ */
+export function planTitleZoomStateKey(pipelineId) {
+    return `plan:${pipelineId == null ? 'none' : pipelineId}`;
+}
+
+/** What the plan title's zoom control says it does. */
+export const PLAN_TITLE_ZOOM_HINT = 'Zoom to the active epics — click again for the whole plan';
