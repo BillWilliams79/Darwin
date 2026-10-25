@@ -41,22 +41,31 @@ const PRESS_CUE = {
  * @param {boolean}[p.disabled]
  * @param {boolean}[p.sortsOutside] keep sorting against its own list when the
  *                                  pointer leaves it (tab strips, card grids)
+ * @param {boolean}[p.handle]      req #3804 — the item lifts ONLY from a grip:
+ *                                  `ref` is the item, `handleRef` the grip, and
+ *                                  the caller spreads `attributes`/`listeners`
+ *                                  on the grip, not the item
  */
 export function useDarwinDrag({
     id, type, containerId, policy, sortMode, row, disabled = false, sortsOutside = false,
+    transition: siblingTransition, handle = false,
 }) {
     const data = useMemo(() => ({
         kind: 'item', type, containerId, policy, sortMode, row, sortsOutside,
     }), [type, containerId, policy, sortMode, row, sortsOutside]);
 
-    const sortable = useSortable({ id, data, disabled });
+    // `siblingTransition` (req #3804): `{duration, easing}` for the slide a
+    // sibling makes out of the way — dnd-kit's own 250ms `ease` when omitted.
+    const sortable = useSortable({
+        id, data, disabled, ...(siblingTransition ? { transition: siblingTransition } : {}),
+    });
     const pressing = usePressStore(s => s.pressedId === id);
     const { setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = sortable;
 
     const ref = useCallback((node) => {
         setNodeRef(node);
-        setActivatorNodeRef(node);
-    }, [setNodeRef, setActivatorNodeRef]);
+        if (!handle) setActivatorNodeRef(node);
+    }, [setNodeRef, setActivatorNodeRef, handle]);
 
     // Translate only: a scale from the sort strategy would squash a card or a
     // row of a different height into its neighbour's slot.
@@ -65,7 +74,8 @@ export function useDarwinDrag({
         transition,
     }), [pressing, transform, transition]);
 
-    return { ...sortable, ref, style, isDragging, pressing };
+    return { ...sortable, ref, handleRef: handle ? setActivatorNodeRef : undefined,
+        style, isDragging, pressing };
 }
 
 /**

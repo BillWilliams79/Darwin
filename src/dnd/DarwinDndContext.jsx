@@ -87,7 +87,15 @@ function setPageDragging(on) {
 export default function DarwinDndContext({
     children, onDragStart, onDragOver, onDragMove, onDragEnd, onDragCancel,
     renderOverlay, liftScale, overlaySx, collisionDetection: customCollision,
+    dropDuration = DROP_ANIMATION.duration, dropEasing = DROP_ANIMATION.easing,
 }) {
+    // req #3804 — a surface whose items travel far (a card grid, corner to
+    // corner) settles the dropped item on its own, slower curve; every other
+    // surface keeps the house 180ms.
+    const dropAnimation = useMemo(() => (
+        dropDuration === DROP_ANIMATION.duration && dropEasing === DROP_ANIMATION.easing
+            ? DROP_ANIMATION : { ...DROP_ANIMATION, duration: dropDuration, easing: dropEasing }),
+    [dropDuration, dropEasing]);
     const sensors = useSensors(
         useSensor(DarwinPointerSensor, POINTER_SENSOR_OPTIONS),
         useSensor(DarwinTouchSensor, TOUCH_SENSOR_OPTIONS),
@@ -150,13 +158,13 @@ export default function DarwinDndContext({
         // the cursor goes back into that text.
         const spot = focusSpotRef.current;
         focusSpotRef.current = null;
-        if (spot) setTimeout(() => restoreLiftFocus(spot), DROP_ANIMATION.duration + 20);
+        if (spot) setTimeout(() => restoreLiftFocus(spot), dropAnimation.duration + 20);
         activeRef.current = null;
         copyRef.current = null;
         liftSizeRef.current = null;
         setPageDragging(false);
         forceRender();
-    }, []);
+    }, [dropAnimation.duration]);
 
     const handleEnd = useCallback((event) => {
         finish();
@@ -188,7 +196,7 @@ export default function DarwinDndContext({
                         onDragEnd={handleEnd}
                         onDragCancel={handleCancel}>
                 {children}
-                <DragOverlay dropAnimation={DROP_ANIMATION} zIndex={1500}
+                <DragOverlay dropAnimation={dropAnimation} zIndex={1500}
                              style={liftSizeRef.current ?? undefined}>
                     {active && overlaySx ? (
                         <Box data-testid="drag-overlay"

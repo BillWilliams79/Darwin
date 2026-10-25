@@ -4,8 +4,10 @@
 // validation, one landing — so the trial between them is a trial of the
 // CONTROL, not of two subtly different behaviours.
 //
-// A created plan is OPENED at once: it is born `draft` and empty, and the plan
-// page is where its first initiative and epic are added (`EmptyPlanAddEpic.jsx`).
+// The header dialog OPENS the created plan at once: it is born `draft` and
+// empty, and the plan page is where its first initiative and epic are added
+// (`EmptyPlanAddEpic.jsx`). The Cards view's in-place card (req #3804) passes
+// `open: false` — the new card stays where it was typed, at the front.
 
 import { useCallback, useContext, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +37,8 @@ export default function useCreatePipeline() {
     // second pipeline.
     const inFlightRef = useRef(false);
 
-    const create = useCallback(async ({ title, description = '', machine_fk = null }) => {
+    const create = useCallback(async ({ title, description = '', machine_fk = null,
+        sort_order = null, open = true }) => {
         if (inFlightRef.current) return false;
         const trimmed = (title ?? '').trim();
         if (!trimmed) {
@@ -54,6 +57,7 @@ export default function useCreatePipeline() {
                 title: trimmed,
                 description: description.trim() || null,
                 machine_fk,
+                sort_order,
             });
             if (id == null) {
                 // Written but not read back — creating again would make a twin.
@@ -61,8 +65,10 @@ export default function useCreatePipeline() {
                     + 'creating it again');
                 return true;
             }
-            const to = planDetailPath(id);
-            if (to) navigate(to);
+            if (open) {
+                const to = planDetailPath(id);
+                if (to) navigate(to);
+            }
             return true;
         } catch (error) {
             showError(error, 'Could not create the pipeline');

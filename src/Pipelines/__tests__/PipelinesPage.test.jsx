@@ -218,9 +218,9 @@ beforeEach(() => {
     };
     pipelines = [
         { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'active',
-          machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
+          sort_order: 0, machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
         { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'draft',
-          locked: 1, machine_fk: null, started_at: null,
+          sort_order: 1, locked: 1, machine_fk: null, started_at: null,
           completed_at: null },
     ];
     machines = [{ id: 4, title: 'Mac mini' }];
@@ -265,22 +265,28 @@ describe('PipelinesPage2 — Cards view (default)', () => {
     // directed away on 2026-08-12 — epic state is not shown at all now, and
     // the requirement tally moved off the title into the accounting line — so
     // leaving them passing would have meant pinning a contract nobody holds.
-    it('accounts for completeness in REQUIREMENTS met, not in epic state', () => {
+    // req #3804 review — ONE plain info block: initiatives, epics, and
+    // requirements closed of total; no badges for them, and no "x of y met"
+    // line restating the block.
+    it('shows initiatives, epics and requirements closed in one info block', () => {
         mount();
-        expect(node('pipelines-card-summary-7').textContent)
-            .toBe('1 of 2 requirements met');
-        // The old line counted epics by `completed_at` — a column req #3752
-        // dropped, since an epic has no state at all (req #3750).
-        expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
-        expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
+        expect(node('pipelines-card-initiatives-7').textContent).toBe('1');
+        expect(node('pipelines-card-epics-7').textContent).toBe('2');
+        expect(node('pipelines-card-requirements-7').textContent).toBe('1 / 2');
+        // req #3804 review — the label is "requirements"; the figure is closed / total.
+        expect(node('pipelines-card-info-7').textContent).toContain('requirements');
+        expect(node('pipelines-card-info-7').textContent).not.toContain('closed');
+        // req #3804 review — "remove the status bar".
+        expect(node('pipelines-card-progress-7')).toBeNull();
+        expect(node('pipelines-card-summary-7')).toBeNull();
+        expect(node('pipelines-card-7').textContent).not.toContain('requirements met');
     });
 
     it('keeps the title to the plan NAME, with the tally in the accounting line', () => {
         mount();
-        expect(node('pipelines-card-7').textContent).toContain('Plan Seven');
-        // The tally used to be glued to the title as a bare " 1/2".
-        expect(node('pipelines-card-7').textContent).not.toContain('Plan Seven 1/2');
-        expect(node('pipelines-card-summary-7').textContent).toContain('1 of 2');
+        // req #3804 — the title is an in-place field; its value is the name alone.
+        expect(node('pipelines-card-title-7').value).toBe('Plan Seven');
+        expect(node('pipelines-card-requirements-7').textContent).toBe('1 / 2');
     });
 
     it('renders no last-viewed decoration at all (req #3365)', () => {
@@ -295,11 +301,12 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-thumb-8')).not.toBeNull();
     });
 
-    it('puts the status chip in the pill row', () => {
+    // req #3804 review — "drop the info blurbs about machine, status".
+    it('carries no status or machine chip', () => {
         mount();
-        const status = node('pipelines-card-status-7');
-        expect(status).not.toBeNull();
-        expect(status.textContent).toBe('active');
+        expect(node('pipelines-card-status-7')).toBeNull();
+        expect(node('pipelines-card-machine-7')).toBeNull();
+        expect(node('pipelines-card-7').textContent).not.toContain('Mac mini');
     });
 
     it('shows the orchestration holder only when a claim covers the plan', () => {
@@ -317,14 +324,24 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-holder-8')).toBeNull();
     });
 
-    it('opens the visualizer when a card is clicked', () => {
+    // req #3804 — a click on the card body is an EDIT now, so the plan opens
+    // from the open button or its picture, and nowhere else.
+    // req #3804 review — the open buttons are gone (beside the title and in
+    // the menu); the picture is the way in.
+    it('opens the visualizer from the picture, and has no open button', () => {
         mount();
-        // Click a DESCENDANT of the CardActionArea, not the outer Card
-        // wrapper — a real click event bubbles from child to parent, never
-        // the reverse, so `.click()` on the Card itself never reaches
-        // CardActionArea's own onClick.
-        click(node('pipelines-card-summary-7'));
-        expect(navigations).toEqual(['/swarm/pipeline/7']);
+        expect(node('pipelines-card-open-7')).toBeNull();
+        click(node('pipelines-card-menu-7'));
+        expect(document.body.textContent).not.toContain('Open plan');
+        click(node('pipelines-card-thumb-8'));
+        expect(navigations).toEqual(['/swarm/pipeline/8']);
+    });
+
+    it('does not navigate when the card body is clicked', () => {
+        mount();
+        click(node('pipelines-card-info-7'));
+        click(node('pipelines-card-title-7'));
+        expect(navigations).toEqual([]);
     });
 });
 
@@ -523,7 +540,7 @@ describe('PipelinesPage2 status chip (Table view)', () => {
 // make this file assert another page's behaviour.
 
 const POST_BODY_DEFAULTS = {
-    pipeline_status: 'draft', locked: 0, started_at: null, completed_at: null,
+    pipeline_status: 'draft', locked: 0, closed: 0, started_at: null, completed_at: null,
 };
 
 describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)', () => {
@@ -545,8 +562,9 @@ describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)'
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/pipelines',
             method: 'POST',
+            // req #3804 — in FRONT of every positioned plan (fixture min 0).
             body: { title: 'Fresh Plan', description: 'Why it exists.',
-                    machine_fk: null, ...POST_BODY_DEFAULTS },
+                    machine_fk: null, sort_order: -1, ...POST_BODY_DEFAULTS },
         }]);
         expect(navigations).toEqual(['/swarm/pipeline/99']);
     });
@@ -573,7 +591,7 @@ describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)'
     });
 });
 
-describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', () => {
+describe('PipelinesPage2 — "+ New pipeline" makes a card in place, at the FRONT (req #3804)', () => {
     it('closes the Cards grid', () => {
         mount();
         const grid = node('pipelines-cards-view');
@@ -589,11 +607,12 @@ describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', (
         expect(node('pipelines-new-card')).not.toBeNull();
     });
 
-    it('turns into a title field, and Enter creates a default draft and opens it', async () => {
+    it('puts an unsaved card FIRST in the grid; Enter writes it in front, without opening it', async () => {
         mount();
         click(node('pipelines-new-card-open'));
+        const grid = node('pipelines-cards-view');
+        expect(grid.firstElementChild.getAttribute('data-testid')).toBe('pipelines-draft-card');
         const input = node('pipelines-new-card-title');
-        expect(input).not.toBeNull();
         type(input, 'Quick Plan');
         await act(async () => { keyDown(input, 'Enter'); });
         await flush();
@@ -601,18 +620,30 @@ describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', (
             uri: 'http://test.local/darwin/pipelines',
             method: 'POST',
             body: { title: 'Quick Plan', description: null,
-                    machine_fk: null, ...POST_BODY_DEFAULTS },
+                    machine_fk: null, sort_order: -1, ...POST_BODY_DEFAULTS },
         }]);
-        expect(navigations).toEqual(['/swarm/pipeline/99']);
+        expect(navigations).toEqual([]);
+        expect(node('pipelines-draft-card')).toBeNull();
     });
 
-    it('Escape folds the field back into the tile without writing', async () => {
+    it('lights the draft status when it was filtered out, so the new card stays visible', async () => {
+        mount();
+        click(node('pipelines-status-chip-draft'));
+        click(node('pipelines-new-card-open'));
+        type(node('pipelines-new-card-title'), 'Hidden?');
+        await act(async () => { keyDown(node('pipelines-new-card-title'), 'Enter'); });
+        await flush();
+        expect(JSON.parse(sessionStorage.getItem('darwin-swarm-pipelines-status-filter')))
+            .toContain('draft');
+    });
+
+    it('Escape takes the unsaved card away without writing', async () => {
         mount();
         click(node('pipelines-new-card-open'));
         type(node('pipelines-new-card-title'), 'Never mind');
         keyDown(node('pipelines-new-card-title'), 'Escape');
         await flush();
-        expect(node('pipelines-new-card-title')).toBeNull();
+        expect(node('pipelines-draft-card')).toBeNull();
         expect(node('pipelines-new-card-open')).not.toBeNull();
         expect(restCalls).toEqual([]);
     });
@@ -629,5 +660,185 @@ describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', (
         await flush();
         expect(node('pipelines-new-card-title').value).toBe('Kept');
         expect(navigations).toEqual([]);
+    });
+});
+
+// ── req #3804 — hand-sorted, closable, edited in place ─────────────────────
+describe('PipelinesPage2 — hand-sorted order (req #3804)', () => {
+    // req #3804 review — a card lifts from its grip only; the rest of the card
+    // is the page's to pan.
+    // req #3804 review — "flip the design": grip/title, the info block and
+    // its bar, then the preview, then the goal.
+    it('stacks the card as title, info block, preview, goal', () => {
+        mount();
+        const card = node('pipelines-card-7');
+        const order = ['pipelines-card-title-7', 'pipelines-card-info-7',
+            'pipelines-card-thumb-7', 'pipelines-card-description-7']
+            .map((id) => card.querySelector(`[data-testid="${id}"]`));
+        for (let i = 1; i < order.length; i += 1) {
+            expect(order[i - 1].compareDocumentPosition(order[i])
+                & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+    });
+
+    it('gives every open card a drag grip, and a closed card an inert one', () => {
+        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', pipeline_status: 'active',
+            closed: 1, sort_order: 2 }];
+        mount();
+        click(node('pipelines-show-closed'));
+        const grip = node('pipelines-card-grip-7');
+        expect(grip.getAttribute('role')).toBe('button');
+        expect(grip.getAttribute('aria-roledescription')).toBeNull();
+        expect(node('pipelines-card-7').getAttribute('data-darwin-drag')).toBe('true');
+        expect(node('pipelines-card-7').getAttribute('role')).toBeNull();
+        expect(node('pipelines-card-grip-9').getAttribute('role')).toBeNull();
+    });
+
+    it('draws the cards in sort_order, not by id', () => {
+        pipelines = [
+            { ...pipelines[0], sort_order: 1 },
+            { ...pipelines[1], sort_order: 0 },
+        ];
+        mount();
+        const cards = [...node('pipelines-cards-view').querySelectorAll('[data-testid^="pipelines-card-"][data-testid$="-7"], [data-testid^="pipelines-card-"][data-testid$="-8"]')]
+            .filter((el) => /^pipelines-card-\d+$/.test(el.getAttribute('data-testid')))
+            .map((el) => el.getAttribute('data-testid'));
+        expect(cards).toEqual(['pipelines-card-8', 'pipelines-card-7']);
+    });
+});
+
+describe('PipelinesPage2 — closed pipelines (req #3804)', () => {
+    beforeEach(() => {
+        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', description: null,
+            pipeline_status: 'active', closed: 1, sort_order: 2, machine_fk: null }];
+    });
+
+    it('hides a closed plan by default, and the Closed chip shows it', () => {
+        mount();
+        expect(node('pipelines-card-9')).toBeNull();
+        expect(node('pipelines-show-closed').textContent).toBe('Closed (1)');
+        expect(node('pipelines-accounting').textContent).toContain('1 closed hidden');
+        click(node('pipelines-show-closed'));
+        expect(node('pipelines-card-9')).not.toBeNull();
+        expect(node('pipelines-card-closed-9')).not.toBeNull();
+    });
+
+    it('closes a plan from its card menu with a one-field PUT', async () => {
+        mount();
+        click(node('pipelines-card-menu-7'));
+        await act(async () => { node('pipelines-card-menu-close-7').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, closed: 1 }],
+        }]);
+    });
+
+    it('reopens a closed plan, and a locked plan can still be closed', async () => {
+        mount();
+        click(node('pipelines-show-closed'));
+        click(node('pipelines-card-menu-9'));
+        await act(async () => { node('pipelines-card-menu-close-9').click(); });
+        await flush();
+        click(node('pipelines-card-menu-8'));
+        await act(async () => { node('pipelines-card-menu-close-8').click(); });
+        await flush();
+        expect(restCalls.map((c) => c.body)).toEqual([[{ id: 9, closed: 0 }], [{ id: 8, closed: 1 }]]);
+    });
+
+    it('says every plan is closed rather than "No pipelines yet"', () => {
+        pipelines = pipelines.map((p) => ({ ...p, closed: 1 }));
+        mount();
+        expect(node('pipelines-cards-empty').textContent).toContain('Every pipeline is closed (3)');
+    });
+
+    it('toggles closed from the Table view without navigating', async () => {
+        mount();
+        switchToTable();
+        click(node('pipelines-closed-chip-7'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 7, closed: 1 }]);
+        expect(navigations).toEqual([]);
+    });
+});
+
+describe('PipelinesPage2 — edit in place (req #3804)', () => {
+    it('saves a renamed title on Enter, sending only the title', async () => {
+        mount();
+        const input = node('pipelines-card-title-7');
+        act(() => { input.focus(); });
+        type(input, 'Plan Seven Renamed');
+        await act(async () => { keyDown(input, 'Enter'); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, title: 'Plan Seven Renamed' }],
+        }]);
+    });
+
+    it('leaving an untouched field writes nothing, even after a poll brought newer text', async () => {
+        const { container } = mount();
+        const input = node('pipelines-card-title-7');
+        act(() => { input.focus(); });
+        // Another writer renamed the plan; the next poll re-renders the page.
+        pipelines = [{ ...pipelines[0], title: 'Renamed Elsewhere' }, pipelines[1]];
+        click(node('pipelines-status-chip-paused'));
+        blur(input);
+        await flush();
+        expect(container).toBeTruthy();
+        expect(restCalls).toEqual([]);
+        expect(node('pipelines-card-title-7').value).toBe('Renamed Elsewhere');
+    });
+
+    it('Escape puts the stored title back without writing', async () => {
+        mount();
+        const input = node('pipelines-card-title-7');
+        act(() => { input.focus(); });
+        type(input, 'Oops');
+        await act(async () => { keyDown(input, 'Escape'); });
+        await flush();
+        expect(restCalls).toEqual([]);
+        expect(node('pipelines-card-title-7').value).toBe('Plan Seven');
+    });
+
+    it('refuses a blank title and writes nothing', async () => {
+        mount();
+        const input = node('pipelines-card-title-7');
+        act(() => { input.focus(); });
+        type(input, '   ');
+        await act(async () => { keyDown(input, 'Enter'); });
+        await flush();
+        expect(restCalls).toEqual([]);
+        expect(useSnackBarStore.getState().message).toMatch(/Title is required/);
+    });
+
+    it('a locked plan\'s title is read-only', () => {
+        mount();
+        expect(node('pipelines-card-title-8').readOnly).toBe(true);
+        expect(node('pipelines-card-title-7').readOnly).toBe(false);
+    });
+
+    it('saves the goal on leaving the field, clearing it with the NULL sentinel', async () => {
+        mount();
+        const goal = node('pipelines-card-description-7');
+        act(() => { goal.focus(); });
+        type(goal, '');
+        blur(goal);
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 7, description: 'NULL' }]);
+    });
+
+    it('changes the machine from the card menu', async () => {
+        mount();
+        // Plan 8 is locked: its Machine item is disabled.
+        click(node('pipelines-card-menu-8'));
+        expect(node('pipelines-card-menu-machine-8').getAttribute('aria-disabled')).toBe('true');
+        click(node('pipelines-card-menu-7'));
+        click(node('pipelines-card-menu-machine-7'));
+        await act(async () => { node('pipelines-card-machine-option-7-any').click(); });
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 7, machine_fk: 'NULL' }]);
     });
 });

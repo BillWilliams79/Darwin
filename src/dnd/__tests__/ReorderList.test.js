@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { defineDropPolicy } from '../dropPolicy';
-import { resolveReorder } from '../ReorderList';
+import { resolveReorder, slideDuration } from '../ReorderList';
 
 const POLICY = defineDropPolicy({
     accepts: ['area'], reorderAllowed: () => true, isTarget: (r) => r.closed === 0 && r.id !== '',
@@ -36,5 +36,19 @@ describe('resolveReorder', () => {
 
     it('a row of another list is not a position', () => {
         expect(drop('area:1', item('area:2', 'other'))).toBeNull();
+    });
+});
+
+// req #3804 review — a slide's time grows with the distance it covers.
+describe('slideDuration', () => {
+    const motion = { duration: 360, perPx: 0.6, maxDuration: 1100 };
+    it('adds time per pixel, so a long reach is slower than a short one', () => {
+        expect(slideDuration(0, motion)).toBe(360);
+        expect(slideDuration(420, motion)).toBe(612);
+        expect(slideDuration(1000, motion)).toBe(960);
+    });
+    it('caps at maxDuration and is the base without perPx', () => {
+        expect(slideDuration(5000, motion)).toBe(1100);
+        expect(slideDuration(800, { duration: 250 })).toBe(250);
     });
 });

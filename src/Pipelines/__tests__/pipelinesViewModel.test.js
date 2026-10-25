@@ -4,7 +4,10 @@
 // DOM needed.
 
 import { describe, it, expect } from 'vitest';
-import { pipelineSummaries, pipelineRequirementCounts } from '../pipelinesViewModel';
+import {
+    pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
+    reorderPipelines, isClosedPipeline,
+} from '../pipelinesViewModel';
 
 const pipelines = [{ id: 7 }, { id: 8 }];
 const initiatives = [
@@ -22,21 +25,21 @@ describe('pipelineSummaries', () => {
     // done/open tally.
     it('counts epics per pipeline via initiative_fk -> pipeline_fk', () => {
         const out = pipelineSummaries({ pipelines, epics, initiatives });
-        expect(out.get(7)).toEqual({ total: 2, initiativeDeps: 0 });
-        expect(out.get(8)).toEqual({ total: 1, initiativeDeps: 0 });
+        expect(out.get(7)).toEqual({ total: 2, initiatives: 1, initiativeDeps: 0 });
+        expect(out.get(8)).toEqual({ total: 1, initiatives: 1, initiativeDeps: 0 });
     });
 
     it('seeds an entry for every pipeline, even one with no epics', () => {
         const out = pipelineSummaries({ pipelines: [...pipelines, { id: 9 }], epics, initiatives });
-        expect(out.get(9)).toEqual({ total: 0, initiativeDeps: 0 });
+        expect(out.get(9)).toEqual({ total: 0, initiatives: 0, initiativeDeps: 0 });
     });
 
     it('drops an epic whose initiative is unresolved rather than crashing', () => {
         const out = pipelineSummaries({
             pipelines, epics: [...epics, { id: 999, initiative_fk: 12345 }], initiatives,
         });
-        expect(out.get(7)).toEqual({ total: 2, initiativeDeps: 0 });
-        expect(out.get(8)).toEqual({ total: 1, initiativeDeps: 0 });
+        expect(out.get(7)).toEqual({ total: 2, initiatives: 1, initiativeDeps: 0 });
+        expect(out.get(8)).toEqual({ total: 1, initiatives: 1, initiativeDeps: 0 });
     });
 });
 
@@ -53,14 +56,24 @@ describe('pipelineRequirementCounts', () => {
     it('counts met vs total from stored requirement_status, no derivation', () => {
         const out = pipelineRequirementCounts({
             pipelines, epics, initiatives, epicRequirements, requirements });
-        expect(out.get(7)).toEqual({ met: 1, total: 2 });
-        expect(out.get(8)).toEqual({ met: 0, total: 0 });
+        expect(out.get(7)).toEqual({ met: 1, closed: 1, total: 2 });
+        expect(out.get(8)).toEqual({ met: 0, closed: 0, total: 0 });
+    });
+
+    // req #3804 — "requirements closed" is every terminal status.
+    it('counts deferred and wontfix as closed, but not as met', () => {
+        const out = pipelineRequirementCounts({
+            pipelines, epics, initiatives, epicRequirements,
+            requirements: [{ id: 900, requirement_status: 'deferred' },
+                           { id: 901, requirement_status: 'wontfix' }],
+        });
+        expect(out.get(7)).toEqual({ met: 0, closed: 2, total: 2 });
     });
 
     it('seeds {met:0,total:0} for a plan with no linked requirements', () => {
         const out = pipelineRequirementCounts({
             pipelines, epics, initiatives, epicRequirements: [], requirements });
-        expect(out.get(7)).toEqual({ met: 0, total: 0 });
+        expect(out.get(7)).toEqual({ met: 0, closed: 0, total: 0 });
     });
 
     it('treats an unresolved requirement id as not-met rather than throwing', () => {
@@ -69,6 +82,56 @@ describe('pipelineRequirementCounts', () => {
             epicRequirements: [{ epic_fk: 500, requirement_fk: 99999 }],
             requirements,
         });
-        expect(out.get(7)).toEqual({ met: 0, total: 1 });
+        expect(out.get(7)).toEqual({ met: 0, closed: 0, total: 1 });
+    });
+});
+
+// req #3804 — hand-sorted cards and closed plans.
+describe('orderPipelines', () => {
+    it('puts unpositioned (new, MCP-made) plans first, then sort_order, newest first among equals', () => {
+        const rows = [{ id: 1, sort_order: 2 }, { id: 2, sort_order: null }, { id: 3, sort_order: 0 },
+            { id: 4 }, { id: 5, sort_order: '1' }];
+        expect(orderPipelines(rows).map((p) => p.id)).toEqual([4, 2, 3, 5, 1]);
+    });
+});
+
+describe('frontSortOrder', () => {
+    it('is one below the smallest position', () => {
+        expect(frontSortOrder([{ sort_order: 3 }, { sort_order: -2 }, { sort_order: null }])).toBe(-3);
+    });
+    it('is 0 when nothing is positioned', () => {
+        expect(frontSortOrder([])).toBe(0);
+        expect(frontSortOrder([{ sort_order: null }])).toBe(0);
+    });
+});
+
+describe('reorderPipelines', () => {
+    const ordered = [{ id: 10, sort_order: 0 }, { id: 11, sort_order: 1 },
+        { id: 12, sort_order: 2 }, { id: 13, sort_order: 3 }];
+
+    it('moves the dragged plan to the target\'s place and writes only what moved', () => {
+        const move = reorderPipelines(ordered, 13, 11);
+        expect(move.rows.map((p) => p.id)).toEqual([10, 13, 11, 12]);
+        expect(move.writes).toEqual([
+            { id: 13, sort_order: 1 }, { id: 11, sort_order: 2 }, { id: 12, sort_order: 3 }]);
+    });
+
+    it('renumbers unpositioned and negative plans too', () => {
+        const move = reorderPipelines([{ id: 1, sort_order: -1 }, { id: 2, sort_order: 0 },
+            { id: 3, sort_order: null }], 3, 2);
+        expect(move.writes).toEqual([
+            { id: 1, sort_order: 0 }, { id: 3, sort_order: 1 }, { id: 2, sort_order: 2 }]);
+    });
+
+    it('is null for a no-op or an unknown id', () => {
+        expect(reorderPipelines(ordered, 11, 11)).toBeNull();
+        expect(reorderPipelines(ordered, 99, 11)).toBeNull();
+    });
+});
+
+describe('isClosedPipeline', () => {
+    it('reads the flag, not its spelling', () => {
+        expect([0, '0', null, undefined, 1, '1', true].map((closed) => isClosedPipeline({ closed })))
+            .toEqual([false, false, false, false, true, true, true]);
     });
 });

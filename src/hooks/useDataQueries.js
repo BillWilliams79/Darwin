@@ -354,7 +354,8 @@ export function useRequirementsDone(creatorFk, startStr, endStr, { fields = 'id,
     });
 }
 
-export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = true } = {}) {
+export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = true,
+    refetchInterval } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -370,6 +371,7 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
+        ...(refetchInterval !== undefined ? { refetchInterval } : {}),
     });
 }
 
@@ -1071,7 +1073,7 @@ export const engineKeys = {
 // is a real object — `null` and `undefined` are both "nothing to derive from
 // yet" at the fetch layer, same as `!pipeline` was for the 1.0 list lookup
 // this replaces.
-export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
+export function useComposedPipeline(pipelineId, { enabled = true, refetchInterval } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const validId = Number.isFinite(pipelineId);
@@ -1099,6 +1101,7 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
             }
         },
         enabled: enabled && validId && !!idToken,
+        ...(refetchInterval !== undefined ? { refetchInterval } : {}),
     });
 }
 

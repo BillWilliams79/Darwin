@@ -1,213 +1,486 @@
-// PipelinesCardsView.jsx — the Cards view of /swarm/pipelines (req #3393).
+// PipelinesCardsView.jsx — the Cards view of /swarm/pipelines (req #3393),
+// EDITED IN PLACE and HAND-SORTED by drag since req #3804.
 //
-// Adapted from `Darwin/src/SwarmView/pipelines/PipelineCardsView.jsx`, not
-// imported: the two eras share no COMPONENT (PLAN.md's file-isolation rule),
-// but this one reuses several of that file's own dependencies directly —
-// `pipelineStatusChipProps`, `machineTitle`, `pipelinesEmptyMessage`,
-// `claimForPipeline`/`holderView` — because those are pure, era-agnostic
-// vocabulary functions, and req #3463 already established importing them
-// straight from the 1.0 files as the convention rather than duplicating them.
+// ── EVERY CARD IS ITS OWN EDITOR (req #3804) ────────────────────────────────
+// The plan's title and goal are text on the card that becomes a field when
+// clicked; Enter / leaving the field saves, Esc puts the stored text back. The
+// card's menu sets the machine, locks and unlocks, and closes or reopens the
+// plan. The plan itself OPENS from its picture — the card body no longer
+// navigates, because a click on it is now an edit, and the open buttons that
+// stood beside the title and in the menu went in the req #3804 review.
+//
+// ── WHAT THE CARD SAYS (req #3804 review) ───────────────────────────────────
+// Grip and name, then ONE plain info block — initiatives, epics, requirements
+// closed / total (labelled just "requirements"), in large figures — right
+// above the whole plan drawn small, then the goal. No badges for those
+// figures, no status or machine chips, no "x of y met" line and no progress
+// bar restating the block (the bar went in the last review). The chips that remain are states a reader must not
+// miss: closed, locked, and who is orchestrating it.
+//
+// What is NOT editable here is the lifecycle (`pipeline_status`): its
+// transitions carry started_at/completed_at side effects, and the plan is
+// started, paused and stopped by the `/pipeline-*` commands.
+//
+// ── THE ORDER IS THE READER'S (req #3804) ───────────────────────────────────
+// The grid is one ReorderList: a card lifts from its GRIP, left of its title
+// (a hold, or a 4px mouse move), the cards around it slide aside, and the drop
+// writes every moved card's `sort_order`. Everywhere else a mouse press and
+// drag PANS the page, as on the map and 3D views (`useGrabScroll`) — so the
+// grid is something you take hold of and move through, and a card moves only
+// when its grip is what you took hold of. A closed card is shown (when "Closed" is lit) but is not a
+// position — it neither lifts nor takes a drop. "+ New pipeline" at the END
+// of the grid puts an unsaved card at the FRONT, where the plan it makes will
+// stand.
 //
 // ── COMPLETENESS IS MEASURED ON REQUIREMENTS, NOT ON EPICS (req #3365) ──────
-// User directive: *"let's just drop deriving and showing the epic value and
-// place our level of completeness on requirements for now … requirements have
-// meaning and actual status values."*
-//
-// The card used to draw a two-state done/open bar over EPICS, counted by
-// `if (epic.completed_at)`. That was never a state an epic reliably had:
-// `epics` carries no status column at all, `completed_at` was stamped
-// only where an epic had NO gating requirements — and since req #3750 an epic
-// has no state whatsoever (req #3752 dropped the column; an epic only holds
-// requirements). Measured on plan 7: **0 of 71 epics carried
-// one**, so the card read "0 complete · 71 open" for a plan whose real state
-// was 49 done / 21 pending / 1 running.
-//
-// A REQUIREMENT'S STATUS IS STORED, so counting it is a join rather than a
-// derivation — `pipelineRequirementCounts` needs no engine, no second
-// implementation of design rule 1, and cannot drift from the server's answer
-// because it is not answering the same question. The epic COUNT stays on the
-// card (a count is honest); only the epic STATE is gone.
+// An epic has no state (req #3750); a requirement's status is stored, so the
+// card counts CLOSED requirements (met, deferred, wontfix — req #3804) — a
+// join, not a derivation.
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
-import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
+import IconButton from '@mui/material/IconButton';
+import InputBase from '@mui/material/InputBase';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import Check from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
+import ComputerIcon from '@mui/icons-material/Computer';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import UnarchiveIcon from '@mui/icons-material/Unarchive';
 
-import {
-    pipelineStatusChipProps,
-    lockedChipProps,
-    lockedLabel,
-} from '../SwarmView/pipelines/pipelineChipStyles';
+import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
+import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
-import NewPipelineCard from './NewPipelineCard';
+import { NewPipelineTile, NewPipelineDraftCard } from './NewPipelineCard';
+import { pipelineEditFields } from './PipelineEditDialog';
+import { isClosedPipeline } from './pipelinesViewModel';
+import useGrabScroll from '../hooks/useGrabScroll';
 
-const EMPTY_SUMMARY = { total: 0, initiativeDeps: 0 };
+const EMPTY_SUMMARY = { total: 0, initiatives: 0, initiativeDeps: 0 };
+const LIST_ID = 'pipelines-cards';
+const CARD_TYPE = 'pipeline-card';
+const ANY_MACHINE = '';
 
-// `lastOpenedId` is GONE (req #3365 user directive — "Remove 'last viewed'
-// entirely"). It drove a chip in the title row AND a primary-coloured border
-// on the whole card; both are removed, so the prop is dropped rather than left
-// accepted-and-ignored. The RESUME behaviour it decorated is untouched —
-// `pipelinePlace.js` still records the plan and `/swarm/pipelines` still
-// redirects to it; what is gone is the card advertising which one it was.
+const cardItemId = (p) => `pipeline-card:${p.id}`;
+// A closed plan is shown, never a position.
+const isOrderable = (p) => !isClosedPipeline(p);
+const isLocked = (p) => Boolean(Number(p?.locked ?? 0));
+
+// req #3804 review — "feels too fast especially corner to corner … smooth".
+// dnd-kit's own 250ms `ease` is tuned for a list row moving one slot; in a
+// card grid a sibling can travel a whole row and back, and at that speed a
+// pass across the grid reads as frenetic. Longer, with an ease-out that
+// spends most of its time decelerating, the cards glide into place.
+//
+// And a second review: *"the longer reach transitions the cards are hauling
+// ass"* — so a slide's time now grows with its distance: 360ms for no
+// distance, +0.6ms a pixel, at most 1100ms. A card stepping one slot aside
+// (~420px) takes ~610ms; one crossing the grid corner to corner (~1000px+)
+// takes ~1s instead of covering it in the same 420ms.
+const CARD_MOTION = Object.freeze({
+    duration: 360, perPx: 0.6, maxDuration: 1100,
+    easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+});
+
+// The lifted card: the card itself on paper with a light shadow, as every
+// ReorderList row lifts (ROW_LIFT_SX), rounded to the card's corners.
+const CARD_LIFT_SX = { bgcolor: 'background.paper', boxShadow: 6, opacity: 0.9, borderRadius: 1 };
+
+/**
+ * Text on the card that is a field when clicked. Saves on Enter (Ctrl/Cmd +
+ * Enter in a multi-line field) or on leaving it; Esc restores the stored text.
+ * While it has focus a refetch never overwrites what is being typed.
+ *
+ * `onCommit(text)` resolves true when the save landed; false puts the stored
+ * text back.
+ */
+function InlineText({ value, onCommit, readOnly = false, multiline = false, placeholder,
+    testId, sx, maxLength }) {
+    const stored = value ?? '';
+    const [draft, setDraft] = useState(stored);
+    // `editing` spans the focus AND the save that follows it, so neither a
+    // poll nor the optimistic patch repaints the field until the write settles.
+    const [editing, setEditing] = useState(false);
+    const cancelRef = useRef(false);
+    // What the field held when it was focused. Leaving it UNCHANGED writes
+    // nothing, even if a poll has since brought newer stored text — comparing
+    // against `stored` there would write the stale draft back over it.
+    const atFocusRef = useRef(stored);
+
+    useEffect(() => { if (!editing) setDraft(stored); }, [stored, editing]);
+
+    const finish = async (event) => {
+        const lift = isLiftBlur(event);
+        if (cancelRef.current || lift || draft.trim() === atFocusRef.current.trim()) {
+            cancelRef.current = false;
+            setEditing(false);
+            setDraft(stored);
+            return;
+        }
+        const ok = await onCommit(draft);
+        if (!ok) setDraft(stored);
+        setEditing(false);
+    };
+
+    return (
+        <InputBase
+            value={draft}
+            readOnly={readOnly}
+            multiline={multiline}
+            fullWidth
+            placeholder={readOnly ? undefined : placeholder}
+            onFocus={() => { atFocusRef.current = draft; setEditing(true); }}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={finish}
+            onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelRef.current = true;
+                    e.target.blur?.();
+                } else if (e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    e.target.blur?.();
+                }
+            }}
+            inputProps={{ 'data-testid': testId, maxLength }}
+            sx={[{
+                borderRadius: 0.5,
+                px: 0.5,
+                mx: -0.5,
+                ...(!readOnly && { '&:hover': { bgcolor: 'action.hover' } }),
+                '&.Mui-focused': { bgcolor: 'action.selected' },
+            }, ...(Array.isArray(sx) ? sx : [sx])]}
+        />
+    );
+}
+
+/** One figure of the card's info block: the number over its name. */
+function Stat({ value, label, testId }) {
+    return (
+        <Box sx={{ minWidth: 0 }}>
+            {/* The plan's top-line numbers — sized to POP (req #3804 review:
+                "make the numbers quite a bit larger keeping the text the same"). */}
+            <Typography sx={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1,
+                              letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}
+                        data-testid={testId}>
+                {value}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                {label}
+            </Typography>
+        </Box>
+    );
+}
+
+function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
+    refetchInterval }) {
+    const { ref, style, isDragging, handleProps, rowProps } =
+        useReorderItem(cardItemId(p), p);
+    const closed = isClosedPipeline(p);
+    const locked = isLocked(p);
+    const s = summary || EMPTY_SUMMARY;
+    const reqs = counts || { closed: 0, total: 0 };
+
+    const [menuAnchor, setMenuAnchor] = useState(null);
+    const [machineAnchor, setMachineAnchor] = useState(null);
+    const menuButtonRef = useRef(null);
+
+    // The title, goal and machine go through the plan editor's own rule: only
+    // what changed is sent, a blank title is refused, `NULL` is never typed.
+    const save = (form) => {
+        const { fields, problem } = pipelineEditFields(p, {
+            title: p.title,
+            description: p.description ?? '',
+            machineFk: p.machine_fk ?? ANY_MACHINE,
+            ...form,
+        });
+        if (problem) return onUpdate(p, null, problem);
+        if (!Object.keys(fields).length) return Promise.resolve(true);
+        return onUpdate(p, fields);
+    };
+
+    const machineOptions = machines.filter((m) => !m.closed || m.id === p.machine_fk);
+
+    return (
+        <Card
+            ref={ref}
+            style={style}
+            {...rowProps}
+            variant="outlined"
+            data-testid={`pipelines-card-${p.id}`}
+            data-closed={closed ? 'true' : undefined}
+            sx={(theme) => ({
+                // The card is not the grip — only the lifted gap's look applies.
+                ...reorderRowSx(theme, { draggable: false, isDragging }),
+                ...(closed && { opacity: 0.6, borderStyle: 'dashed' }),
+            })}
+        >
+            <CardContent sx={{ pb: '16px !important' }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, mb: 0.25 }}>
+                    {/* THE GRIP (req #3804) — the one place a card lifts from. A
+                        closed card is not a position: its grip is drawn dim and
+                        does nothing, so every title still starts at one x. */}
+                    {/* No touch listener: MUI's touch-hold tooltip fires mid-drag
+                        and restores the body's user-select under the lift. */}
+                    <Tooltip title={isDragging ? ''
+                                 : handleProps ? 'Drag to reorder' : 'Closed — not a position in the order'}
+                             placement="top" disableTouchListener>
+                        <Box
+                            {...(handleProps || {})}
+                            data-drag-handle="true"
+                            data-testid={`pipelines-card-grip-${p.id}`}
+                            sx={(theme) => ({
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                width: 22, height: 30, ml: -1, flexShrink: 0, borderRadius: 1,
+                                color: 'text.disabled',
+                                ...(handleProps ? {
+                                    cursor: 'grab',
+                                    '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' },
+                                    '&:focus-visible': {
+                                        outline: `2px solid ${theme.palette.primary.main}`,
+                                        outlineOffset: -2,
+                                    },
+                                } : { opacity: 0.4 }),
+                            })}
+                        >
+                            <DragIndicatorIcon fontSize="small" />
+                        </Box>
+                    </Tooltip>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Tooltip title={locked ? 'Locked — unlock to rename' : ''} placement="top-start">
+                            <span>
+                                <InlineText
+                                    value={p.title}
+                                    readOnly={locked}
+                                    maxLength={256}
+                                    testId={`pipelines-card-title-${p.id}`}
+                                    onCommit={(title) => save({ title })}
+                                    sx={{ fontSize: 18, fontWeight: 600 }}
+                                />
+                            </span>
+                        </Tooltip>
+                    </Box>
+                    <IconButton size="small" ref={menuButtonRef}
+                                onClick={(e) => setMenuAnchor(e.currentTarget)}
+                                aria-label="Pipeline card menu"
+                                data-testid={`pipelines-card-menu-${p.id}`}>
+                        <MoreVertIcon fontSize="small" />
+                    </IconButton>
+                    <Menu anchorEl={menuAnchor} open={!!menuAnchor}
+                          onClose={() => setMenuAnchor(null)}
+                          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                          transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+                        {/* The machine lives here since the card stopped
+                            carrying it as a chip (req #3804 review). */}
+                        <MenuItem disabled={locked}
+                                  onClick={() => { setMenuAnchor(null); setMachineAnchor(menuButtonRef.current); }}
+                                  data-testid={`pipelines-card-menu-machine-${p.id}`}>
+                            <ListItemIcon><ComputerIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText primary="Machine"
+                                          secondary={machineTitle(p.machine_fk, machines)} />
+                        </MenuItem>
+                        <MenuItem onClick={() => { setMenuAnchor(null); onUpdate(p, { locked: locked ? 0 : 1 }); }}
+                                  data-testid={`pipelines-card-menu-lock-${p.id}`}>
+                            <ListItemIcon>
+                                {locked ? <LockOpenIcon fontSize="small" /> : <LockIcon fontSize="small" />}
+                            </ListItemIcon>
+                            <ListItemText>{locked ? 'Unlock' : 'Lock'}</ListItemText>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => { setMenuAnchor(null); onUpdate(p, { closed: closed ? 0 : 1 }); }}
+                                  data-testid={`pipelines-card-menu-close-${p.id}`}>
+                            <ListItemIcon>
+                                {closed ? <UnarchiveIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
+                            </ListItemIcon>
+                            <ListItemText
+                                primary={closed ? 'Reopen pipeline' : 'Close pipeline'}
+                                secondary={closed ? 'Shown again; orchestratable again'
+                                    : 'Hidden, and no engine launches its work'} />
+                        </MenuItem>
+                    </Menu>
+                    <Menu anchorEl={machineAnchor} open={!!machineAnchor}
+                          onClose={() => setMachineAnchor(null)}
+                          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                          transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+                        {[{ id: ANY_MACHINE, title: 'Any' }, ...machineOptions].map((m) => {
+                            const selected = (p.machine_fk ?? ANY_MACHINE) === m.id;
+                            return (
+                                <MenuItem key={m.id === ANY_MACHINE ? 'any' : m.id}
+                                          selected={selected}
+                                          onClick={() => { setMachineAnchor(null); save({ machineFk: m.id }); }}
+                                          data-testid={`pipelines-card-machine-option-${p.id}-${m.id === ANY_MACHINE ? 'any' : m.id}`}>
+                                    <ListItemText>{m.title || `Machine ${m.id}`}</ListItemText>
+                                    {selected && <Check fontSize="small" sx={{ ml: 1 }} />}
+                                </MenuItem>
+                            );
+                        })}
+                    </Menu>
+                </Box>
+
+                {/* THE INFO BLOCK (req #3804 review: "not badges … just a
+                    simple info block") — three figures straight under the
+                    title, the top-line numbers of the plan, right above the
+                    preview. */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                           columnGap: 2, mt: 0.5, mb: 1.5 }}
+                     data-testid={`pipelines-card-info-${p.id}`}>
+                    <Stat value={s.initiatives} testId={`pipelines-card-initiatives-${p.id}`}
+                          label={s.initiatives === 1 ? 'initiative' : 'initiatives'} />
+                    <Stat value={s.total} testId={`pipelines-card-epics-${p.id}`}
+                          label={s.total === 1 ? 'epic' : 'epics'} />
+                    <Stat value={`${reqs.closed} / ${reqs.total}`}
+                          testId={`pipelines-card-requirements-${p.id}`}
+                          label="requirements" />
+                </Box>
+
+                {/* THE WHOLE PLAN, SMALL (req #3804) — and the way in: a click
+                    on the picture opens the plan it draws. */}
+                <Tooltip title="Open the plan" placement="top" enterDelay={600}>
+                    <Box onClick={() => onOpen(p.id)} sx={{ cursor: 'pointer' }}
+                         data-testid={`pipelines-card-thumbnail-${p.id}`}>
+                        <PipelinePlanThumbnail pipelineId={p.id} machines={machines}
+                                               refetchInterval={refetchInterval} />
+                    </Box>
+                </Tooltip>
+
+                <Box>
+                    <InlineText
+                        value={p.description}
+                        readOnly={locked}
+                        multiline
+                        placeholder="Add a goal…"
+                        testId={`pipelines-card-description-${p.id}`}
+                        onCommit={(description) => save({ description })}
+                        sx={{ fontSize: 14, color: 'text.secondary' }}
+                    />
+                </Box>
+
+                {(closed || locked || holder) && (
+                    <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
+                        {closed && (
+                            <Tooltip title="Closed — hidden by default, and no engine launches its work. Reopen it from the card menu.">
+                                <Chip size="small" label="closed" color="default"
+                                      data-testid={`pipelines-card-closed-${p.id}`} />
+                            </Tooltip>
+                        )}
+                        {/* req #3649 — shown only on a locked plan; a click
+                            unlocks it in place. Locking is in the card menu. */}
+                        {locked && (
+                            <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record. Click to unlock.">
+                                <Chip size="small"
+                                      {...lockedChipProps(p.locked)}
+                                      label={lockedLabel(p.locked)}
+                                      clickable
+                                      onClick={() => onUpdate(p, { locked: 0 })}
+                                      data-testid={`pipelines-card-locked-${p.id}`} />
+                            </Tooltip>
+                        )}
+                        {holder && (
+                            <Tooltip title={holder.title}>
+                                <Chip size="small"
+                                      color={holder.stale ? 'warning' : 'success'}
+                                      variant={holder.stale ? 'outlined' : 'filled'}
+                                      label={holder.label}
+                                      data-testid={`pipelines-card-holder-${p.id}`} />
+                            </Tooltip>
+                        )}
+                    </Stack>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
+
+/**
+ * @param {Object}   props
+ * @param {Object[]} props.pipelines   the cards to draw, in display order
+ * @param {(fromId, toId) => void} props.onReorder   a card dropped on another's place
+ * @param {(row, fields, problem?) => Promise<boolean>} props.onUpdate  an in-place edit
+ * @param {(title) => Promise<boolean>} props.onCreate  the front card's Enter
+ */
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
-    showReqCounts = false, machines, claims = [], onOpen,
-    hiddenStatusCounts = [] }) {
-    // The "New pipeline" tile (req #3773) closes the grid, and stays when the
-    // list is empty — an empty list is exactly when a reader needs it.
+    machines, claims = [], onOpen, onUpdate, onReorder,
+    onCreate, creating = false, hiddenStatusCounts = [], closedHidden = 0,
+    refetchInterval, thumbnailRefetchInterval }) {
+    const [drafting, setDrafting] = useState(false);
+    const gridRef = useRef(null);
+    const { ref: grabRef, grabbing } = useGrabScroll();
+    const surfaceRef = useCallback((el) => { gridRef.current = el; grabRef(el); }, [grabRef]);
+    const surfaceSx = { cursor: grabbing ? 'grabbing' : 'grab' };
+
+    const add = () => {
+        setDrafting(true);
+        // The new card appears at the FRONT — bring it into view.
+        gridRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    };
+    const create = async (title) => {
+        const done = await onCreate(title);
+        if (done) setDrafting(false);
+        return done;
+    };
+
+    const draft = drafting && (
+        <NewPipelineDraftCard onCreate={create} onCancel={() => setDrafting(false)}
+                              creating={creating} />
+    );
+    const tile = <NewPipelineTile onAdd={add} disabled={drafting} />;
+
     if (!pipelines.length) {
         return (
             <>
                 <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
                             data-testid="pipelines-cards-empty">
-                    {pipelinesEmptyMessage(hiddenStatusCounts)}
+                    {!hiddenStatusCounts.length && closedHidden > 0
+                        ? `Every pipeline is closed (${closedHidden}) — light Closed to see them.`
+                        : pipelinesEmptyMessage(hiddenStatusCounts)}
                 </Typography>
-                <Box className="card"><NewPipelineCard /></Box>
+                <Box className="card" ref={surfaceRef} sx={surfaceSx}>{draft}{tile}</Box>
             </>
         );
     }
 
+    const ids = pipelines.map(cardItemId);
+
     return (
-        <Box className="card" data-testid="pipelines-cards-view">
-            {pipelines.map((p) => {
-                const s = summaries.get(p.id) || EMPTY_SUMMARY;
-                const holder = orchestrationView(claims, p.id, machines);
-                const counts = showReqCounts ? reqCounts?.get(p.id) : null;
-                // Completeness is the REQUIREMENT tally now, not an epic one.
-                const pct = counts && counts.total
-                    ? Math.round((counts.met / counts.total) * 100) : 0;
-                return (
-                    <Card key={p.id} variant="outlined" data-testid={`pipelines-card-${p.id}`}>
-                        <CardActionArea onClick={() => onOpen(p.id)}>
-                            <CardContent>
-                                {/* THE TITLE IS THE PLAN'S NAME AND NOTHING ELSE
-                                    (req #3365 user directive). It carried the
-                                    requirement tally as a bare " 73/115" glued
-                                    to the end, which read as part of the name;
-                                    that number has moved to the accounting line
-                                    at the foot of the card, where it sits with
-                                    the bar that draws it. The status chip has
-                                    moved DOWN into the pill row for the same
-                                    reason — the row is now one uninterrupted
-                                    line of plan facts instead of one fact
-                                    stranded up here beside the title. */}
-                                <Box sx={{ display: 'flex', alignItems: 'flex-start',
-                                            gap: 1, mb: 1 }}>
-                                    <Typography variant="subtitle1" sx={{ flex: 1, minWidth: 0,
-                                                                          fontWeight: 600 }}>
-                                        {p.title}
-                                    </Typography>
-                                </Box>
-
-                                {p.description && (
-                                    <Typography variant="body2" color="text.secondary"
-                                                sx={{ mb: 1.5,
-                                                       display: '-webkit-box',
-                                                       WebkitLineClamp: 2,
-                                                       WebkitBoxOrient: 'vertical',
-                                                       overflow: 'hidden' }}>
-                                        {p.description}
-                                    </Typography>
-                                )}
-
-                                {/* THE PLAN, DRAWN SMALL (req #3365 user
-                                    directive). It sits directly under the name
-                                    and description, ABOVE the pills (a second
-                                    directive, which moved it up past them): the
-                                    card reads top-down as identity → what it
-                                    LOOKS like → what it is → how far along, so
-                                    the picture answers "which plan is this?"
-                                    while the eye is still on the title, and the
-                                    pills and the bar below it are read as one
-                                    block of plan facts rather than being split
-                                    by the image. */}
-                                <PipelinePlanThumbnail pipelineId={p.id}
-                                                       machines={machines} />
-
-                                <Stack direction="row" spacing={1} sx={{ mb: 1.5,
-                                                                          flexWrap: 'wrap',
-                                                                          rowGap: 1 }}>
-                                    {/* STATUS LEADS THIS ROW (req #3365 user
-                                        directive — "put the status chip in the
-                                        same row as the pills"). First rather
-                                        than appended: it is the only pill here
-                                        that says what the plan is DOING, and
-                                        the two after it are properties it
-                                        has. `rowGap` above is not decoration —
-                                        `Stack`'s `spacing` becomes a margin
-                                        that does not apply between WRAPPED
-                                        lines, so a fourth chip used to wrap
-                                        flush against the row above it. */}
-                                    <Chip size="small" label={p.pipeline_status}
-                                          {...pipelineStatusChipProps(p.pipeline_status)}
-                                          data-testid={`pipelines-card-status-${p.id}`} />
-                                    <Chip size="small" variant="outlined"
-                                          label={machineTitle(p.machine_fk, machines)} />
-                                    <Chip size="small" variant="outlined"
-                                          label={`${s.total} epic${s.total === 1 ? '' : 's'}`} />
-                                    {/* req #3823 — the plan's initiative-to-initiative dependencies. */}
-                                    {s.initiativeDeps > 0 && (
-                                        <Tooltip title="Initiatives in this plan that wait for another initiative's work to close">
-                                            <Chip size="small" variant="outlined"
-                                                  label={`${s.initiativeDeps} initiative dep${s.initiativeDeps === 1 ? '' : 's'}`}
-                                                  data-testid={`pipelines-card-initiative-deps-${p.id}`} />
-                                        </Tooltip>
-                                    )}
-                                    {/* req #3649 — display-only; the Table view toggles it. */}
-                                    {Boolean(Number(p.locked)) && (
-                                        <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record">
-                                            <Chip size="small"
-                                                  {...lockedChipProps(p.locked)}
-                                                  label={lockedLabel(p.locked)}
-                                                  data-testid={`pipelines-card-locked-${p.id}`} />
-                                        </Tooltip>
-                                    )}
-                                    {holder && (
-                                        <Tooltip title={holder.title}>
-                                            <Chip size="small"
-                                                  color={holder.stale ? 'warning' : 'success'}
-                                                  variant={holder.stale ? 'outlined' : 'filled'}
-                                                  label={holder.label}
-                                                  data-testid={`pipelines-card-holder-${p.id}`} />
-                                        </Tooltip>
-                                    )}
-                                </Stack>
-
-                                {/* THE ACCOUNTING LINE — requirements met, which
-                                    is a STORED status, and the bar that draws
-                                    the same number. See this file's header for
-                                    why this is no longer an epic tally.
-
-                                    Rendered only when there is a tally to
-                                    render: with no requirements seated on any
-                                    epic, `total` is 0 and a full-width empty
-                                    bar over "0 of 0" claims a measurement
-                                    nobody made. */}
-                                {counts && counts.total > 0 && (
-                                    <>
-                                        <LinearProgress
-                                            variant="determinate" value={pct}
-                                            sx={{ height: 6, borderRadius: 3, mb: 1 }}
-                                            aria-label={`${counts.met} of ${counts.total} `
-                                                + 'requirements met'} />
-                                        <Typography variant="caption" color="text.secondary"
-                                                    data-testid={`pipelines-card-summary-${p.id}`}>
-                                            {counts.met} of {counts.total} requirements met
-                                        </Typography>
-                                    </>
-                                )}
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                );
-            })}
-            <NewPipelineCard />
+        <Box ref={surfaceRef} sx={surfaceSx} data-testid="pipelines-cards-surface">
+            <ReorderList id={LIST_ID} type={CARD_TYPE} ids={ids}
+                         orientation="grid" sortsOutside isTarget={isOrderable}
+                         liftSx={CARD_LIFT_SX} motion={CARD_MOTION} handle
+                         onReorder={(from, to) => onReorder(pipelines[from].id, pipelines[to].id)}
+                         className="card"
+                         data-testid="pipelines-cards-view">
+                {draft}
+                {pipelines.map((p) => (
+                    <PipelineCard
+                        key={p.id}
+                        p={p}
+                        summary={summaries.get(p.id)}
+                        counts={reqCounts?.get(p.id)}
+                        machines={machines}
+                        holder={orchestrationView(claims, p.id, machines)}
+                        onOpen={onOpen}
+                        onUpdate={onUpdate}
+                        refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
+                    />
+                ))}
+                {tile}
+            </ReorderList>
         </Box>
     );
 }
