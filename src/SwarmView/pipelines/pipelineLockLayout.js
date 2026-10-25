@@ -61,7 +61,7 @@ export function cascadeLock({ pipelineLocked = false, initiativeLocked = false, 
  * role, tone, stale, label, title }`. `role` is `'lead'` / `'subscriber'` for a
  * live claim and null for a stale one; `tone` is the badge vocabulary
  * (`BADGE_LEAD` green, `BADGE_SUBSCRIBER` orange, `BADGE_STALE` grey). A
- * REFUSED claim launches nothing and gets no holder, as it gets no badge.
+ * REFUSED claim launches nothing and gets no holder.
  */
 export function lockHolders(claims, pipelineId, machines, now = new Date()) {
     const out = { pipeline: [], byInitiative: new Map() };
