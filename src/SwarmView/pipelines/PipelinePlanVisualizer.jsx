@@ -4387,7 +4387,7 @@ export default function PipelinePlanVisualizer({
     // A button, so HTML for the run pill's reason, on the run pill's layer —
     // and for the picture: a real icon (`PlanEpicFlagIcons.jsx`) rather than
     // the stroked ⚑ req #3649 drew in Konva, which the user could not read.
-    // The layout reserved its box in the control column; this only projects it
+    // The layout reserved its box in the control row; this only projects it
     // to screen. (The padlock beside it went in req #3742 — a locked epic's
     // card has a red perimeter instead.)
     const floatingFlags = drawLayout.labels

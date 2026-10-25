@@ -2054,12 +2054,13 @@ export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
  * the slot for the same reason).
  */
 //
-// AND IT IS NEVER LESS THAN THE CONTROL CLUSTER (req #3683): the control
-// column on the title area's right (2x2 until req #3742) is two lines tall, so every card's title area is
-// at least two lines high — "epic cards will always be two high". A one-line
-// name, or an id with its subtitle, sits beside the cluster in that room.
+// AND IT IS NEVER LESS THAN TWO LINES (req #3683): "epic cards will always be
+// two high". The control column that made it so (2x2, then one column by req
+// #3742) is one row since req #3904, but the floor is the user's rule, not the
+// cluster's, so it stands on its own constant (`CARD_TITLE_MIN_H`) and no card
+// changed height. A one-line name, or an id with its subtitle, fits that room.
 export const cardTitleH = (epicLabel, nameLines = 1) => CARD_PAD_Y
-    + Math.max(CARD_CLUSTER_H, Math.max(1, nameLines) * CARD_LINE_H
+    + Math.max(CARD_TITLE_MIN_H, Math.max(1, nameLines) * CARD_LINE_H
         + (epicLabel === 'title' ? 0 : CARD_SUBTITLE_H));
 
 // ── THE EPIC NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
@@ -2076,17 +2077,19 @@ export const cardTitleH = (epicLabel, nameLines = 1) => CARD_PAD_Y
 // So the card's title area takes up to two lines by the same rule the rows do:
 // wrapped at layout time, RESERVED at every level, and per-epic.
 //
-// Req #3683 moved the controls into the 2x2 cluster (`CARD_NAME_RESERVE`), which
-// is two lines tall on its own — so every card's title area is two lines now
-// (`cardTitleH`), and the name has both of them at the cluster's left.
+// Every card's title area is two lines (`cardTitleH`, req #3683), and the name
+// has both of them at the controls' left (`CARD_NAME_RESERVE`). The controls
+// are one row on the first line since req #3904, but the name keeps one budget
+// for both lines: its label is ONE box, so a longer second line would reach
+// under the controls in the zero-overlap sweep.
 export const NAME_MAX_LINES = 2;
 // The fewest name characters the title line must hold beside its controls
 // before the name moves to a line of its own (req #3648). EIGHT since req
-// #3683: beside the 2x2 cluster the narrowest rung (3) leaves six, and a
-// six-character line splits nearly every real word in half ("Featur" / "e
-// Era…") — so below eight the name goes under the cluster at the text column's
-// full width (seventeen there), which is the "more room" the requirement asked
-// for. Rung 4 and wider keep the name beside the cluster.
+// #3683: a six-character line splits nearly every real word in half ("Featur"
+// / "e Era…") — so below eight a TITLE goes under the controls at the text
+// column's full width, which is the "more room" the requirement asked for.
+// Since req #3904's one-row controls that is the narrowest rung (3) only. An
+// epic ID never moves: it is a few digits, and fits beside them at every rung.
 export const NAME_INLINE_MIN_CHARS = 8;
 
 /**
@@ -2220,8 +2223,8 @@ export const CARD_TITLE_BTN_STROKE = 2;
 
 // ── THE BARRIER FLAG (req #3649) ─────────────────────────────────────────────
 // A title-area button sized like the "+" and the ↗ were for the same reason;
-// the bottom cell of the control column (`CARD_CLUSTER_W`, below), under the
-// run pill. It is the epic's `checkpoint` flag (on by default: the epic holds
+// the last item of the control row (`CARD_CLUSTER_W`, below), right of the
+// run pill (req #3904). It is the epic's `checkpoint` flag (on by default: the epic holds
 // everything downstream until it is done; off: a launch priority only) — drawn
 // since req #3673 as a boom barrier, arm down or raised, in place of the ⚑ the
 // user found unreadable. An HTML button on the overlay (req #3673), so this
@@ -2280,10 +2283,10 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // lands the digit's baseline on the name's and the digit's centre on the caps'
 // centre (within 0.5px).
 export const CARD_BADGE_TOP = -1;
-// The run pill's top, from the control column's first row (req #3683): centred
-// on that row's line box, so the 3px under it is the air above the barrier.
-// It was the badge's offset while the two pills shared the cluster's first row.
-export const CARD_RUN_TOP = 1;
+// The run pill's top, from the title line (req #3683): since req #3904 it
+// stands BESIDE the barrier rather than over it, so it is centred on the
+// barrier's square — the two controls share one centre line.
+// (Declared below `CARD_RUN_H`, which it is derived from.)
 
 // ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
 // epic's manual vs auto and let that be a configurable button in the UI", then
@@ -2314,6 +2317,7 @@ export const CARD_RUN_WORDS = { auto: 'A', manual: 'M' };
 const CHW_RUN = CHW_CARD * CARD_RUN_TYPE_RATIO;
 const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
 export const CARD_RUN_H = CARD_BADGE_H;
+export const CARD_RUN_TOP = (CARD_TITLE_BTN - CARD_RUN_H) / 2;
 export const CARD_RUN_W = Math.max(CARD_RUN_H, Math.ceil(
     Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
     + 2 * CARD_RUN_PAD_X));
@@ -2371,26 +2375,29 @@ export const badgeWidthFor = (charCount) =>
 // character for a count no epic reaches.
 export const CARD_BADGE_W = badgeWidthFor(2);
 
-// ── THE CONTROL COLUMN (req #3683's 2x2 cluster, down to one column by req
-// #3742) ───────────────────────────────────────────────────────────────────
+// ── THE CONTROL ROW (req #3683's 2x2 cluster, one column by req #3742, one
+// ROW by req #3904) ─────────────────────────────────────────────────────────
 // Req #3683 ("move the counter badge to the right hand side and make a 2x2
 // button cluster … so epic cards will always be two high") stacked the four
 // title-area controls two by two at the right. Req #3742 took two of them out
 // of it — the count badge moved back between the chevron and the name, the
-// padlock was removed — and what is left stacks in ONE column:
+// padlock was removed — leaving the run pill over the barrier in one column.
+// Req #3904 (user directive: "Auto/Manual and priority / barrier setting
+// should be on the one row and right justified. let A/M be first and the other
+// be rightmost") lays the two side by side on the title line:
 //
-//     [ A ]        row 1 — the run pill
-//     [⛩]         row 2 — the barrier
+//     … name …   [ A ] [⛩]        the title line, flush right
 //
-// Still two rows, each one title line (`CARD_LINE_H`) — the square button
-// fills its row, the pill sits `CARD_RUN_TOP` into its own — so the column is
-// two lines tall and "epic cards will always be two high" holds unchanged:
-// `cardTitleH` never reserves less, and no card changed height. Both items sit
-// flush right, so cards in a lane line up. The column is as wide as the wider
-// of the two, so toggling either moves nothing.
-export const CARD_CLUSTER_ROWS = 2;
+// One row, one title line (`CARD_LINE_H`) tall — the square button fills it,
+// the pill is centred on it (`CARD_RUN_TOP`). The two keep the buttons' own
+// gap (`CARD_TITLE_BTN_GAP`), and the row is the pill's fixed width plus the
+// button's, so toggling either moves nothing. The title area's two-line floor
+// is no longer the cluster's doing — see `CARD_TITLE_MIN_H`.
+export const CARD_CLUSTER_ROWS = 1;
 export const CARD_CLUSTER_H = CARD_CLUSTER_ROWS * CARD_LINE_H;
-export const CARD_CLUSTER_W = Math.max(CARD_RUN_W, CARD_TITLE_BTN);
+export const CARD_CLUSTER_W = CARD_RUN_W + CARD_TITLE_BTN_GAP + CARD_TITLE_BTN;
+// "Epic cards will always be two high" (req #3683) — the title area's floor.
+export const CARD_TITLE_MIN_H = 2 * CARD_LINE_H;
 // The air between the epic name and the cluster — the gap the buttons keep
 // from each other, and no more ("compress the white space for the title so it
 // has more room").
@@ -3908,8 +3915,8 @@ export function computePlanLayout(rows, opts = {}) {
     // cluster, at the text column's full width; those rows are counted as title
     // area lines, so every height derived from the line count reserves them.
     const nameInlineReserve = CARD_NAME_RESERVE;
-    const nameBelow = Math.floor((cardTextW - nameInlineReserve) / CHW_LABEL)
-        < NAME_INLINE_MIN_CHARS;
+    const nameBelow = epicLabel === 'title'
+        && Math.floor((cardTextW - nameInlineReserve) / CHW_LABEL) < NAME_INLINE_MIN_CHARS;
     const nameBudget = cardChars(CHW_LABEL, nameBelow ? 0 : nameInlineReserve, cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
@@ -4917,10 +4924,12 @@ export function computePlanLayout(rows, opts = {}) {
         // count badge and the name on the left, the control column on the
         // right, all placed from its top.
         const nameTop = n.top + CARD_PAD_Y;
-        // The control column (see `CARD_CLUSTER_W`): flush against the text
-        // column's right edge; row 2 one title line below row 1.
+        // The control row (see `CARD_CLUSTER_W`): flush against the text
+        // column's right edge, on the title line (req #3904).
         const clusterRight = n.right - CARD_PAD_X - CARD_CHECK_W;
-        const row2Top = nameTop + CARD_LINE_H;
+        // The first line under the control row — where the name starts when
+        // it has no room beside the controls (`nameBelow`).
+        const belowClusterTop = nameTop + CARD_CLUSTER_H;
         // ── THE COLLAPSE HEAD (req #3650) — the title line's first control
         //    since req #3648, a chevron the size of the "+" beside the name.
         labels.push({
@@ -4958,10 +4967,8 @@ export function computePlanLayout(rows, opts = {}) {
         // column from the text column's left (`nameBelow`).
         const titleTextLeft = nameBelow ? textLeft
             : textLeft + CARD_NAME_LEFT_RESERVE;
-        // Below the cluster = one line under its second row, written from
-        // `row2Top` exactly as the bottom-row buttons are, so the two edges are
-        // one number rather than two sums that differ in the last bit.
-        const nameY = nameBelow ? row2Top + CARD_LINE_H : nameTop;
+        // Below the cluster = the line under the control row.
+        const nameY = nameBelow ? belowClusterTop : nameTop;
         labels.push({
             kind: 'epic', epicId: r.id, text: label,
             // The lines AS DRAWN, so the renderer never re-wraps — the same
@@ -5141,8 +5148,8 @@ export function computePlanLayout(rows, opts = {}) {
         // line now carries the run pill and the barrier only (req #3742
         // removed the padlock).
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
-        // The control column's first row (req #3683, #3742), flush right.
-        // Emitted for every card: run mode is a fact about every
+        // The control row's FIRST item (req #3904): left of the barrier, a
+        // button gap between them, the pair flush right. Emitted for every card: run mode is a fact about every
         // epic, and the pill is also the control that changes it. The text is
         // the word drawn inside; the renderer draws it as an HTML overlay, the
         // badge's own move, because it is a button.
@@ -5152,14 +5159,14 @@ export function computePlanLayout(rows, opts = {}) {
                 text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
                 run: r.run === 'manual' ? 'manual' : 'auto',
                 prose: false,
-                x: clusterRight - CARD_RUN_W,
+                x: clusterRight - CARD_TITLE_BTN - CARD_TITLE_BTN_GAP - CARD_RUN_W,
                 y: nameTop + CARD_RUN_TOP,
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
         // ── THE BARRIER GATE (req #3649, #3673) ─────────────────────────────
-        // The control column's second row, under the run pill, flush right so
-        // the column's edge lines up down a lane. Emitted for every card: it is
+        // The control row's LAST item (req #3904): rightmost on the title line,
+        // flush right so the row's edge lines up down a lane. Emitted for every card: it is
         // a fact about every epic, and the control that changes it (the
         // renderer draws it as an HTML icon button, `on` deciding the picture —
         // req #3673). The padlock that stood beside it went in req #3742; a
@@ -5167,19 +5174,18 @@ export function computePlanLayout(rows, opts = {}) {
         labels.push({
             kind: 'barrier', epicId: r.id, text: 'Barrier', prose: false,
             on: r.checkpoint !== false,
-            x: clusterRight - CARD_TITLE_BTN, y: row2Top,
+            x: clusterRight - CARD_TITLE_BTN, y: nameTop,
             w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
         });
         // ── THE EPIC'S OWN TITLE, ON THE L3 LINE ────────────────────────────
         // Skipped when the epic label already IS the title — it would duplicate,
         // which is why `cardTitleH` does not reserve the line in that mode
         // either. The two agree by reading the same condition.
-        // It lands beside the control column's second row (req #3683), so it
-        // is fitted to the room left of the column — unless the name, and so
-        // this line, already sits below it.
+        // It always lands below the one-row control row (req #3904; it sat
+        // beside the column's second row before), so it has the text column's
+        // full width.
         if (epicLabel !== 'title') {
-            const t = truncate(r.title || '', cardChars(CHW_TITLE,
-                nameBelow ? 0 : CARD_NAME_CLUSTER_GAP + CARD_CLUSTER_W, cardTextW));
+            const t = truncate(r.title || '', cardChars(CHW_TITLE, 0, cardTextW));
             if (t) {
                 labels.push({
                     kind: 'title', epicId: r.id, text: t,
