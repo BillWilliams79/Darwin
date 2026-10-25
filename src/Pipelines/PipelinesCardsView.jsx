@@ -260,7 +260,8 @@ function Stat({ value, label, testId }) {
             {/* The plan's top-line numbers — sized to POP (req #3804 review:
                 "make the numbers quite a bit larger keeping the text the same"). */}
             <Typography sx={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1,
-                              letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}
+                              letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums',
+                              whiteSpace: 'nowrap' }}
                         data-testid={testId}>
                 {value}
             </Typography>
@@ -437,8 +438,12 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                 {/* THE INFO BLOCK (req #3804 review: "not badges … just a
                     simple info block") — three figures straight under the
                     title, the top-line numbers of the plan, right above the
-                    preview. */}
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    preview. The requirements figure ("197 / 197") is the
+                    widest, so its column is never narrower than the figure
+                    on one line (req #3946); the columns stay equal thirds
+                    whenever that already fits. */}
+                <Box sx={{ display: 'grid',
+                           gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(max-content, 1fr)',
                            columnGap: 2, mt: 0.5, mb: 1.5 }}
                      data-testid={`pipelines-card-info-${p.id}`}>
                     <Stat value={s.initiatives} testId={`pipelines-card-initiatives-${p.id}`}
