@@ -1404,15 +1404,12 @@ describe('Epic Width — the card scales, four rungs (req #3503)', () => {
                 { epicLabel: 'title', epicWidthLevel: level });
             for (const row of plan.rows) {
                 const n = layout.nodes.get(row.id);
-                // The run pill and the barrier are the control column since
-                // req #3742 (the badge and the barrier were the 2x2
-                // cluster's right-hand column from req #3683 until then).
-                for (const kind of ['run', 'barrier']) {
-                    const [c] = layout.labels.filter(
-                        (l) => l.kind === kind && l.epicId === row.id);
-                    expect(c.x + c.w, `level ${level} epic ${row.id} ${kind}`)
-                        .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
-                }
+                // The barrier is the control row's rightmost item since req
+                // #3904 (the run pill stood over it in one column, req #3742).
+                const [c] = layout.labels.filter(
+                    (l) => l.kind === 'barrier' && l.epicId === row.id);
+                expect(c.x + c.w, `level ${level} epic ${row.id} barrier`)
+                    .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
             }
         }
     });
@@ -5534,8 +5531,9 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         // req #3683 — "compress the white space for the title so it has more
         // room": the one-line arrangement left the base card a SEVEN character
         // name line; the cluster leaves it twelve — and fifteen since req #3709
-        // shrank the run pill to one letter.
-        expect(epicBudget).toBe(15);
+        // shrank the run pill to one letter; thirteen since req #3904 put the
+        // barrier beside the pill on the name's own line.
+        expect(epicBudget).toBe(13);
         expect(cardChars(CHW_LABEL, CARD_CHECK_W + CARD_RUN_W + 2 * (CARD_TITLE_BTN
             + CARD_TITLE_BTN_GAP) + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W
             + CHW_CARD)).toBe(10); // 7 before req #3709's one-letter run pill
@@ -5888,7 +5886,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('stacks the run-mode pill over the barrier in the control column, clear of the epic name (req #3580, #3649, #3742)', () => {
+    it('lays the run-mode pill then the barrier in the control row, clear of the epic name (req #3580, #3649, #3904)', () => {
         for (const epicLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { epicLabel });
             const n0 = (row) => layout.nodes.get(row.id);
@@ -5904,8 +5902,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 expect(run.h).toBe(CARD_RUN_H);
                 const n = layout.nodes.get(row.id);
                 const right = n.right - CARD_PAD_X - CARD_CHECK_W;
-                // req #3742 — the control column's first row, flush right.
-                expect(run.x + run.w).toBeCloseTo(right, 6);
+                // req #3904 — the control row's first item, left of the barrier.
+                expect(run.x + run.w).toBeCloseTo(right - CARD_TITLE_BTN - CARD_TITLE_BTN_GAP, 6);
                 expect(run.y).toBeCloseTo(n.top + CARD_PAD_Y + CARD_RUN_TOP, 6);
                 // Inside the title area, and never on the name it sits beside.
                 expect(run.y).toBeGreaterThanOrEqual(n.top);
@@ -5916,10 +5914,11 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 expect(name.x + name.editW)
                     .toBeCloseTo(right - CARD_CLUSTER_W - CARD_NAME_CLUSTER_GAP, 6);
                 expect(name.editW).toBeGreaterThanOrEqual(name.w - 1e-6);
-                // The barrier is the column's second row, under the pill.
+                // The barrier is the row's last item, rightmost, on the pill's line.
                 const flag = of('barrier');
                 expect(flag.x + flag.w).toBeCloseTo(right, 6);
-                expect(flag.y).toBeGreaterThanOrEqual(run.y + run.h - 1e-6);
+                expect(flag.x).toBeGreaterThanOrEqual(run.x + run.w - 1e-6);
+                expect(flag.y).toBeCloseTo(n.top + CARD_PAD_Y, 6);
                 expect(flag.x).toBeGreaterThanOrEqual(name.x + name.editW - 1e-6);
                 expect(flag.y + flag.h).toBeLessThanOrEqual(n.top + cardTitleH(epicLabel) + 1e-6);
                 expect(rectsOverlap(flag, name), `epic ${row.id} flag`).toBe(false);

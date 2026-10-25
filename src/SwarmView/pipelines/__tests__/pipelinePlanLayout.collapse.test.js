@@ -11,7 +11,8 @@ import {
     BAND_HEADER_FOLDED, INITIATIVE_CHIP_H,
     CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
     CARD_HEAD_LABEL, CARD_LINE_H, EPIC_WIDTH_RUNGS, NAME_INLINE_MIN_CHARS, CHW_LABEL,
-    CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W,
+    CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W, CARD_TITLE_MIN_H, CARD_TITLE_BTN,
+    CARD_TITLE_BTN_GAP,
     CARD_NAME_CLUSTER_GAP, CARD_RUN_W, CARD_RUN_TOP, CARD_BADGE_TOP, CARD_BADGE_W,
     CARD_BADGE_GAP, CARD_NAME_LEFT_RESERVE,
 } from '../pipelinePlanLayout';
@@ -81,9 +82,10 @@ describe('the epic card\'s collapse head (req #3650)', () => {
         expect(l.labels.some((x) => x.kind === 'lock')).toBe(false);
     });
 
-    // req #3683's 2x2 cluster, down to one column by req #3742 — the badge
-    // moved left of the name and the padlock was removed; cards stay two high.
-    it('stacks the run pill over the barrier in one column at the right', () => {
+    // req #3683's 2x2 cluster, one column by req #3742, one ROW by req #3904 —
+    // "on the one row and right justified. let A/M be first and the other be
+    // rightmost"; cards stay two high.
+    it('lays the run pill then the barrier in one row on the title line, flush right', () => {
         for (const rung of EPIC_WIDTH_RUNGS) {
             for (const epicLabel of ['title', 'id']) {
                 const l = computePlanLayout(ROWS, { epicLabel, epicWidthLevel: rung });
@@ -93,20 +95,25 @@ describe('the epic card\'s collapse head (req #3650)', () => {
                     const [run, cp] = ['run', 'barrier'].map(get);
                     const right = n.right - CARD_PAD_X;
                     const top = n.top + CARD_PAD_Y;
-                    // One column: the run pill over the barrier, flush right.
-                    expect(run.x + run.w).toBeCloseTo(right, 6);
+                    // One row: the barrier rightmost, flush right; the pill a
+                    // button gap to its left.
                     expect(cp.x + cp.w).toBeCloseTo(right, 6);
+                    expect(run.x + run.w).toBeCloseTo(cp.x - CARD_TITLE_BTN_GAP, 6);
                     expect(run.w).toBe(CARD_RUN_W);
-                    // Row 1: the pill; row 2: the button, one line down.
+                    // Both on the title line, sharing one centre line.
+                    expect(cp.y).toBeCloseTo(top, 6);
                     expect(run.y).toBeCloseTo(top + CARD_RUN_TOP, 6);
-                    expect(cp.y).toBeCloseTo(top + CARD_LINE_H, 6);
-                    // The whole column is two lines tall and inside the title area,
+                    expect(run.y + run.h / 2).toBeCloseTo(cp.y + cp.h / 2, 6);
+                    // The whole row is one line tall and inside the title area,
                     // its left edge where the name's reserve ends.
+                    expect(CARD_CLUSTER_H).toBeCloseTo(CARD_LINE_H, 6);
+                    expect(CARD_CLUSTER_W).toBeCloseTo(CARD_RUN_W + CARD_TITLE_BTN_GAP
+                        + CARD_TITLE_BTN, 6);
                     for (const c of [run, cp]) {
                         expect(c.y + c.h).toBeLessThanOrEqual(top + CARD_CLUSTER_H + 1e-6);
                         expect(c.x).toBeGreaterThanOrEqual(right - CARD_CLUSTER_W - 1e-6);
                     }
-                    expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_CLUSTER_H - 1e-6);
+                    expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_TITLE_MIN_H - 1e-6);
                     // Nothing in the title area overlaps anything else in it.
                     const cl = [get('collapse'), get('badge'), run, cp];
                     for (let i = 0; i < cl.length; i += 1) {
@@ -135,7 +142,7 @@ describe('the epic card\'s collapse head (req #3650)', () => {
         for (const epicLabel of ['title', 'id']) {
             const l = computePlanLayout(short, { epicLabel });
             for (const r of short) {
-                expect(l.nodes.get(r.id).titleH).toBeCloseTo(CARD_PAD_Y + CARD_CLUSTER_H, 6);
+                expect(l.nodes.get(r.id).titleH).toBeCloseTo(CARD_PAD_Y + CARD_TITLE_MIN_H, 6);
             }
         }
         expect(cardTitleH('title', 1)).toBeCloseTo(CARD_PAD_Y + 2 * CARD_LINE_H, 6);
@@ -203,6 +210,22 @@ describe('the title line overlaps nothing at any Epic Width (req #3648)', () => 
             }
         }
     });
+});
+
+// req #3904 review — the one-row controls are wider than the column was, so
+// rung 3 leaves a TITLE under NAME_INLINE_MIN_CHARS; an ID never needs that room.
+describe('an epic ID stays beside the controls at every Epic Width (req #3904)', () => {
+    for (const rung of EPIC_WIDTH_RUNGS) {
+        it(`rung ${rung}`, () => {
+            const layout = computePlanLayout(ROWS, { epicLabel: 'id', epicWidthLevel: rung });
+            for (const r of ROWS) {
+                const head = layout.labels.find((l) => l.kind === 'collapse' && l.epicId === r.id);
+                const name = layout.labels.find((l) => l.kind === 'epic' && l.epicId === r.id);
+                expect(name.y, `epic ${r.id}`).toBeCloseTo(head.y, 6);
+                expect(layout.nodes.get(r.id).titleH).toBeCloseTo(cardTitleH('id', 1), 6);
+            }
+        });
+    }
 });
 
 describe('a folded epic (req #3650)', () => {
