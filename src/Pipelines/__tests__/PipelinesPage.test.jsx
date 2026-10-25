@@ -143,9 +143,14 @@ vi.mock('../../SwarmView/pipelines/pipelinePlace', async (importOriginal) => {
 });
 
 const restCalls = [];
+// A test may answer a call itself (req #3934's delete reads the plan first);
+// `undefined` falls through to the defaults below.
+let restRespond = null;
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        const answer = restRespond?.(uri, method, body);
+        if (answer) return Promise.resolve(answer);
         // A POST echoes the created row back, as Lambda-Rest does (req #3773).
         if (method === 'POST') {
             return Promise.resolve({ httpStatus: { httpStatus: 201 }, data: [{ id: 99 }] });
@@ -207,6 +212,7 @@ const switchToTable = () => click(node('view-toggle-table'));
 beforeEach(() => {
     navigations.length = 0;
     restCalls.length = 0;
+    restRespond = null;
     mountedRoots = [];
     // useViewPreference/the status filter both persist to Web Storage, which
     // jsdom keeps ALIVE across tests in one file unless cleared.
@@ -881,5 +887,99 @@ describe('PipelinesPage2 — edit in place (req #3804)', () => {
         await act(async () => { node('pipelines-card-machine-option-7-any').click(); });
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 7, machine_fk: 'NULL' }]);
+    });
+});
+
+describe('PipelinesPage2 — delete from the card menu (req #3934)', () => {
+    beforeEach(() => {
+        // Plan 7 as the gateway returns it: two epics, one edge between them.
+        restRespond = (uri, method) => {
+            if (method !== 'GET') return undefined;
+            const rows = uri.includes('/pipelines?') ? [{ id: 7, title: 'Plan Seven', locked: 0 }]
+                : uri.includes('/initiatives?') ? [{ id: 40, locked: 0 }]
+                    : uri.includes('/epics?') ? [{ id: 500, locked: 0 }, { id: 501, locked: 0 }]
+                        : uri.includes('/epic_deps?') ? [{ id: 9, epic_fk: 501, dep_epic_fk: 500 }]
+                            : null;
+            return rows ? { httpStatus: { httpStatus: 200 }, data: rows }
+                : { httpStatus: { httpStatus: 404 }, data: [] };
+        };
+    });
+
+    it('confirms, then clears the edge and deletes the plan', async () => {
+        mount();
+        click(node('pipelines-card-menu-7'));
+        click(node('pipelines-card-menu-delete-7'));
+        const dialog = node('pipelines-card-delete-dialog-7');
+        expect(dialog.textContent).toContain('Plan Seven');
+        expect(dialog.textContent).toContain('1 initiative, 2 epics');
+        expect(dialog.textContent).toContain('2 requirements are kept');
+        // Nothing is written until the reader confirms.
+        expect(restCalls).toEqual([]);
+        await act(async () => { node('pipelines-card-delete-confirm-7').click(); });
+        await flush();
+        expect(restCalls.filter((c) => c.method !== 'GET')).toEqual([
+            { uri: 'http://test.local/darwin/epic_deps', method: 'DELETE', body: [{ id: 9 }] },
+            { uri: 'http://test.local/darwin/pipelines', method: 'DELETE', body: { id: 7 } },
+        ]);
+        expect(useSnackBarStore.getState().message).toBe('Deleted pipeline "Plan Seven"');
+        expect(navigations).toEqual([]);
+    });
+
+    it('cancel writes nothing', async () => {
+        mount();
+        click(node('pipelines-card-menu-7'));
+        click(node('pipelines-card-menu-delete-7'));
+        await act(async () => { node('pipelines-card-delete-cancel-7').click(); });
+        expect(restCalls).toEqual([]);
+    });
+
+    it('is offered on any status, but not on a locked plan', () => {
+        mount();
+        click(node('pipelines-card-menu-7'));
+        expect(node('pipelines-card-menu-delete-7').getAttribute('aria-disabled')).toBeNull();
+        act(() => { document.body.querySelector('.MuiBackdrop-root')?.click(); });
+        click(node('pipelines-card-menu-8'));
+        const item = node('pipelines-card-menu-delete-8');
+        expect(item.getAttribute('aria-disabled')).toBe('true');
+        expect(item.textContent).toContain('unlock it first');
+    });
+
+    it('is not offered while a live orchestrator holds the plan', () => {
+        orchestrationClaims = [{
+            id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 4,
+            claimed_at: '2026-08-10T10:00:00', update_ts: new Date().toISOString().slice(0, 19),
+        }];
+        mount();
+        click(node('pipelines-card-menu-7'));
+        const item = node('pipelines-card-menu-delete-7');
+        expect(item.getAttribute('aria-disabled')).toBe('true');
+        expect(item.textContent).toContain('/pipeline-stop it first');
+    });
+
+    it('is not offered while a live engine holds just one initiative of the plan', () => {
+        orchestrationClaims = [{
+            id: 2, pipeline_fk: 7, initiative_fk: 40, machine_fk: 4,
+            claimed_at: '2026-08-10T10:00:00', update_ts: new Date().toISOString().slice(0, 19),
+        }];
+        mount();
+        click(node('pipelines-card-menu-7'));
+        expect(node('pipelines-card-menu-delete-7').getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('shows the named refusal and keeps the dialog open when the delete is refused', async () => {
+        // The plan is unlocked, so the menu offers Delete — an epic in it is locked.
+        const world = restRespond;
+        restRespond = (uri, method, body) => (method === 'GET' && uri.includes('/epics?')
+            ? { httpStatus: { httpStatus: 200 }, data: [{ id: 500, locked: 0 }, { id: 501, locked: 1 }] }
+            : world(uri, method, body));
+        mount();
+        click(node('pipelines-card-menu-7'));
+        click(node('pipelines-card-menu-delete-7'));
+        await act(async () => { node('pipelines-card-delete-confirm-7').click(); });
+        await flush();
+        expect(restCalls.filter((c) => c.method !== 'GET')).toEqual([]);
+        expect(useSnackBarStore.getState().message).toBe('Could not delete the pipeline (423) — '
+            + '"Plan Seven" cannot be deleted: epic 501 in it is locked — unlock it first.');
+        expect(node('pipelines-card-delete-dialog-7')).not.toBeNull();
     });
 });

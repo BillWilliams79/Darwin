@@ -183,9 +183,9 @@ import {
     parseCollapsed, toggleInitiativeCollapsed, toggleEpicCollapsed, expandInitiative, expandEpic,
 } from './planCollapse';
 import PlanCollapseHead from './PlanCollapseHead';
-// req #3762 — the engine overlay's badge (on each epic card) and strip.
+// req #3762 — the engine overlay's badge (on each epic card) and box (an Action Popup, req #3935).
 import PlanEngineBadge, { ENGINE_BADGE_H } from '../engine/PlanEngineBadge';
-import PlanEngineStrip from '../engine/PlanEngineStrip';
+import PlanEngineBox from '../engine/PlanEngineBox';
 import { useFoldAnimation, foldContentAlpha } from './planFoldAnimation';
 // req #3581 — dragging a requirement between epics writes its seat.
 import AppContext from '../../Context/AppContext';
@@ -579,10 +579,10 @@ export default function PipelinePlanVisualizer({
     keyHover = null,
     // req #3762 — the engine overlay (`usePlanEngineOverlay`, run by the page,
     // which owns the machine, claim and session reads it needs): `{ctl,
-    // machines, thisMachineId, open, onToggleOpen, onPickMachine, timezone}`.
-    // Its badges ride the badge layer on each epic card; its strip — the
-    // switch, the limits and the launch queue with its cut — sits on the
-    // canvas. Null draws neither.
+    // machines, thisMachineId, onPickMachine, timezone}`.
+    // Its badges ride the badge layer on each epic card; its box — the
+    // switch, the limits and the launch queue with its cut — is an Action
+    // Popup over the page (req #3935). Null draws neither.
     engineOverlay = null,
 }) {
     const navigate = useNavigate();
@@ -5681,6 +5681,16 @@ export default function PipelinePlanVisualizer({
                            maximized={maximized}
                            onOpen={openActiveReq} />
 
+            {/* req #3762 — the engine switch, the limits and the launch queue
+                with its cut line: an Action Popup since req #3935, mounted
+                beside the Active box for the same reason. */}
+            {engineOverlay && (
+                <PlanEngineBox ctl={engineOverlay.ctl}
+                               machines={engineOverlay.machines}
+                               onPickMachine={engineOverlay.onPickMachine}
+                               timezone={engineOverlay.timezone} />
+            )}
+
             {/* Req #3235 — the `?initiative=` deep link named an initiative no band on THIS
                 plan carries (see focusInitiativeNotOnPlan above). Saying so beats a
                 default view with no explanation for why nothing focused. */}
@@ -6711,17 +6721,6 @@ export default function PipelinePlanVisualizer({
                                                   ...b.fold }} />
                     ))}
                 </Box>
-
-                {/* req #3762 — the engine switch, the limits and the launch
-                    queue with its cut line, pinned to the canvas corner. */}
-                {engineOverlay && (
-                    <PlanEngineStrip ctl={engineOverlay.ctl}
-                                     machines={engineOverlay.machines}
-                                     open={engineOverlay.open}
-                                     onToggleOpen={engineOverlay.onToggleOpen}
-                                     onPickMachine={engineOverlay.onPickMachine}
-                                     timezone={engineOverlay.timezone} />
-                )}
 
                 {/* req #3583 — the epic card a box row would land on. An HTML
                     outline over the canvas rather than a Konva shape, so the

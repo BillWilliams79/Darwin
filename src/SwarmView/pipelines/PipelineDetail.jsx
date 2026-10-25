@@ -579,13 +579,12 @@ export default function PipelineDetail() {
     // canvas. Fed by the machine, claim and session reads above — the session
     // read is the live-session count a prediction's capacity is made of, so it
     // is handed over as unknown (`undefined`) until it has settled.
-    const [engineStripOpen, setEngineStripOpen] = usePlanViewSetting('engineStripOpen');
     const [engineMachineRaw, setEngineMachineRaw] = usePlanViewSetting('engineMachine');
     // `?engineMachine=<id>` names it in a link (a review deep link, or a machine
     // the browser cannot identify); it wins over the remembered pick while present.
     const engineMachineParam = searchParams.get(ENGINE_MACHINE_PARAM);
     const engineMachinePick = /^\d+$/.test(engineMachineParam || '') ? engineMachineParam : engineMachineRaw;
-    // Picking a machine in the strip drops the link's `engineMachine`, so the pick shows.
+    // Picking a machine in the engine box drops the link's `engineMachine`, so the pick shows.
     const engineMachineOverride = /^\d+$/.test(engineMachinePick || '') ? Number(engineMachinePick) : null;
     const engineCtl = usePlanEngineOverlay({
         pipelineId: Number.isInteger(pipelineId) ? pipelineId : null,
@@ -603,14 +602,12 @@ export default function PipelineDetail() {
         ctl: engineCtl,
         machines: machineById,
         thisMachineId: engineCtl.machineId,
-        open: engineStripOpen,
-        onToggleOpen: () => setEngineStripOpen((v) => !v),
         onPickMachine: (id) => {
             setEngineMachineRaw(id == null ? '' : String(id));
             if (searchParams.has(ENGINE_MACHINE_PARAM)) replaceLinkParams([ENGINE_MACHINE_PARAM]);
         },
         timezone,
-    }), [engineCtl, machineById, engineStripOpen, setEngineStripOpen, setEngineMachineRaw, timezone,
+    }), [engineCtl, machineById, setEngineMachineRaw, timezone,
         searchParams, replaceLinkParams]);
 
     const pillsLoading = requirementSessionsLoading || sessionTerminalsLoading

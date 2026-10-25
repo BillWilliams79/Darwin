@@ -1,5 +1,6 @@
-// PlanEngineStrip.jsx — the plan view's engine overlay control and launch
-// line (req #3762), pinned to the canvas's bottom-right corner.
+// PlanEngineBox.jsx — the plan view's engine control and launch line (req
+// #3762), an Action Popup (req #3935: it was a strip pinned to the canvas's
+// bottom-right corner; now it is the Active box's kind of window).
 //
 // Three rows:
 //   1. THE SWITCH for this plan's engine on this machine (desired_state, R6),
@@ -10,22 +11,36 @@
 //   3. THE LAUNCH QUEUE in order, each launch with the machine it runs on,
 //      and the cut line drawn where the slots run out.
 //
-// On the canvas, so it stays with the plan when the canvas is maximized.
+// ── AN ACTION POPUP ────────────────────────────────────────────────────────
+// Floating, docking, reshaping, collapsing and racking onto the navbar are
+// AnchoredPanel's (pattern doc memory/anchored-collapse-pattern.md), as the
+// Active box's are. The head is every Action Popup's: the ▾, then the badge
+// slot — a power badge in the engine's health colour, so folded it still says
+// whether the engine is on — then the title. Home is the viewport's
+// bottom-right, where the strip sat (req #3824: the Active box opens
+// bottom-left). Where it sits, its shape and whether it is open are remembered
+// per browser (usePlanEngineBoxStore). Viewport-fixed, so it stays with the
+// plan when the canvas is maximized; mounted OUTSIDE the canvas pane, so
+// d3-zoom never sees its pointer or wheel.
 
-import { Fragment } from 'react';
+import { Fragment, memo } from 'react';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 
+import AnchoredPanel from '../../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupBadge } from '../../Components/AnchoredPanel/ActionPopupHead';
+import { validDock } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
+import {
+    ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_SX,
+} from '../../Components/AnchoredPanel/actionPopupChrome';
+import { usePlanEngineBoxStore } from '../../stores/usePlanEngineBoxStore';
 import { humanDuration } from '../pipelines/orchestrationHolder';
 import { machineName } from './EngineLocationPanel';
 import { agoText, stampText } from './engineModel';
@@ -40,6 +55,17 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 const TEXT = '#d7e3f4';
 const DIM = '#9fb0c8';
 const ON_GREEN = '#4ade80';
+
+/** Smallest panel the edges will shape, px: the switch and the machine. */
+export const ENGINE_MIN_W = 240;
+export const ENGINE_MIN_H = 64;
+/** Content-sized, the panel is as wide as its rows, up to this, px. */
+export const ENGINE_AUTO_MAX_W = 640;
+const LIMITS = { minW: ENGINE_MIN_W, minH: ENGINE_MIN_H, autoMaxW: ENGINE_AUTO_MAX_W,
+    headPx: ACTION_POPUP_HEAD_PX, fitMinW: ENGINE_MIN_W };
+/** Home: the viewport's bottom-right, where the strip sat (req #3824), sized
+ *  to its content on both axes until reshaped. */
+export const ENGINE_HOME = Object.freeze({ h: 'r', x: 16, v: 'b', y: 16, w: null, ht: null });
 
 /** What the switch and the supervisor say, in one phrase. */
 export function engineStateText(engine) {
@@ -143,102 +169,108 @@ function QueueChip({ item, machines, overlay }) {
     );
 }
 
-export default function PlanEngineStrip({ ctl, machines, open, onToggleOpen, onPickMachine, timezone }) {
+/**
+ * @param {Object} props
+ * @param {Object} props.ctl           usePlanEngineOverlay's control
+ * @param {Map} props.machines         machine id -> row
+ * @param {function} props.onPickMachine  (id | null)
+ * @param {string} [props.timezone]
+ */
+function PlanEngineBox({ ctl, machines, onPickMachine, timezone }) {
+    const open = usePlanEngineBoxStore(s => s.open);
+    const storedDock = usePlanEngineBoxStore(s => s.dock);
+    const { toggleOpen, setDock } = usePlanEngineBoxStore.getState();
+    const dock = validDock(storedDock, ENGINE_MIN_W, ENGINE_MIN_H) || ENGINE_HOME;
     const { overlay, engine } = ctl;
     const desired = engine ? engine.state.desired_state : 'off';
     const health = engine ? engine.health : HEALTH_STOPPED;
     const noMachine = ctl.machineId == null;
+    const stateText = engineStateText(engine);
     const switchLabel = ctl.pending
         ? (ctl.pending === 'on' ? 'Switching on…' : 'Switching off…')
         : ctl.engineOn ? 'Engine on' : 'Engine off';
     return (
-        <Box data-testid="plan-engine-strip"
-             data-source={overlay ? overlay.source : ''}
-             data-desired={desired}
-             data-actual={engine ? engine.state.actual_state : ''}
-             data-health={health}
-             // Chrome over the canvas: d3-zoom and the card hit-test pass it by.
-             data-viz-chrome="engine"
-             sx={{
-                 // BOTTOM-RIGHT, not bottom-left (req #3824): the plan's own floating Active
-                 // panel opens bottom-left, and a session running on the plan put it on top
-                 // of this switch — the control was there and could not be reached.
-                 position: 'absolute', right: 8, bottom: 8, zIndex: 3,
-                 maxWidth: 'min(820px, calc(100% - 16px))',
-                 px: 1.25, py: 0.75, borderRadius: '10px',
-                 background: 'rgba(13, 20, 32, 0.94)', color: TEXT,
-                 border: `1px solid ${ctl.engineOn ? ON_GREEN : '#26374f'}`,
-                 boxShadow: '0 2px 10px rgba(0,0,0,0.45)',
-                 fontSize: 12, userSelect: 'text',
-             }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Tooltip title={noMachine
-                    ? 'Pick the machine this browser is on first'
-                    : `Switch this plan's engine on ${machineName(ctl.machine, ctl.machineId)} `
-                        + (ctl.engineOn ? 'off' : 'on')}>
-                    <span>
-                        <Button size="small" variant={ctl.engineOn ? 'contained' : 'outlined'}
-                                onClick={ctl.toggle}
-                                disabled={!!ctl.pending || noMachine}
-                                startIcon={<PowerSettingsNewIcon fontSize="small" />}
-                                aria-pressed={ctl.engineOn}
-                                data-testid="plan-engine-switch"
-                                data-on={ctl.engineOn ? 'true' : 'false'}
-                                sx={{ textTransform: 'none', fontWeight: 700, py: 0, minHeight: 26,
-                                      ...(ctl.engineOn
-                                          ? { bgcolor: ON_GREEN, color: '#000', '&:hover': { bgcolor: '#22c55e' } }
-                                          : { color: TEXT, borderColor: DIM }) }}>
-                            {switchLabel}
-                        </Button>
-                    </span>
-                </Tooltip>
-                {ctl.machineResolved && ctl.openMachines.length <= 1 ? (
-                    <Typography variant="caption" sx={{ color: DIM }} data-testid="plan-engine-machine">
-                        on {machineName(ctl.machine, ctl.machineId)}
-                    </Typography>
-                ) : (
-                    <Select size="small" variant="standard" value={ctl.machineId ?? ''}
-                            displayEmpty
-                            onChange={(e) => onPickMachine(e.target.value === '' ? null : Number(e.target.value))}
-                            inputProps={{ 'aria-label': 'This machine', 'data-testid': 'plan-engine-machine-select' }}
-                            data-testid="plan-engine-machine"
-                            sx={{ fontSize: 12, color: TEXT, '& .MuiSelect-icon': { color: DIM } }}>
-                        {noMachine && <MenuItem value="">pick this machine</MenuItem>}
-                        {ctl.openMachines.map((m) => (
-                            <MenuItem key={m.id} value={m.id}>on {machineName(m, m.id)}</MenuItem>
-                        ))}
-                    </Select>
-                )}
-                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                    <Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%',
-                                                bgcolor: HEALTH_COLORS[health] }} />
-                    <Typography variant="caption" data-testid="plan-engine-state">
-                        {engineStateText(engine)}
-                    </Typography>
-                </Box>
-                <Box sx={{ flex: 1 }} />
-                <IconButton size="small" onClick={onToggleOpen} sx={{ color: DIM, p: 0.25 }}
-                            aria-label={open ? 'Hide the launch queue' : 'Show the launch queue'}
-                            data-testid="plan-engine-strip-toggle">
-                    {open ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
-                </IconButton>
-            </Box>
+        <AnchoredPanel dock={dock} onDockChange={setDock}
+                       open={open} onToggle={toggleOpen}
+                       name="Engine" testid="plan-engine-box" rackId="engine"
+                       rackIcon={PowerSettingsNewIcon} rackIconLabel={`Engine — ${stateText}\nClick to expand`}
+                       limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
+                       sx={ACTION_POPUP_SX}
+                       extras={
+                           // Folded, the badge is what says the engine is on.
+                           <ActionPopupBadge testid="plan-engine-box-power" title={stateText}
+                                             fill={ctl.engineOn ? (HEALTH_COLORS[health] || ON_GREEN) : '#26374f'}
+                                             text={ctl.engineOn ? '#000' : DIM}>
+                               <PowerSettingsNewIcon sx={{ fontSize: '1em' }} />
+                           </ActionPopupBadge>
+                       }>
+            {() => (
+                <Box data-testid="plan-engine-strip"
+                     data-source={overlay ? overlay.source : ''}
+                     data-desired={desired}
+                     data-actual={engine ? engine.state.actual_state : ''}
+                     data-health={health}
+                     sx={{ px: '0.7em', py: '0.3em', color: TEXT, fontSize: 12, userSelect: 'text' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Tooltip title={noMachine
+                            ? 'Pick the machine this browser is on first'
+                            : `Switch this plan's engine on ${machineName(ctl.machine, ctl.machineId)} `
+                                + (ctl.engineOn ? 'off' : 'on')}>
+                            <span>
+                                <Button size="small" variant={ctl.engineOn ? 'contained' : 'outlined'}
+                                        onClick={ctl.toggle}
+                                        disabled={!!ctl.pending || noMachine}
+                                        startIcon={<PowerSettingsNewIcon fontSize="small" />}
+                                        aria-pressed={ctl.engineOn}
+                                        data-testid="plan-engine-switch"
+                                        data-on={ctl.engineOn ? 'true' : 'false'}
+                                        sx={{ textTransform: 'none', fontWeight: 700, py: 0, minHeight: 26,
+                                              ...(ctl.engineOn
+                                                  ? { bgcolor: ON_GREEN, color: '#000', '&:hover': { bgcolor: '#22c55e' } }
+                                                  : { color: TEXT, borderColor: DIM }) }}>
+                                    {switchLabel}
+                                </Button>
+                            </span>
+                        </Tooltip>
+                        {ctl.machineResolved && ctl.openMachines.length <= 1 ? (
+                            <Typography variant="caption" sx={{ color: DIM }} data-testid="plan-engine-machine">
+                                on {machineName(ctl.machine, ctl.machineId)}
+                            </Typography>
+                        ) : (
+                            <Select size="small" variant="standard" value={ctl.machineId ?? ''}
+                                    displayEmpty
+                                    onChange={(e) => onPickMachine(e.target.value === '' ? null : Number(e.target.value))}
+                                    inputProps={{ 'aria-label': 'This machine', 'data-testid': 'plan-engine-machine-select' }}
+                                    data-testid="plan-engine-machine"
+                                    sx={{ fontSize: 12, color: TEXT, '& .MuiSelect-icon': { color: DIM } }}>
+                                {noMachine && <MenuItem value="">pick this machine</MenuItem>}
+                                {ctl.openMachines.map((m) => (
+                                    <MenuItem key={m.id} value={m.id}>on {machineName(m, m.id)}</MenuItem>
+                                ))}
+                            </Select>
+                        )}
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                            <Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%',
+                                                        bgcolor: HEALTH_COLORS[health] }} />
+                            <Typography variant="caption" data-testid="plan-engine-state">
+                                {stateText}
+                            </Typography>
+                        </Box>
+                    </Box>
 
-            {ctl.error && (
-                <Alert severity="error" variant="outlined" sx={{ mt: 0.5, py: 0, color: TEXT }}
-                       data-testid="plan-engine-error">
-                    The engine switch failed: {ctl.error}
-                </Alert>
-            )}
-            {ctl.readErrors.length > 0 && (
-                <Typography variant="caption" component="div" sx={{ color: CUT_RED, mt: 0.25 }}
-                            data-testid="plan-engine-read-error">
-                    Could not read {ctl.readErrors.join(', ')} — the overlay below may be out of date.
-                </Typography>
-            )}
+                    {ctl.error && (
+                        <Alert severity="error" variant="outlined" sx={{ mt: 0.5, py: 0, color: TEXT }}
+                               data-testid="plan-engine-error">
+                            The engine switch failed: {ctl.error}
+                        </Alert>
+                    )}
+                    {ctl.readErrors.length > 0 && (
+                        <Typography variant="caption" component="div" sx={{ color: CUT_RED, mt: 0.25 }}
+                                    data-testid="plan-engine-read-error">
+                            Could not read {ctl.readErrors.join(', ')} — the rows below may be out of date.
+                        </Typography>
+                    )}
 
-            {open && (
-                <>
                     <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap', mt: 0.5,
                                color: DIM, fontSize: 12 }}>
                         {overlay ? <SourceText ctl={ctl} overlay={overlay} timezone={timezone} /> : (
@@ -262,9 +294,11 @@ export default function PlanEngineStrip({ ctl, machines, open, onToggleOpen, onP
                         )}
                     </Box>
                     {overlay && overlay.queue.length > 0 && (
+                        // Wraps rather than scrolls sideways: the reader shapes the
+                        // window, and its body scrolls down.
                         <Box component="ol" data-testid="plan-engine-queue"
-                             sx={{ display: 'flex', alignItems: 'center', gap: 0.5, listStyle: 'none',
-                                   p: 0, m: 0, mt: 0.5, overflowX: 'auto', pb: 0.25 }}>
+                             sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', rowGap: 0.5,
+                                   listStyle: 'none', p: 0, m: 0, mt: 0.5, pb: 0.25 }}>
                             {overlay.queue.map((item) => (
                                 <Fragment key={`${item.requirementId}-${item.index}`}>
                                     {overlay.cutShown && item.index === overlay.cut && (
@@ -284,8 +318,11 @@ export default function PlanEngineStrip({ ctl, machines, open, onToggleOpen, onP
                             ))}
                         </Box>
                     )}
-                </>
+                </Box>
             )}
-        </Box>
+        </AnchoredPanel>
     );
 }
+
+// The visualizer re-renders on every zoom frame; the box need not.
+export default memo(PlanEngineBox);

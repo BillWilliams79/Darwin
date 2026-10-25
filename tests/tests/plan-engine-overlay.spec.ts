@@ -181,7 +181,7 @@ async function expectOverlay(page: Page, answer: any, source: 'engine' | 'predic
 // fixture's WSL box rather than the machine its engine runs on.
 async function open(page: Page) {
   await page.goto(`/swarm/pipeline/${PLAN}?mode=plan&engineMachine=${THIS_MACHINE}`);
-  await expect(page.getByTestId('plan-engine-strip')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('plan-engine-box')).toBeVisible({ timeout: 30000 });
 }
 
 const world = (state: any, engine: World['engine'], extra: Partial<World> = {}): World => ({
