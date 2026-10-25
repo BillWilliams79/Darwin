@@ -105,30 +105,30 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — Plan, Lock and Engine, never the Table (req #3641, #3760, #3761)', () => {
-    // The Table stays withdrawn. The Lock view (req #3761) is switched from the
-    // plan toolbar's Lock chip — see PipelineDetail.lockMode.test.jsx — and the
-    // Engine view (req #3760) from the header's Plan | Engine switch.
-    it('registers the Plan visualizer first, then Lock and Engine — never the Table', () => {
-        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'lock', 'engine']);
+describe('PipelineDetail — Plan and Engine, never the Table or Lock (req #3641, #3760, #3909)', () => {
+    // The Table stays withdrawn and the Lock view (req #3761) is removed (req
+    // #3909). The Engine view (req #3760) is the header's Plan | Engine switch.
+    it('registers the Plan visualizer first, then Engine — never the Table or Lock', () => {
+        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'engine']);
     });
 
     it.each([
         ['a bare plan URL', '/swarm/pipeline/2'],
         ['an old ?mode=table link', '/swarm/pipeline/2?mode=table'],
         ['an old Table epic link', '/swarm/pipeline/2?mode=table&epic=47'],
+        ['an old ?mode=lock link', '/swarm/pipeline/2?mode=lock'],
     ])('renders the Plan and never the Table for %s', (_label, url) => {
         mount(url);
         expect(node('mode-plan')).not.toBeNull();
         expect(node('mode-table')).toBeNull();
     });
 
-    it('renders the Plan for a reader whose stored preference says table', () => {
-        localStorage.setItem('darwin-swarm-pipeline-detail-mode', 'table');
-        sessionStorage.setItem('darwin-swarm-pipeline-detail-mode', 'table');
+    it.each(['table', 'lock'])('renders the Plan for a reader whose stored preference says %s', (stored) => {
+        localStorage.setItem('darwin-swarm-pipeline-detail-mode', stored);
+        sessionStorage.setItem('darwin-swarm-pipeline-detail-mode', stored);
         mount('/swarm/pipeline/2');
         expect(node('mode-plan')).not.toBeNull();
-        expect(node('mode-table')).toBeNull();
+        expect(node(`mode-${stored}`)).toBeNull();
     });
 
     it('switches Plan | Engine on the header row, and offers no Table', () => {
@@ -136,8 +136,8 @@ describe('PipelineDetail — Plan, Lock and Engine, never the Table (req #3641, 
         expect(node('pipeline-mode-switch')).not.toBeNull();
         expect(node('pipeline-mode-plan').getAttribute('aria-pressed')).toBe('true');
         expect(node('pipeline-mode-table')).toBeNull();
-        // The Lock view is the plan toolbar's toggle, not a header chip.
         expect(node('pipeline-mode-lock')).toBeNull();
+        expect(node('pipeline-viz-mode-lock')).toBeNull();
         expect(node('pipeline-plan-toolbar') || node('mode-plan')).not.toBeNull();
         act(() => { node('pipeline-mode-engine').click(); });
         expect(node('mode-engine')).not.toBeNull();
