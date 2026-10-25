@@ -2,9 +2,9 @@
 //
 // The header and the plan's panel. The panel comes from pipelineDetailModes.js,
 // which since req #3641 offers no Table (user directive) — a click on an epic
-// frames it on the canvas rather than leaving for one. Req #3760 added Engine
-// and req #3761 Lock: Plan | Engine are chips at the header row's start, left
-// of the plan's name (req #3875); Lock is toggled from the plan toolbar.
+// frames it on the canvas rather than leaving for one. Req #3760 added Engine:
+// Plan | Engine are chips at the header row's start, left of the plan's name
+// (req #3875). Req #3761's Lock view was removed by req #3909.
 //
 // DATA: four bounded list reads + three dictionary reads + (req #3117) two cost
 // reads, joined client-side in one useMemo (design rule 5 — the POC's ~86
@@ -62,8 +62,6 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
-import { orchestrationBadges } from './orchestrationHolder';
-import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 import PlanTitle from './PlanTitle';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
@@ -170,10 +168,9 @@ export default function PipelineDetail() {
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
 
-    // Written by two controls: the header's Plan | Engine switch (req #3760)
-    // and the plan toolbar's Lock chip (req #3761). Req #3641 removed the
-    // switcher that used to write it; a stored 'table' from before still
-    // normalizes onto the registry below.
+    // Written by the header's Plan | Engine switch (req #3760). Req #3641
+    // removed the switcher that used to write it; a stored 'table' (or 'lock',
+    // req #3909) from before still normalizes onto the registry below.
     const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
 
@@ -482,17 +479,6 @@ export default function PipelineDetail() {
     const handleResetView = useCallback(() => {
         setResetViewNonce((n) => n + 1);
     }, []);
-    // req #3761 — the Lock chip's choice: persisted per tab through the mode
-    // registry, and it clears a `?mode=` link so the pick is not overridden by
-    // the very URL it was made on (a manual pick rewrites the entry's query, as
-    // the level and colour picks do).
-    // A pick also drops a focus link (`?epic=` / `?initiative=`): those mean "the
-    // plan" whatever the stored mode says, so leaving them in the URL would make
-    // the chip a dead control on every such entry.
-    const handleViewModeChange = useCallback((v) => {
-        setMode(v);
-        replaceLinkParams(['mode', FOCUS_EPIC_PARAM, FOCUS_INITIATIVE_PARAM]);
-    }, [setMode, replaceLinkParams]);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
@@ -501,8 +487,7 @@ export default function PipelineDetail() {
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
     // The Default nonce belongs to the mode it was pressed in. A panel that mounts
     // with a nonzero nonce reads it as a click and factory-resets its camera —
-    // which cancels the epic framing an epic click in the Lock view just asked for
-    // and replaces a remembered viewport on Plan -> Lock -> Plan. So a mode change
+    // which replaces a remembered viewport on Plan -> Engine -> Plan. So a mode change
     // starts the next panel from 0 (which no panel acts on), in the same render.
     const [nonceMode, setNonceMode] = useState(activeMode);
     if (nonceMode !== activeMode) {
@@ -594,13 +579,12 @@ export default function PipelineDetail() {
     // canvas. Fed by the machine, claim and session reads above — the session
     // read is the live-session count a prediction's capacity is made of, so it
     // is handed over as unknown (`undefined`) until it has settled.
-    const [engineStripOpen, setEngineStripOpen] = usePlanViewSetting('engineStripOpen');
     const [engineMachineRaw, setEngineMachineRaw] = usePlanViewSetting('engineMachine');
     // `?engineMachine=<id>` names it in a link (a review deep link, or a machine
     // the browser cannot identify); it wins over the remembered pick while present.
     const engineMachineParam = searchParams.get(ENGINE_MACHINE_PARAM);
     const engineMachinePick = /^\d+$/.test(engineMachineParam || '') ? engineMachineParam : engineMachineRaw;
-    // Picking a machine in the strip drops the link's `engineMachine`, so the pick shows.
+    // Picking a machine in the engine box drops the link's `engineMachine`, so the pick shows.
     const engineMachineOverride = /^\d+$/.test(engineMachinePick || '') ? Number(engineMachinePick) : null;
     const engineCtl = usePlanEngineOverlay({
         pipelineId: Number.isInteger(pipelineId) ? pipelineId : null,
@@ -618,14 +602,12 @@ export default function PipelineDetail() {
         ctl: engineCtl,
         machines: machineById,
         thisMachineId: engineCtl.machineId,
-        open: engineStripOpen,
-        onToggleOpen: () => setEngineStripOpen((v) => !v),
         onPickMachine: (id) => {
             setEngineMachineRaw(id == null ? '' : String(id));
             if (searchParams.has(ENGINE_MACHINE_PARAM)) replaceLinkParams([ENGINE_MACHINE_PARAM]);
         },
         timezone,
-    }), [engineCtl, machineById, engineStripOpen, setEngineStripOpen, setEngineMachineRaw, timezone,
+    }), [engineCtl, machineById, setEngineMachineRaw, timezone,
         searchParams, replaceLinkParams]);
 
     const pillsLoading = requirementSessionsLoading || sessionTerminalsLoading
@@ -678,12 +660,9 @@ export default function PipelineDetail() {
     // is optional.
     const planReqCounts = plan?.requirementCounts?.overall;
 
-    // req #3809 — who is orchestrating this plan, one circular badge per
-    // machine beside the plan's name: green the master (the first machine in,
-    // req #3678), orange each secondary, the platform printed inside.
-    const orchestrationBadgeList = useMemo(
-        () => orchestrationBadges(orchestrationClaims, pipeline?.id, machines),
-        [orchestrationClaims, pipeline?.id, machines]);
+    // The orchestration badges beside the plan's name (req #3809) were REMOVED
+    // by req #3908 (user directive): the Engine on/off control at the canvas's
+    // bottom right is where an engine is read and driven now.
 
     // `planMachines` — the distinct machine set behind the header's machine chip
     // — was REMOVED with the rest of the dead code (req #3241). The chip itself
@@ -789,13 +768,7 @@ export default function PipelineDetail() {
     // state the plan's derivation is in; the Plan's own toolbar shows only
     // while the Plan is the panel.
     const panelNeedsPlan = activeEntry.needsPlan !== false;
-    // The plan toolbar shows for the Plan and for every reading of the plan it
-    // toggles itself (req #3761's Lock) — its Lock chip is the way back.
-    const isPlanMode = activeEntry.value === 'plan' || !!activeEntry.planToolbarToggle;
-    // The header switch: the plan's sibling views. A toolbar-toggled reading
-    // of the plan lights the Plan chip.
-    const switchModes = PIPELINE_DETAIL_MODES.filter((m) => !m.planToolbarToggle);
-    const switchValue = activeEntry.planToolbarToggle ? 'plan' : activeEntry.value;
+    const isPlanMode = activeEntry.value === 'plan';
 
     // req #3261 P2 — the status group's separator renders only when the group
     // does. Its chip is a live-ops conditional, so this is false on the
@@ -997,9 +970,8 @@ export default function PipelineDetail() {
                  data-title-bar="">
 
                 {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
-                    One chip per registered mode that is not toggled from the
-                    plan toolbar (pipelineDetailModes.js) — the Lock view
-                    (req #3761) has its own chip there. Plan is the visualizer;
+                    One chip per registered mode (pipelineDetailModes.js).
+                    Plan is the visualizer;
                     Engine is what the orchestration engines made of this plan.
                     FIRST on the row, left of the plan's name (req #3875, user
                     directive: "these buttons should be to the left of the
@@ -1015,12 +987,12 @@ export default function PipelineDetail() {
                     keeps the Tooltip from naming the wrapper span a second
                     time. The outlined chip's label padding is 1px less, as
                     MUI's own is, so both chips are one width. */}
-                {switchModes.length > 1 && (
+                {PIPELINE_DETAIL_MODES.length > 1 && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
                          role="group" aria-label="View" data-testid="pipeline-mode-switch">
-                        {switchModes.map((m) => {
+                        {PIPELINE_DETAIL_MODES.map((m) => {
                             const Icon = m.icon;
-                            const on = m.value === switchValue;
+                            const on = m.value === activeEntry.value;
                             return (
                                 <Tooltip key={m.value} title={m.label} describeChild>
                                     <span style={{ display: 'inline-flex' }}>
@@ -1039,7 +1011,7 @@ export default function PipelineDetail() {
                         })}
                     </Box>
                 )}
-                {switchModes.length > 1 && (
+                {PIPELINE_DETAIL_MODES.length > 1 && (
                     <Divider orientation="vertical" flexItem
                              sx={{ mx: 0.5, flexShrink: 0 }} />
                 )}
@@ -1074,25 +1046,15 @@ export default function PipelineDetail() {
                     The title's tooltip was dropped by req #3648 (user
                     directive), so a clipped name is read from the plan list. */}
                 {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
-                    pixel of slack); the title text sits at its start (after
-                    the orchestration badges, req #3820), shrinking to clip,
+                    pixel of slack); the title text sits at its start,
+                    shrinking to clip,
                     and the Full screen switch follows the text
                     (and the Req # launcher, req #3798) inside the
                     slot (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
-                {/* The floor is the NAME's (req #3809 review): the badges are
-                    rigid, so the slot's floor grows by their width rather than
-                    letting them eat the name's stub. */}
                 <Box sx={{ flex: 1,
-                           minWidth: TITLE_MIN_W + REQ_JUMP_W + orchestrationBadgesWidth(
-                               orchestrationBadgeList.length),
+                           minWidth: TITLE_MIN_W + REQ_JUMP_W,
                            display: 'flex', alignItems: 'center', gap: 1 }}>
-                {/* ── ORCHESTRATION BADGES (req #3809; req #3820 moved them,
-                    user directive: "it should be to the left of pipeline's
-                    name in the title") ──────────────────────────────────────
-                    Rigid, so the plan's name is what clips first; they render
-                    only while somebody orchestrates this plan. */}
-                <OrchestrationBadges badges={orchestrationBadgeList} />
                 {/* req #3853 — the name and its counts carry the initiative
                     and epic names' gestures (click: the plan's editor; double
                     click: zoom to the active epics; long press / F2: rename in
@@ -1180,8 +1142,6 @@ export default function PipelineDetail() {
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
-                        viewMode={activeMode}
-                        onChangeViewMode={handleViewModeChange}
                     />}
 
                 {/* The status chip and the machine chip were REMOVED on the
@@ -1306,8 +1266,6 @@ export default function PipelineDetail() {
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
                              keyHover={keyHover}
-                             orchestrationClaims={orchestrationClaims}
-                             machines={machines}
                              engineOverlay={activeMode === 'plan' ? engineOverlay : null}
                              />
             )}

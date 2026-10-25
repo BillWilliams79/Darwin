@@ -4,8 +4,9 @@
 // ── EVERY CARD IS ITS OWN EDITOR (req #3804) ────────────────────────────────
 // The plan's title and goal are text on the card that becomes a field when
 // clicked; Enter / leaving the field saves, Esc puts the stored text back. The
-// card's menu sets the machine, locks and unlocks, and closes or reopens the
-// plan. The plan itself OPENS from its picture — the card body no longer
+// card's menu sets the machine, locks and unlocks, closes or reopens the
+// plan, and DELETES it (req #3934 — behind a confirmation, refused while the
+// plan is locked or a live orchestrator holds it). The plan itself OPENS from its picture — the card body no longer
 // navigates, because a click on it is now an edit, and the open buttons that
 // stood beside the title and in the menu went in the req #3804 review.
 //
@@ -15,7 +16,8 @@
 // above the whole plan drawn small, then the goal. No badges for those
 // figures, no status or machine chips, no "x of y met" line and no progress
 // bar restating the block (the bar went in the last review). The chips that remain are states a reader must not
-// miss: closed, locked, and who is orchestrating it.
+// miss: closed, locked, and who is orchestrating it. The goal sits collapsed
+// to a few lines under the shared Show more toggle (req #3945).
 //
 // What is NOT editable here is the lifecycle (`pipeline_status`): its
 // transitions carry started_at/completed_at side effects, and the plan is
@@ -40,9 +42,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import InputBase from '@mui/material/InputBase';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -56,6 +64,7 @@ import Typography from '@mui/material/Typography';
 import Check from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import ComputerIcon from '@mui/icons-material/Computer';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -65,7 +74,9 @@ import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
-import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
+import { orchestrationView, isStale } from '../SwarmView/pipelines/orchestrationHolder';
+import CollapseToggle from '../Components/Collapsible/CollapseToggle';
+import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleField';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 import { NewPipelineTile, NewPipelineDraftCard } from './NewPipelineCard';
 import { pipelineEditFields } from './PipelineEditDialog';
@@ -111,7 +122,7 @@ const CARD_LIFT_SX = { bgcolor: 'background.paper', boxShadow: 6, opacity: 0.9, 
  * text back.
  */
 function InlineText({ value, onCommit, readOnly = false, multiline = false, placeholder,
-    testId, sx, maxLength }) {
+    testId, sx, maxLength, maxRows, inputRef, onFocusChange, collapsed }) {
     const stored = value ?? '';
     const [draft, setDraft] = useState(stored);
     // `editing` spans the focus AND the save that follows it, so neither a
@@ -145,9 +156,11 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
             multiline={multiline}
             fullWidth
             placeholder={readOnly ? undefined : placeholder}
-            onFocus={() => { atFocusRef.current = draft; setEditing(true); }}
+            maxRows={maxRows}
+            inputRef={inputRef}
+            onFocus={() => { atFocusRef.current = draft; setEditing(true); onFocusChange?.(true); }}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={finish}
+            onBlur={(e) => { onFocusChange?.(false); finish(e); }}
             onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
@@ -158,7 +171,8 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
                     e.target.blur?.();
                 }
             }}
-            inputProps={{ 'data-testid': testId, maxLength }}
+            inputProps={{ 'data-testid': testId, maxLength,
+                ...(collapsed !== undefined && { 'data-collapsed': collapsed ? 'true' : 'false' }) }}
             sx={[{
                 borderRadius: 0.5,
                 px: 0.5,
@@ -170,6 +184,75 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
     );
 }
 
+// req #3945 — the goal sits COLLAPSED to this many lines, so more plans fit on
+// a screen and every card still shows what its plan is for.
+const GOAL_COLLAPSED_ROWS = 3;
+
+/**
+ * The plan's goal, collapsed the way every editable long text in Darwin is
+ * (req #3572's CollapsibleGhostField, req #3945): the shared Show more / Show
+ * less toggle above it pins it open for reading, and clicking in expands it for
+ * as long as it is being edited.
+ */
+function GoalText({ testId, ...textProps }) {
+    const { expanded, toggle, attachInput, setFocused, collapsedSx } = useCollapsibleField();
+    return (
+        <Box>
+            <CollapseToggle expanded={expanded} onToggle={toggle} testId={`${testId}-toggle`} />
+            <InlineText {...textProps} multiline testId={testId}
+                        maxRows={expanded ? undefined : GOAL_COLLAPSED_ROWS}
+                        collapsed={!expanded}
+                        inputRef={attachInput} onFocusChange={setFocused}
+                        sx={[textProps.sx, collapsedSx]} />
+        </Box>
+    );
+}
+
+const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/**
+ * The hard delete's confirmation (req #3934): what goes, what stays.
+ * `onConfirm` resolves true when the plan is gone.
+ */
+function DeletePipelineDialog({ p, summary, counts, open, onClose, onConfirm }) {
+    const [deleting, setDeleting] = useState(false);
+    const confirm = async () => {
+        setDeleting(true);
+        const done = await onConfirm();
+        setDeleting(false);
+        if (done) onClose();
+    };
+    return (
+        <Dialog open={open} onClose={deleting ? undefined : onClose}
+                data-testid={`pipelines-card-delete-dialog-${p.id}`}>
+            <DialogTitle>Delete pipeline</DialogTitle>
+            <DialogContent>
+                <DialogContentText>
+                    Delete &ldquo;{p.title}&rdquo; with its {count(summary.initiatives, 'initiative')},{' '}
+                    {count(summary.total, 'epic')} and every dependency between them?
+                </DialogContentText>
+                <DialogContentText sx={{ mt: 2 }}>
+                    {counts.total
+                        ? `Its ${count(counts.total, 'requirement')} ${counts.total === 1
+                            ? 'is kept — it comes' : 'are kept — they come'} out unseated, in no plan.`
+                        : 'It seats no requirements.'}
+                    {' '}Past sessions keep their history. This cannot be undone.
+                </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={confirm} variant="outlined" color="error" disabled={deleting}
+                        data-testid={`pipelines-card-delete-confirm-${p.id}`}>
+                    {deleting ? 'Deleting…' : 'Delete'}
+                </Button>
+                <Button onClick={onClose} variant="outlined" autoFocus disabled={deleting}
+                        data-testid={`pipelines-card-delete-cancel-${p.id}`}>
+                    Cancel
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+}
+
 /** One figure of the card's info block: the number over its name. */
 function Stat({ value, label, testId }) {
     return (
@@ -177,7 +260,8 @@ function Stat({ value, label, testId }) {
             {/* The plan's top-line numbers — sized to POP (req #3804 review:
                 "make the numbers quite a bit larger keeping the text the same"). */}
             <Typography sx={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1,
-                              letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}
+                              letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums',
+                              whiteSpace: 'nowrap' }}
                         data-testid={testId}>
                 {value}
             </Typography>
@@ -188,8 +272,8 @@ function Stat({ value, label, testId }) {
     );
 }
 
-function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
-    refetchInterval }) {
+function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, onUpdate,
+    onDelete, refetchInterval }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
     const closed = isClosedPipeline(p);
@@ -199,6 +283,12 @@ function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
 
     const [menuAnchor, setMenuAnchor] = useState(null);
     const [machineAnchor, setMachineAnchor] = useState(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    // req #3934 — deleting cascades the plan's claims away from under a running
+    // engine, so a LIVE one (whole-plan or initiative-scoped) is stopped first;
+    // a stale claim just goes with it. `deletePipeline` re-checks before writing.
+    const deleteBlock = locked ? 'Locked — unlock it first'
+        : heldLive ? 'Being orchestrated — /pipeline-stop it first' : null;
     const menuButtonRef = useRef(null);
 
     // The title, goal and machine go through the plan editor's own rule: only
@@ -313,7 +403,19 @@ function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
                                 secondary={closed ? 'Shown again; orchestratable again'
                                     : 'Hidden, and no engine launches its work'} />
                         </MenuItem>
+                        <MenuItem disabled={Boolean(deleteBlock)}
+                                  onClick={() => { setMenuAnchor(null); setDeleteOpen(true); }}
+                                  sx={{ color: 'error.main' }}
+                                  data-testid={`pipelines-card-menu-delete-${p.id}`}>
+                            <ListItemIcon><DeleteOutlineIcon fontSize="small" color="error" /></ListItemIcon>
+                            <ListItemText
+                                primary="Delete pipeline"
+                                secondary={deleteBlock || 'Its initiatives and epics too; requirements are kept'} />
+                        </MenuItem>
                     </Menu>
+                    <DeletePipelineDialog p={p} summary={s} counts={reqs} open={deleteOpen}
+                                          onClose={() => setDeleteOpen(false)}
+                                          onConfirm={() => onDelete(p)} />
                     <Menu anchorEl={machineAnchor} open={!!machineAnchor}
                           onClose={() => setMachineAnchor(null)}
                           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
@@ -336,8 +438,12 @@ function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
                 {/* THE INFO BLOCK (req #3804 review: "not badges … just a
                     simple info block") — three figures straight under the
                     title, the top-line numbers of the plan, right above the
-                    preview. */}
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    preview. The requirements figure ("197 / 197") is the
+                    widest, so its column is never narrower than the figure
+                    on one line (req #3946); the columns stay equal thirds
+                    whenever that already fits. */}
+                <Box sx={{ display: 'grid',
+                           gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(max-content, 1fr)',
                            columnGap: 2, mt: 0.5, mb: 1.5 }}
                      data-testid={`pipelines-card-info-${p.id}`}>
                     <Stat value={s.initiatives} testId={`pipelines-card-initiatives-${p.id}`}
@@ -359,17 +465,14 @@ function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
                     </Box>
                 </Tooltip>
 
-                <Box>
-                    <InlineText
-                        value={p.description}
-                        readOnly={locked}
-                        multiline
-                        placeholder="Add a goal…"
-                        testId={`pipelines-card-description-${p.id}`}
-                        onCommit={(description) => save({ description })}
-                        sx={{ fontSize: 14, color: 'text.secondary' }}
-                    />
-                </Box>
+                <GoalText
+                    value={p.description}
+                    readOnly={locked}
+                    placeholder="Add a goal…"
+                    testId={`pipelines-card-description-${p.id}`}
+                    onCommit={(description) => save({ description })}
+                    sx={{ fontSize: 14, color: 'text.secondary' }}
+                />
 
                 {(closed || locked || holder) && (
                     <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
@@ -412,10 +515,11 @@ function PipelineCard({ p, summary, counts, machines, holder, onOpen, onUpdate,
  * @param {Object[]} props.pipelines   the cards to draw, in display order
  * @param {(fromId, toId) => void} props.onReorder   a card dropped on another's place
  * @param {(row, fields, problem?) => Promise<boolean>} props.onUpdate  an in-place edit
+ * @param {(row) => Promise<boolean>} props.onDelete  the menu's confirmed hard delete
  * @param {(title) => Promise<boolean>} props.onCreate  the front card's Enter
  */
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
-    machines, claims = [], onOpen, onUpdate, onReorder,
+    machines, claims = [], onOpen, onUpdate, onDelete, onReorder,
     onCreate, creating = false, hiddenStatusCounts = [], closedHidden = 0,
     refetchInterval, thumbnailRefetchInterval }) {
     const [drafting, setDrafting] = useState(false);
@@ -474,8 +578,10 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         counts={reqCounts?.get(p.id)}
                         machines={machines}
                         holder={orchestrationView(claims, p.id, machines)}
+                        heldLive={claims.some((c) => c.pipeline_fk === p.id && !isStale(c))}
                         onOpen={onOpen}
                         onUpdate={onUpdate}
+                        onDelete={onDelete}
                         refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
                     />
                 ))}

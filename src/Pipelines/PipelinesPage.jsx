@@ -90,7 +90,13 @@ import {
     useAllInitiativeDeps,
     useAllRequirements,
     useOrchestrationClaims,
+    initiativeKeys,
+    pipelineEpicKeys,
+    pipelineEpicRequirementKeys,
+    pipelineEpicDepKeys,
+    initiativeDepKeys,
 } from '../hooks/useDataQueries';
+import { pipelineComposeKeys, requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import normalizeView from '../Components/ViewerHeader/normalizeView';
@@ -124,7 +130,7 @@ import {
 import PipelinesCardsView from './PipelinesCardsView';
 import NewPipelineDialog from './NewPipelineDialog';
 import useCreatePipeline from './useCreatePipeline';
-import { updatePipeline, updatePipelines, REST_NULL } from './pipelinesApi';
+import { updatePipeline, updatePipelines, deletePipeline, REST_NULL } from './pipelinesApi';
 
 // req #3356 — the `2` is out of both keys now that there is one plan list.
 // Dropping it ORPHANS the two stored preferences rather than migrating them, so
@@ -213,6 +219,7 @@ export default function PipelinesPage() {
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore((s) => s.showError);
+    const showMessage = useSnackBarStore((s) => s.showMessage);
     const navigate = useNavigate();
 
     const creatorFk = profile?.userName;
@@ -365,6 +372,35 @@ export default function PipelinesPage() {
     // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
     const toggleLock = (row) => updateRow(row, { locked: Number(row.locked) ? 0 : 1 });
     const toggleClosed = (row) => updateRow(row, { closed: isClosedPipeline(row) ? 0 : 1 });
+
+    // req #3934 — the card menu's confirmed hard delete. Every plan-layer read
+    // on this page is re-read after it, since its initiatives, epics, seats and
+    // edges went with it.
+    const deleteRow = async (row) => {
+        try {
+            await deletePipeline(darwinUri, idToken, row.id);
+            showMessage(`Deleted pipeline "${row.title}"`);
+            return true;
+        } catch (err) {
+            // A named refusal (a lock, a running orchestrator, a cross-plan
+            // edge) says WHICH — show it, as InitiativesPage does.
+            const status = err?.httpStatus?.httpStatus;
+            if (err?.namedRefusal) {
+                showError(`Could not delete the pipeline${status ? ` (${status})` : ''} — ${err.message}`);
+            } else {
+                showError(err, 'Could not delete the pipeline');
+            }
+            return false;
+        } finally {
+            invalidatePipelines();
+            [initiativeKeys.all(creatorFk), pipelineEpicKeys.all(creatorFk),
+                pipelineEpicRequirementKeys.all(creatorFk), pipelineEpicDepKeys.all(creatorFk),
+                initiativeDepKeys.all(creatorFk), pipelineComposeKeys.all,
+                // Requirement rows carry the derived `pipelined` flag.
+                requirementKeys.all(creatorFk)]
+                .forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
+        }
+    };
 
     // req #3804 — a card dropped on another's place. Renumbers over the FULL
     // ordered list, so plans the filters hide keep their places.
@@ -618,6 +654,7 @@ export default function PipelinesPage() {
                         claims={orchestrationClaims}
                         onOpen={open}
                         onUpdate={updateRow}
+                        onDelete={deleteRow}
                         onReorder={reorder}
                         onCreate={createInPlace}
                         creating={creating}
