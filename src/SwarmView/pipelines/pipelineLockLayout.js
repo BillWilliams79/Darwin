@@ -61,7 +61,7 @@ export function cascadeLock({ pipelineLocked = false, initiativeLocked = false, 
  * role, tone, stale, label, title }`. `role` is `'lead'` / `'subscriber'` for a
  * live claim and null for a stale one; `tone` is the badge vocabulary
  * (`BADGE_LEAD` green, `BADGE_SUBSCRIBER` orange, `BADGE_STALE` grey). A
- * REFUSED claim launches nothing and gets no holder, as it gets no badge.
+ * REFUSED claim launches nothing and gets no holder.
  */
 export function lockHolders(claims, pipelineId, machines, now = new Date()) {
     const out = { pipeline: [], byInitiative: new Map() };
@@ -71,7 +71,7 @@ export function lockHolders(claims, pipelineId, machines, now = new Date()) {
     const roles = resolveRoles(live);
     const machineOf = (c) => asArray(machines).find((m) => m.id === c.machine_fk) || null;
 
-    // Live claims first, by id — the order `orchestrationBadges` uses — so the
+    // Live claims first, by id — the order roles are resolved in — so the
     // first holder of a scope is its lead and a stale one never sets the outline.
     const ordered = onPlan.slice().sort((a, b) => Number(isStale(a, now)) - Number(isStale(b, now))
         || (Number.isInteger(a.id) ? a.id : Infinity) - (Number.isInteger(b.id) ? b.id : Infinity));

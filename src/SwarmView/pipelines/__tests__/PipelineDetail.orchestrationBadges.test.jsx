@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3809 — the plan header shows WHO is orchestrating as circular badges
-// beside the plan's name (green master, orange secondary, the platform
-// inside), and the "Orchestrated by …" chip at the title bar's right edge is
-// gone. Req #3820 put them LEFT of the name with a one-line
-// tooltip. Mounts the real header against a lead Mac claim and a subscribing WSL
-// claim.
+// Req #3908 — the plan header draws NO orchestration badge. Req #3809 put
+// circular badges beside the plan's name (green master, orange secondary) and
+// removed the "Orchestrated by …" chip at the title bar's right edge; req #3908
+// removed the badges too (user directive: the Engine on/off control at the
+// canvas's bottom right replaces them). Mounts the real header against a lead
+// Mac claim and a subscribing WSL claim, so a regression has claims to draw.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -109,7 +109,7 @@ const liveClaim = (over) => ({
     claimed_at: NOW_STAMP(), update_ts: NOW_STAMP(), ...over,
 });
 
-describe('PipelineDetail — orchestration badges (req #3809)', () => {
+describe('PipelineDetail — no orchestration badge in the header (req #3908)', () => {
     afterEach(() => {
         act(() => { roots.forEach((r) => r.unmount()); });
         roots = [];
@@ -118,51 +118,24 @@ describe('PipelineDetail — orchestration badges (req #3809)', () => {
         vi.restoreAllMocks();
     });
 
-    it('draws a green Mac master and an orange WSL secondary left of the name', () => {
+    it('draws no badge beside the name while two machines orchestrate the plan', () => {
         mockClaims.rows = [
             liveClaim({ id: 1, machine_fk: 4 }),
             liveClaim({ id: 2, machine_fk: 5 }),
         ];
         mount('/swarm/pipeline/2');
-        const group = node('pipeline-orchestration-badges');
-        expect(group).not.toBeNull();
-        // LEFT of the plan's name, first in the title's slot (req #3820).
         const title = node('pipeline-title');
-        expect(group.nextElementSibling).toBe(title);
-        expect(group.previousElementSibling).toBeNull();
-
-        const master = node('pipeline-orchestration-badge-m4');
-        const secondary = node('pipeline-orchestration-badge-m5');
-        expect(master.textContent).toBe('Mac');
-        expect(master.dataset.tone).toBe('lead');
-        expect(getComputedStyle(master).backgroundColor).toBe('rgb(46, 125, 50)');
-        expect(getComputedStyle(master).borderRadius).toBe('50%');
-        expect(secondary.textContent).toBe('WSL');
-        expect(secondary.dataset.tone).toBe('subscriber');
-        expect(getComputedStyle(secondary).backgroundColor).toBe('rgb(245, 124, 0)');
-        // The hover sentence (req #3820) — also the badge's accessible name.
-        expect(master.getAttribute('aria-label'))
-            .toMatch(/^Mac Mini is the master\. Orchestrating for \d+s$/);
+        expect(title).not.toBeNull();
+        expect(node('pipeline-orchestration-badges')).toBeNull();
+        expect(node('pipeline-orchestration-badge-m4')).toBeNull();
+        // The name is first in the title's slot again.
+        expect(title.previousElementSibling).toBeNull();
     });
 
-    it('the old "Orchestrated by" chip at the right edge is gone', () => {
+    it('the old "Orchestrated by" chip at the right edge stays gone', () => {
         mockClaims.rows = [liveClaim({ id: 1, machine_fk: 4 })];
         mount('/swarm/pipeline/2');
         expect(node('pipeline-detail-holder')).toBeNull();
         expect(document.body.textContent).not.toContain('Orchestrated by');
-    });
-
-    it('draws nothing when nobody orchestrates the plan', () => {
-        mount('/swarm/pipeline/2');
-        expect(node('pipeline-orchestration-badges')).toBeNull();
-    });
-});
-
-describe('orchestrationBadgesWidth — the name keeps its floor (req #3809 review)', () => {
-    it('adds nothing without badges and the badges plus gaps with them', async () => {
-        const { orchestrationBadgesWidth, BADGE_SIZE } = await import('../OrchestrationBadges');
-        expect(orchestrationBadgesWidth(0)).toBe(0);
-        expect(orchestrationBadgesWidth(1)).toBe(8 + BADGE_SIZE);
-        expect(orchestrationBadgesWidth(3)).toBe(8 + 3 * BADGE_SIZE + 2 * 4);
     });
 });
