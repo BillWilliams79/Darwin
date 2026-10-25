@@ -836,6 +836,47 @@ describe('PipelinesPage2 — edit in place (req #3804)', () => {
         expect(restCalls[0].body).toEqual([{ id: 7, description: 'NULL' }]);
     });
 
+    // req #3945 — the goal sits collapsed under the shared Show more toggle.
+    it('collapses the goal by default; the toggle pins it open, focus expands it', async () => {
+        mount();
+        const toggle = node('pipelines-card-description-7-toggle');
+        expect(toggle.textContent).toBe('Show more');
+        expect(toggle.compareDocumentPosition(node('pipelines-card-description-7'))
+            & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        click(toggle);
+        expect(toggle.textContent).toBe('Show less');
+        click(toggle);
+        expect(toggle.textContent).toBe('Show more');
+
+        const goal = node('pipelines-card-description-7');
+        act(() => { goal.focus(); });
+        expect(toggle.textContent).toBe('Show less');
+        act(() => { goal.blur(); });
+        await flush();
+        expect(toggle.textContent).toBe('Show more');
+        expect(restCalls).toEqual([]);
+        // A locked plan's goal still collapses and discloses.
+        expect(node('pipelines-card-description-8-toggle').textContent).toBe('Show more');
+    });
+
+    it('the field itself reports collapsed, and expanded once pinned open', () => {
+        mount();
+        expect(node('pipelines-card-description-7').dataset.collapsed).toBe('true');
+        click(node('pipelines-card-description-7-toggle'));
+        expect(node('pipelines-card-description-7').dataset.collapsed).toBe('false');
+    });
+
+    it('collapsing a goal being edited saves the edit, as leaving it does', async () => {
+        mount();
+        const goal = node('pipelines-card-description-7');
+        act(() => { goal.focus(); });
+        type(goal, 'A sharper goal.');
+        click(node('pipelines-card-description-7-toggle'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 7, description: 'A sharper goal.' }]);
+        expect(node('pipelines-card-description-7-toggle').textContent).toBe('Show more');
+    });
+
     it('changes the machine from the card menu', async () => {
         mount();
         // Plan 8 is locked: its Machine item is disabled.

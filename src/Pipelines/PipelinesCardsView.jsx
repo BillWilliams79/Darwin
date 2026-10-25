@@ -16,7 +16,8 @@
 // above the whole plan drawn small, then the goal. No badges for those
 // figures, no status or machine chips, no "x of y met" line and no progress
 // bar restating the block (the bar went in the last review). The chips that remain are states a reader must not
-// miss: closed, locked, and who is orchestrating it.
+// miss: closed, locked, and who is orchestrating it. The goal sits collapsed
+// to a few lines under the shared Show more toggle (req #3945).
 //
 // What is NOT editable here is the lifecycle (`pipeline_status`): its
 // transitions carry started_at/completed_at side effects, and the plan is
@@ -74,6 +75,8 @@ import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { orchestrationView, isStale } from '../SwarmView/pipelines/orchestrationHolder';
+import CollapseToggle from '../Components/Collapsible/CollapseToggle';
+import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleField';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 import { NewPipelineTile, NewPipelineDraftCard } from './NewPipelineCard';
 import { pipelineEditFields } from './PipelineEditDialog';
@@ -119,7 +122,7 @@ const CARD_LIFT_SX = { bgcolor: 'background.paper', boxShadow: 6, opacity: 0.9, 
  * text back.
  */
 function InlineText({ value, onCommit, readOnly = false, multiline = false, placeholder,
-    testId, sx, maxLength }) {
+    testId, sx, maxLength, maxRows, inputRef, onFocusChange, collapsed }) {
     const stored = value ?? '';
     const [draft, setDraft] = useState(stored);
     // `editing` spans the focus AND the save that follows it, so neither a
@@ -153,9 +156,11 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
             multiline={multiline}
             fullWidth
             placeholder={readOnly ? undefined : placeholder}
-            onFocus={() => { atFocusRef.current = draft; setEditing(true); }}
+            maxRows={maxRows}
+            inputRef={inputRef}
+            onFocus={() => { atFocusRef.current = draft; setEditing(true); onFocusChange?.(true); }}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={finish}
+            onBlur={(e) => { onFocusChange?.(false); finish(e); }}
             onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
@@ -166,7 +171,8 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
                     e.target.blur?.();
                 }
             }}
-            inputProps={{ 'data-testid': testId, maxLength }}
+            inputProps={{ 'data-testid': testId, maxLength,
+                ...(collapsed !== undefined && { 'data-collapsed': collapsed ? 'true' : 'false' }) }}
             sx={[{
                 borderRadius: 0.5,
                 px: 0.5,
@@ -175,6 +181,30 @@ function InlineText({ value, onCommit, readOnly = false, multiline = false, plac
                 '&.Mui-focused': { bgcolor: 'action.selected' },
             }, ...(Array.isArray(sx) ? sx : [sx])]}
         />
+    );
+}
+
+// req #3945 — the goal sits COLLAPSED to this many lines, so more plans fit on
+// a screen and every card still shows what its plan is for.
+const GOAL_COLLAPSED_ROWS = 3;
+
+/**
+ * The plan's goal, collapsed the way every editable long text in Darwin is
+ * (req #3572's CollapsibleGhostField, req #3945): the shared Show more / Show
+ * less toggle above it pins it open for reading, and clicking in expands it for
+ * as long as it is being edited.
+ */
+function GoalText({ testId, ...textProps }) {
+    const { expanded, toggle, attachInput, setFocused, collapsedSx } = useCollapsibleField();
+    return (
+        <Box>
+            <CollapseToggle expanded={expanded} onToggle={toggle} testId={`${testId}-toggle`} />
+            <InlineText {...textProps} multiline testId={testId}
+                        maxRows={expanded ? undefined : GOAL_COLLAPSED_ROWS}
+                        collapsed={!expanded}
+                        inputRef={attachInput} onFocusChange={setFocused}
+                        sx={[textProps.sx, collapsedSx]} />
+        </Box>
     );
 }
 
@@ -430,17 +460,14 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                     </Box>
                 </Tooltip>
 
-                <Box>
-                    <InlineText
-                        value={p.description}
-                        readOnly={locked}
-                        multiline
-                        placeholder="Add a goal…"
-                        testId={`pipelines-card-description-${p.id}`}
-                        onCommit={(description) => save({ description })}
-                        sx={{ fontSize: 14, color: 'text.secondary' }}
-                    />
-                </Box>
+                <GoalText
+                    value={p.description}
+                    readOnly={locked}
+                    placeholder="Add a goal…"
+                    testId={`pipelines-card-description-${p.id}`}
+                    onCommit={(description) => save({ description })}
+                    sx={{ fontSize: 14, color: 'text.secondary' }}
+                />
 
                 {(closed || locked || holder) && (
                     <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
