@@ -1,5 +1,6 @@
-// The Show more / Show less control shared by CollapsibleText and
-// CollapsibleGhostField (req #3572), so both collapse surfaces read the same.
+// The Show more / Show less control shared by CollapsibleText,
+// CollapsibleGhostField (req #3572) and the pipeline card goal (req #3945), so
+// every collapse surface reads the same.
 //
 // ALWAYS RENDERED, AT THE TOP RIGHT of the field it controls (user direction
 // during manual review): a toggle that appears only when the text overflows, and
