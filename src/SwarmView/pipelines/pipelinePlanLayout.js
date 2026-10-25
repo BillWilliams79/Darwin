@@ -184,9 +184,9 @@ export const PLAN_VIZ_PALETTE = {
     // it too. Palette entries, not literals in the view: "no hardcoded colours".
     lockTint: 'rgba(255, 77, 79, 0.18)',
     lockBandTint: 'rgba(255, 77, 79, 0.09)',
-    // A holder's outline and badge (req #3761) — the SAME two fills the plan
-    // header's orchestration badges wear (`OrchestrationBadges.jsx`: green the
-    // lead, orange a subscriber), so one machine reads as one colour on both.
+    // A holder's outline and badge (req #3761) — the SAME two fills the
+    // orchestration badges wear (`OrchestrationBadges.jsx`: green the lead,
+    // orange a subscriber), so one machine reads as one colour on both.
     // 3.3:1 and 7.5:1 on `panel`, past the 3:1 floor for a graphical mark.
     holderLead: '#2e7d32',
     holderSubscriber: '#f57c00',

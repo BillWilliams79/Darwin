@@ -247,13 +247,12 @@ export function orchestrationView(claims, pipelineId, machines, now = new Date()
     };
 }
 
-// ── req #3809 — ORCHESTRATION AS A BADGE beside the plan's name ─────────────
+// ── req #3809 — ORCHESTRATION AS A BADGE ────────────────────────────────────
 //
-// User directive: "if you are being orchestrated you get a circular badge to the
-// right of your pipeline name — Green master, Orange secondary — Mac or WSL
-// inside", replacing the "Orchestrated by …" chip at the title bar's right edge.
-// ONE BADGE PER MACHINE, because the machine is what the badge prints; a
-// machine holding two initiative claims on one plan is one orchestrator, not two.
+// The badge's tones and its platform word. The plan header's badges and the
+// `orchestrationBadges` derivation behind them were REMOVED by req #3908 (user
+// directive: the Engine on/off control at the canvas's bottom right replaces
+// them); the engine panel's Location badge still draws with these.
 
 export const BADGE_LEAD = 'lead';
 export const BADGE_SUBSCRIBER = 'subscriber';
@@ -264,80 +263,6 @@ const PLATFORM_LABELS = { darwin: 'Mac', wsl: 'WSL', linux: 'Linux' };
 /** `Mac` / `WSL` / `Linux` — the word printed inside a badge; `?` when unknown. */
 export function machinePlatformLabel(machine) {
     return (machine && PLATFORM_LABELS[machine.platform]) || '?';
-}
-
-/**
- * The plan header's orchestration badges, master first:
- * `[{ key, machineFk, text, tone, title }]`, empty when nobody orchestrates.
- *
- * MASTER (`lead`, green) is the whole-plan LEAD — the first machine in. With no
- * live whole-plan claim, an initiative-scoped LEAD is the master of its own initiative, so it
- * is green too. Every other live machine on the plan is SECONDARY (`subscriber`,
- * orange): a subscriber, or an earlier initiative claim the whole-plan lead defers to.
- * A REFUSED claim launches nothing and gets no badge. With nothing live, a STALE
- * whole-plan claim still shows (grey, `stale`) — the orchestrator is gone and the
- * scope reclaimable, which is what the chip this replaced said too.
- */
-export function orchestrationBadges(claims, pipelineId, machines, now = new Date()) {
-    if (pipelineId == null) return [];
-    const onPlan = asArray(claims).filter((c) => c.pipeline_fk === pipelineId);
-    const live = onPlan.filter((c) => !isStale(c, now))
-        .sort((a, b) => idKey(a) - idKey(b));
-    const roles = resolveRoles(live);
-    const accepted = live.filter((c) => roles.get(c.id)?.role !== ROLE_REFUSED);
-    const machineOf = (c) => asArray(machines).find((m) => m.id === c.machine_fk) || null;
-
-    if (!accepted.length) {
-        const stale = claimForPipeline(onPlan, pipelineId);
-        if (!stale) return [];
-        const view = holderView(stale, machines, now);
-        return [{
-            key: `m${stale.machine_fk ?? 'none'}`,
-            machineFk: stale.machine_fk ?? null,
-            text: machinePlatformLabel(machineOf(stale)),
-            tone: BADGE_STALE,
-            title: `${view.machine} is no longer orchestrating. Last alive ${
-                view.ageSeconds == null ? 'at an unknown time' : `${humanDuration(view.ageSeconds)} ago`}`,
-        }];
-    }
-
-    const planLead = accepted.find(
-        (c) => c.initiative_fk == null && roles.get(c.id).role === ROLE_LEAD);
-    const isMaster = (c) => (planLead
-        ? c.id === planLead.id
-        : roles.get(c.id).role === ROLE_LEAD);
-
-    // ONE BADGE PER MACHINE: a machine holding several claims has been
-    // orchestrating since its EARLIEST one, so the longest hold is its time.
-    const byMachine = new Map();
-    for (const c of accepted) {
-        const key = `m${c.machine_fk ?? 'none'}`;
-        const view = holderView(c, machines, now);
-        const prior = byMachine.get(key);
-        if (prior) {
-            prior.master = prior.master || isMaster(c);
-            if (view.heldSeconds != null) {
-                prior.heldSeconds = Math.max(prior.heldSeconds ?? 0, view.heldSeconds);
-            }
-        } else {
-            byMachine.set(key, {
-                key, machineFk: c.machine_fk ?? null,
-                text: machinePlatformLabel(machineOf(c)),
-                machine: view.machine, heldSeconds: view.heldSeconds,
-                master: isMaster(c),
-            });
-        }
-    }
-    // The tooltip is the user's sentence (req #3820): "Mac Mini is the master.
-    // Orchestrating for 2h 05m" — `humanDuration`'s format, as everywhere else.
-    return [...byMachine.values()]
-        .sort((a, b) => Number(b.master) - Number(a.master))
-        .map(({ master, machine, heldSeconds, ...rest }) => ({
-            ...rest,
-            tone: master ? BADGE_LEAD : BADGE_SUBSCRIBER,
-            title: `${machine} is ${master ? 'the master' : 'secondary'}. Orchestrating ${
-                heldSeconds == null ? 'since an unknown time' : `for ${humanDuration(heldSeconds)}`}`,
-        }));
 }
 
 // `claimsForInitiative` — every reservation covering an INITIATIVE's work, its own plus any

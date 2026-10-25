@@ -1,12 +1,10 @@
-// OrchestrationBadges.jsx — who is orchestrating this plan, as circular badges
-// beside its name (req #3809).
+// OrchestrationBadges.jsx — circular orchestration badges: green the lead,
+// orange a subscriber, the platform printed inside (req #3809).
 //
-// User directive: "a circular badge to the right of your pipeline name — Green
-// master, Orange secondary — Mac or WSL inside"; req #3820 moved the group to
-// the LEFT of the name and cut the tooltip to "Mac Mini is the master.
-// Orchestrating for 2h 05m". The derivation (one badge per
-// machine, which tone, the tooltip sentence) is `orchestrationBadges` in
-// orchestrationHolder.js; this file only draws it.
+// User directive: "Green master, Orange secondary — Mac or WSL inside". They
+// sat beside the plan's name in the pipeline header until req #3908 removed
+// them there (the Engine on/off control replaces them); the engine panel's
+// Location section still draws its machine with this component.
 
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
@@ -15,15 +13,8 @@ import { BADGE_LEAD, BADGE_SUBSCRIBER } from './orchestrationHolder';
 
 export const BADGE_SIZE = 30;
 const BADGE_GAP_PX = 4;      // the group's `gap: 0.5`
-const SLOT_GAP_PX = 8;       // the title slot's `gap: 1`, between group and name
 
-/** The px the badge group adds to the title slot — 0 when it draws nothing. */
-export function orchestrationBadgesWidth(count) {
-    if (!count) return 0;
-    return SLOT_GAP_PX + count * BADGE_SIZE + (count - 1) * BADGE_GAP_PX;
-}
-
-// Filled and solid, so the tone reads at a glance on the dark header; each
+// Filled and solid, so the tone reads at a glance on a dark surface; each
 // label colour clears WCAG AA against its own fill.
 const TONE_SX = {
     [BADGE_LEAD]: { bgcolor: '#2e7d32', color: '#fff', border: '1px solid #2e7d32' },

@@ -71,7 +71,7 @@ export function lockHolders(claims, pipelineId, machines, now = new Date()) {
     const roles = resolveRoles(live);
     const machineOf = (c) => asArray(machines).find((m) => m.id === c.machine_fk) || null;
 
-    // Live claims first, by id — the order `orchestrationBadges` uses — so the
+    // Live claims first, by id — the order roles are resolved in — so the
     // first holder of a scope is its lead and a stale one never sets the outline.
     const ordered = onPlan.slice().sort((a, b) => Number(isStale(a, now)) - Number(isStale(b, now))
         || (Number.isInteger(a.id) ? a.id : Infinity) - (Number.isInteger(b.id) ? b.id : Infinity));
