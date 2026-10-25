@@ -134,22 +134,29 @@ export const OUTCOME_WORDS = {
 // ── Colours — the plan view's own status colours (aurora, the theme the plan
 // canvas draws; `DEFAULT_PLAN_PALETTE`). Mapped by MEANING, never a new hex:
 // goes now / landed / healthy read as the requirement `met` green, waiting-to-
-// start as `development`, queued-for-a-slot as `swarm_ready`, held by the plan
-// as `deferred`, needs-a-human as the session `review` attention red, and
-// nothing-to-do as `wontfix` grey.
+// start as `development`, queued-for-a-slot as `swarm_ready`, and needs-a-
+// human as the session `review` attention red.
+//
+// HELD-BY-THE-PLAN amber and NOTHING-TO-DO grey are this file's OWN two values,
+// the ones they always were. They used to be aurora's `deferred`/`wontfix`, and
+// req #3905 turned those two statuses green (both are closed, like `met`) — a
+// degraded engine, a paused or barrier-held epic would then have read as
+// healthy or finished beside the `met` green of `ok`/`admitted`.
 const PALETTE = planPalette(DEFAULT_PLAN_PALETTE);
 const S = PALETTE.status;
 const ATTENTION = PALETTE.session.review;
+const HELD = '#fcd34d';
+const INERT = '#94a3b8';
 
 export const CODE_COLORS = {
     ENGINE_HOLD: ATTENTION,
-    CLOSED: S.wontfix,
-    PAUSED: S.deferred,
-    INITIATIVE_GATE: S.deferred,
-    BARRIER: S.deferred,
-    NOT_BEFORE: S.deferred,
-    NO_WORK: S.wontfix,
-    MANUAL: S.wontfix,
+    CLOSED: INERT,
+    PAUSED: HELD,
+    INITIATIVE_GATE: HELD,
+    BARRIER: HELD,
+    NOT_BEFORE: HELD,
+    NO_WORK: INERT,
+    MANUAL: INERT,
     MACHINE_PIN: S.approved,
     IN_FLIGHT: S.development,
     DEP_PRIORITY: S.swarm_ready,
@@ -157,19 +164,19 @@ export const CODE_COLORS = {
     ADMITTED: S.met,
     REGRESSION: ATTENTION,
     TOP_UP: S.swarm_ready,
-    DRAINED: S.wontfix,
+    DRAINED: INERT,
     LANDED: S.met,
     STALL: ATTENTION,
     VIOLATION: ATTENTION,
     CODE_STALE: ATTENTION,
 };
-export const codeColor = (code) => CODE_COLORS[code] || S.wontfix;
+export const codeColor = (code) => CODE_COLORS[code] || INERT;
 
 export const HEALTH_COLORS = {
     [HEALTH_OK]: S.met,
-    [HEALTH_DEGRADED]: S.deferred,
+    [HEALTH_DEGRADED]: HELD,
     [HEALTH_MISSING]: ATTENTION,
-    [HEALTH_STOPPED]: S.wontfix,
+    [HEALTH_STOPPED]: INERT,
 };
 
 export const OUTCOME_COLORS = {

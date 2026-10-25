@@ -8980,8 +8980,8 @@ describe('palette themes (req #3365)', () => {
         // values — pinned here so this test also catches one of THEM moving,
         // not just whether the tracked three still agree with autonomy.
         expect(aurora.status.swarm_ready).toBe('#22d3ee');
-        expect(aurora.status.deferred).toBe('#fcd34d');
-        expect(aurora.status.wontfix).toBe('#94a3b8');
+        expect(aurora.status.deferred).toBe('#e0fce6');
+        expect(aurora.status.wontfix).toBe('#a0f0b0');
         // `development` is DELIBERATELY UNTRACKED here (see the source
         // comment on `auroraPalette` for why: tracking it to
         // `PLAN_VIZ_PALETTE.runningRing` collides with aurora's own
@@ -9006,6 +9006,25 @@ describe('palette themes (req #3365)', () => {
         expect(toMet).toBeLessThan(
             deltaE(aurora.status.development, aurora.status.swarm_ready));
         expect(toMet).toBeGreaterThanOrEqual(20);
+    });
+
+    it('paints the three CLOSED statuses as greens, met darkest → wontfix → deferred lightest (req #3905)', () => {
+        // User directive: "Deferred and WONTFIX are both closed and thus should
+        // be shades of green ... darkest being met, then the other middle
+        // wontfix and last is deferred". On the theme the canvas draws.
+        const aurora = planPalette(DEFAULT_PLAN_PALETTE);
+        const L = (hex) => toLab(hex)[0];
+        const { met, wontfix, deferred } = aurora.status;
+        expect(L(met)).toBeLessThan(L(wontfix));
+        expect(L(wontfix)).toBeLessThan(L(deferred));
+        for (const hex of [met, wontfix, deferred]) {
+            const { h } = hueSat(hex);
+            expect(h, `${hex} hue`).toBeGreaterThanOrEqual(100);
+            expect(h, `${hex} hue`).toBeLessThanOrEqual(160);
+        }
+        // Three shades a reader can still tell apart, not one green three times.
+        expect(deltaE(met, wontfix)).toBeGreaterThanOrEqual(20);
+        expect(deltaE(wontfix, deferred)).toBeGreaterThanOrEqual(20);
     });
 
     it('resolves an unknown, stale or hostile key to the default', () => {

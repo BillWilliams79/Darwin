@@ -78,6 +78,15 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         for (const h of HEALTH_STATES) expect(HEALTH_COLORS[h], h).toMatch(/^#[0-9a-f]{6}$/i);
     });
 
+    it('keeps held amber and inert grey off the closed-status greens (req #3905)', () => {
+        // Aurora's `deferred`/`wontfix` are greens since req #3905; a held or
+        // degraded engine state borrowing them would read as healthy/finished.
+        const held = ['PAUSED', 'INITIATIVE_GATE', 'BARRIER', 'NOT_BEFORE'].map((c) => CODE_COLORS[c]);
+        const inert = ['CLOSED', 'NO_WORK', 'MANUAL', 'DRAINED'].map((c) => CODE_COLORS[c]);
+        expect(new Set([...held, HEALTH_COLORS.degraded])).toEqual(new Set(['#fcd34d']));
+        expect(new Set([...inert, HEALTH_COLORS.stopped])).toEqual(new Set(['#94a3b8']));
+    });
+
     it('names an unknown code instead of going blank', () => {
         expect(plainWords('NEW_CODE')).toBe('unrecognised code NEW_CODE');
         expect(codeLabel('NEW_CODE')).toBe('NEW_CODE');

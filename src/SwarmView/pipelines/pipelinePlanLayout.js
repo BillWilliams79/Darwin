@@ -907,8 +907,20 @@ export const PLAN_PALETTES = [
             + 'with in-progress work in yellow-green, on the way to green.',
         initiative: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
         // Not a stoplight — the directive's ask, met by hue choice rather than
-        // by muting. `deferred` and `wontfix` sit off the lifecycle for
-        // Slate's reason.
+        // by muting.
+        //
+        // `met`, `wontfix` and `deferred` are THREE GREENS, darkest to lightest
+        // (req #3905 user directive: *"Deferred and WONTFIX are both closed and
+        // thus should be shades of green ... darkest being met, then the other
+        // middle wontfix and last is deferred"*). All three are closed, so they
+        // share green's "finished" meaning and differ only in lightness: `met`
+        // (tracked to `deployed` in the aurora patch below, L* 79.2), `wontfix`
+        // L* 88.4, `deferred` L* 96.5, hues 142°/132°/133°. `met` cannot get
+        // darker without moving `deployed` too, so the two others go lighter.
+        // MEASURED ΔE 26.7 `met`/`wontfix` (this scale's closest pair), 30.0
+        // `wontfix`/`deferred`, ≥ 42.0 from every open status; contrast
+        // 12.82:1 and 15.83:1. Slate keeps its own off-lifecycle pair:
+        // nothing selects it (see `DEFAULT_PLAN_PALETTE`).
         //
         // `development` is YELLOW-GREEN (req #3588 user directive: *"the
         // difference between swarm-start and dev in the visualizer should be
@@ -919,18 +931,18 @@ export const PLAN_PALETTES = [
         // the floor of 20 while reading as one colour at a glance. Lime
         // approaches green from the WARM side instead, so it reads as "on the
         // way to green" without touching the blue. Hue 68° — pushed yellower
-        // than lime's 83° on the user's call, and held there because the next
-        // step toward yellow closes on `deferred` (`#fcd34d`, 45°). MEASURED
-        // ΔE 30.2 from `deferred` (its nearest neighbour), 52.6 from `met`,
-        // contrast 12.36:1.
+        // than lime's 83° on the user's call (the old `deferred`, `#fcd34d`
+        // at 45°, was what held it there until req #3905 made `deferred`
+        // green). MEASURED ΔE 52.6 from `met` (its nearest neighbour), 54.1
+        // from `wontfix`, contrast 12.36:1.
         status: {
             authoring:   '#818cf8',
             approved:    '#38bdf8',
             swarm_ready: '#22d3ee',
             development: '#cfe635',
             met:         '#a3e635',
-            deferred:    '#fcd34d',
-            wontfix:     '#94a3b8',
+            deferred:    '#e0fce6',
+            wontfix:     '#a0f0b0',
         },
         autonomy: {
             discuss:     '#f472b6',
@@ -998,13 +1010,11 @@ export const PLAN_PALETTES = [
 // `discuss`/`planned` (the user confirmed these two are already correct);
 // `met` tracks aurora's OWN `deployed` (the user's own call: autonomy's
 // green reads better than status's previous `#a3e635`). `development` is
-// DELIBERATELY NOT patched to `PLAN_VIZ_PALETTE.runningRing` here — doing so
-// collides with aurora's own `deferred` (`#fcd34d` vs `#ffd769`, measured ΔE
-// 10.4, under the 20 floor this file holds every scale to) and the user has
-// not been asked which of the two should move; it is aurora's own literal
-// yellow-green instead (req #3588, see the registry entry). `swarm_ready`/`deferred`/
-// `wontfix` stay aurora's own literal values, matching Signal's identical
-// exemption.
+// DELIBERATELY NOT patched to `PLAN_VIZ_PALETTE.runningRing` here — it is
+// aurora's own literal yellow-green (req #3588, see the registry entry; the
+// old `deferred` collision that first kept it off `runningRing` went when req
+// #3905 made `deferred` green). `swarm_ready`/`deferred`/`wontfix` stay
+// aurora's own literal values — the last two the closed greens of req #3905.
 const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
 auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
 auroraPalette.status.approved = auroraPalette.autonomy.planned;
