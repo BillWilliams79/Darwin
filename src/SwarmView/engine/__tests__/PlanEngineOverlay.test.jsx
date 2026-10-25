@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 //
 // The plan overlay's two pieces on their own (req #3762), over decide()'s
-// records (planOverlayFixture.json): the strip — switch, state, source, limits,
-// the queue with its cut line — and an epic card's badge with the hold in the
+// records (planOverlayFixture.json): the engine box — an Action Popup since req
+// #3935 — with its switch, state, source, limits and the queue with its cut
+// line, and an epic card's badge with the hold in the
 // engine view's plain words on hover.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -15,7 +16,8 @@ import fixture from './planOverlayFixture.json';
 import { SOURCE_ENGINE, SOURCE_PREDICTED, planOverlay } from '../engineOverlay';
 import { PLAIN_WORDS } from '../engineVocabulary';
 import PlanEngineBadge from '../PlanEngineBadge';
-import PlanEngineStrip, { engineStateText } from '../PlanEngineStrip';
+import PlanEngineBox, { ENGINE_HOME, engineStateText } from '../PlanEngineBox';
+import { usePlanEngineBoxStore } from '../../../stores/usePlanEngineBoxStore';
 
 const MACHINES = new Map(fixture.machines.map((m) => [m.id, m]));
 const state = (id, i) => fixture.actions.find((a) => a.action === id).states[i];
@@ -61,9 +63,25 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-describe('PlanEngineStrip', () => {
+describe('PlanEngineBox', () => {
+    beforeEach(() => { usePlanEngineBoxStore.setState({ open: true, dock: null }); });
+
+    it('is an Action Popup titled Engine, homed bottom-right, folding to its head (req #3935)', () => {
+        mount(<PlanEngineBox ctl={ctlOf()} machines={MACHINES} onPickMachine={() => {}} />);
+        const box = $('plan-engine-box');
+        expect(text('plan-engine-box-title')).toBe('Engine');
+        expect(box.getAttribute('data-rack-id')).toBe('engine');
+        expect(box.getAttribute('data-dock')).toBe(`${ENGINE_HOME.h}${ENGINE_HOME.x},${ENGINE_HOME.v}${ENGINE_HOME.y}`);
+        // Folded, the badge still says the engine is on.
+        expect($('plan-engine-box-power').getAttribute('title')).toBe('on — running, beating (12s ago)');
+        act(() => { $('plan-engine-box-toggle').click(); });
+        expect(usePlanEngineBoxStore.getState().open).toBe(false);
+        expect($('plan-engine-box-body').getAttribute('data-folded')).toBe('1');
+        expect($('plan-engine-box-power')).not.toBeNull();
+    });
+
     it('draws the switch, the record\'s cycle, the limits and the cut where the record put it', () => {
-        mount(<PlanEngineStrip ctl={ctlOf()} machines={MACHINES} open onToggleOpen={() => {}}
+        mount(<PlanEngineBox ctl={ctlOf()} machines={MACHINES}
                                onPickMachine={() => {}} />);
         expect($('plan-engine-switch').getAttribute('data-on')).toBe('true');
         expect(text('plan-engine-switch')).toBe('Engine on');
@@ -88,7 +106,7 @@ describe('PlanEngineStrip', () => {
     it('flips the switch', () => {
         const ctl = ctlOf({ engineOn: false, engine: engineRow('off', 'stopped', 'stopped', null),
             overlay: overlayOf('A16', 0, SOURCE_PREDICTED) });
-        mount(<PlanEngineStrip ctl={ctl} machines={MACHINES} open onToggleOpen={() => {}}
+        mount(<PlanEngineBox ctl={ctl} machines={MACHINES}
                                onPickMachine={() => {}} />);
         expect(text('plan-engine-switch')).toBe('Engine off');
         expect(text('plan-engine-state')).toBe('off — stopped');
@@ -99,8 +117,8 @@ describe('PlanEngineStrip', () => {
 
     it('says when capacity is unknown, and when a switch failed', () => {
         const overlay = { ...overlayOf('A16', 0), limitsKnown: false };
-        mount(<PlanEngineStrip ctl={ctlOf({ overlay, error: 'HTTP 500' })} machines={MACHINES} open
-                               onToggleOpen={() => {}} onPickMachine={() => {}} />);
+        mount(<PlanEngineBox ctl={ctlOf({ overlay, error: 'HTTP 500' })} machines={MACHINES}
+                             onPickMachine={() => {}} />);
         expect($('plan-engine-limits-unknown')).not.toBeNull();
         expect(text('plan-engine-error')).toContain('HTTP 500');
     });
@@ -108,7 +126,7 @@ describe('PlanEngineStrip', () => {
     it('asks for the machine when the browser cannot tell which it is on', () => {
         const ctl = ctlOf({ machineId: null, machine: null, machineResolved: false, overlay: null,
             engine: null, engineOn: false, openMachines: fixture.machines });
-        mount(<PlanEngineStrip ctl={ctl} machines={MACHINES} open onToggleOpen={() => {}}
+        mount(<PlanEngineBox ctl={ctl} machines={MACHINES}
                                onPickMachine={() => {}} />);
         expect($('plan-engine-switch').disabled).toBe(true);
         expect(text('plan-engine-source')).toBe('Pick this machine to see the launch order');
