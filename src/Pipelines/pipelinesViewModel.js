@@ -57,8 +57,9 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {Object[]} args.epics      ALL epics rows
  * @param {Object[]} args.initiatives      ALL initiatives rows (to resolve epic -> pipeline)
  * @param {Object[]} [args.initiativeDeps]  ALL `initiative_deps` rows (req #3823)
- * @returns {Map<number, {total: number, initiativeDeps: number}>}  epics per
- *          plan — an epic has no state to tally (req #3750) — and the plan's
+ * @returns {Map<number, {total: number, initiatives: number, initiativeDeps: number}>}
+ *          epics per plan — an epic has no state to tally (req #3750) — its
+ *          initiatives (req #3804, the card's info block) and the plan's
  *          initiative-to-initiative dependency edges
  */
 export function pipelineSummaries({ pipelines, epics, initiatives, initiativeDeps } = {}) {
@@ -69,7 +70,10 @@ export function pipelineSummaries({ pipelines, epics, initiatives, initiativeDep
 
     const out = new Map();
     for (const p of asArray(pipelines)) {
-        if (p && p.id != null) out.set(p.id, { total: 0, initiativeDeps: 0 });
+        if (p && p.id != null) out.set(p.id, { total: 0, initiatives: 0, initiativeDeps: 0 });
+    }
+    for (const e of asArray(initiatives)) {
+        if (e && out.has(e.pipeline_fk)) out.get(e.pipeline_fk).initiatives += 1;
     }
     for (const [planId, n] of initiativeDepCounts(initiativeDeps, initiatives).byPipeline) {
         if (out.has(planId)) out.get(planId).initiativeDeps = n;
@@ -98,8 +102,12 @@ export function pipelineSummaries({ pipelines, epics, initiatives, initiativeDep
  * @param {Object[]} args.initiatives                ALL initiatives rows
  * @param {Object[]} args.epicRequirements    ALL epic_requirements rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `requirement_status`)
- * @returns {Map<number, {met: number, total: number}>}
+ * @returns {Map<number, {met: number, closed: number, total: number}>}
+ *          `closed` (req #3804) counts every terminal status — met, deferred,
+ *          wontfix — the "requirements closed" the card's info block shows.
  */
+const TERMINAL_REQUIREMENT_STATUSES = new Set(['met', 'deferred', 'wontfix']);
+
 export function pipelineRequirementCounts({ pipelines, epics, initiatives,
     epicRequirements, requirements } = {}) {
     const pipelineByInitiative = new Map();
@@ -119,7 +127,7 @@ export function pipelineRequirementCounts({ pipelines, epics, initiatives,
 
     const out = new Map();
     for (const p of asArray(pipelines)) {
-        if (p && p.id != null) out.set(p.id, { met: 0, total: 0 });
+        if (p && p.id != null) out.set(p.id, { met: 0, closed: 0, total: 0 });
     }
 
     for (const link of asArray(epicRequirements)) {
@@ -128,8 +136,65 @@ export function pipelineRequirementCounts({ pipelines, epics, initiatives,
         if (pipelineId == null || !out.has(pipelineId)) continue;
         const bucket = out.get(pipelineId);
         bucket.total += 1;
-        if (statusById.get(link.requirement_fk) === 'met') bucket.met += 1;
+        const status = statusById.get(link.requirement_fk);
+        if (status === 'met') bucket.met += 1;
+        if (TERMINAL_REQUIREMENT_STATUSES.has(status)) bucket.closed += 1;
     }
 
     return out;
+}
+
+// ── Closed and hand-sorted (req #3804) ──────────────────────────────────────
+// A plan carries `closed` (parked: hidden by default, every epic launch-
+// suppressed by the server's derivation) and `sort_order` (its card's place on
+// this page, ascending). A new plan is written BELOW the current minimum, so it
+// lands at the front; a drag renumbers every positioned card 0..n-1.
+
+/** A TINYINT flag as a boolean — `"0"` is false, `1`/`"1"`/`true` are true. */
+export const isClosedPipeline = (p) => Boolean(Number(p?.closed ?? 0));
+
+const position = (p) => (p?.sort_order == null || p.sort_order === ''
+    ? -Infinity : Number(p.sort_order));
+
+/**
+ * Plans in display order: unpositioned (NULL) FIRST, then `sort_order`
+ * ascending, newest first among equals. A plan written by a path that sets no
+ * position — the MCP `create_pipeline` tool — is a NEW plan, and new plans go
+ * to the front; the first drag gives it a position like every other card.
+ */
+export function orderPipelines(pipelines) {
+    return [...(pipelines || [])].sort((a, b) => {
+        const pa = position(a);
+        const pb = position(b);
+        if (pa !== pb) return pa < pb ? -1 : 1;
+        return Number(b.id) - Number(a.id);
+    });
+}
+
+/** The `sort_order` that puts a new plan in FRONT of every existing one. */
+export function frontSortOrder(pipelines) {
+    const positioned = (pipelines || []).map(position).filter(Number.isFinite);
+    return positioned.length ? Math.min(...positioned) - 1 : 0;
+}
+
+/**
+ * Move `fromId` to where `toId` stands in `ordered` (arrayMove semantics: the
+ * dragged plan takes the target's index, the rest close up behind it), then
+ * renumber 0..n-1. Returns the reordered rows and the `{id, sort_order}`
+ * writes — only the rows whose position actually changed — or null when the
+ * move is a no-op. `ordered` is the FULL ordered list, closed plans included,
+ * so a reorder over a filtered view never disturbs a plan the reader cannot see.
+ */
+export function reorderPipelines(ordered, fromId, toId) {
+    const rows = [...(ordered || [])];
+    const from = rows.findIndex((p) => p.id === fromId);
+    const to = rows.findIndex((p) => p.id === toId);
+    if (from < 0 || to < 0 || from === to) return null;
+    const [moved] = rows.splice(from, 1);
+    rows.splice(to, 0, moved);
+    const renumbered = rows.map((p, index) => ({ ...p, sort_order: index }));
+    const writes = renumbered
+        .filter((p, index) => position(rows[index]) !== index)
+        .map((p) => ({ id: p.id, sort_order: p.sort_order }));
+    return { rows: renumbered, writes };
 }

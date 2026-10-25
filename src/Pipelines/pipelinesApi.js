@@ -16,6 +16,8 @@
 //   description     nullable TEXT
 //   pipeline_status draft|active|paused|completed
 //   machine_fk      nullable
+//   closed          0|1 — req #3804: parked (hidden; every epic launch-suppressed)
+//   sort_order      nullable INT — req #3804: the card's place on the page
 
 import call_rest_api from '../RestApi/RestApi';
 
@@ -47,6 +49,15 @@ export async function updatePipeline(darwinUri, idToken, id, fields) {
     return assertOk(r, 'updatePipeline');
 }
 
+/**
+ * Write several plans' columns in ONE PUT (req #3804 — a card drag renumbers
+ * every card it moved past). `rows` is `[{id, ...fields}]`.
+ */
+export async function updatePipelines(darwinUri, idToken, rows) {
+    const r = await call_rest_api(`${darwinUri}/pipelines`, 'PUT', rows, idToken);
+    return assertOk(r, 'updatePipelines');
+}
+
 /** Whether a user-typed value would be swallowed by the REST_NULL sentinel. */
 export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_NULL;
 
@@ -64,13 +75,16 @@ export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_
  * NOT retry on null — that would make a second plan.
  */
 export async function createPipeline(darwinUri, idToken,
-    { title, description = null, machine_fk = null }) {
+    { title, description = null, machine_fk = null, sort_order = null }) {
     const r = await call_rest_api(`${darwinUri}/pipelines`, 'POST', {
         title,
         description,
         pipeline_status: 'draft',
         machine_fk,
         locked: 0,
+        closed: 0,
+        // req #3804 — the caller places it (the page passes the front slot).
+        sort_order,
         started_at: null,
         completed_at: null,
     }, idToken);

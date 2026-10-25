@@ -24,7 +24,9 @@ import useCreatePipeline from './useCreatePipeline';
 // `''` is the Machine select's "Any" — a MUI select cannot hold a null value.
 const ANY_MACHINE = '';
 
-export default function NewPipelineDialog({ machines = [] }) {
+// `sortOrder` (req #3804) is the front slot the page computes, so a plan made
+// here lands first in the hand-sorted list exactly as one made in place does.
+export default function NewPipelineDialog({ machines = [], sortOrder = null }) {
     const { create, creating } = useCreatePipeline();
     const [open, setOpen] = useState(false);
     const [title, setTitle] = useState('');
@@ -51,6 +53,7 @@ export default function NewPipelineDialog({ machines = [] }) {
             title,
             description,
             machine_fk: machineFk === ANY_MACHINE ? null : machineFk,
+            sort_order: sortOrder,
         });
         if (done) setOpen(false);
     };

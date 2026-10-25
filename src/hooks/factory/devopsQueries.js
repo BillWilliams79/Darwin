@@ -398,10 +398,13 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // EVERY READ IS A BOUNDED LIST READ, composed client-side (req #3080 design
 // rule 5 — the POC's 2–3 minute page regeneration from ~86 per-requirement
 // fetches is the named failure). There is deliberately NO per-epic or
-// per-requirement hook: the plan page joins four small lists in a useMemo. Nor
-// is there a refetchInterval anywhere (design rule 6 — the global staleTime +
+// per-requirement hook: the plan page joins four small lists in a useMemo. No
+// refetchInterval is DECLARED here (design rule 6 — the global staleTime +
 // refetchOnWindowFocus + invalidation the query client already provides is what
-// makes this event-driven).
+// makes this event-driven). One page opts in at the call site: the Pipelines
+// cards (req #3804 user directive — "make sure the data on these cards is
+// dynamically read"), because what they show is written by swarm workers and
+// the engine in other processes, which no in-browser invalidation ever hears.
 // ---------------------------------------------------------------------------
 
 // `id:desc` — newest plan first on the list page. Carries creator_fk (in

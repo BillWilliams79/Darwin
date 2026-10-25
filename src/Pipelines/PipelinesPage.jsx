@@ -17,9 +17,24 @@
 //
 // Two ways to create a pipeline here (req #3773), both writing through
 // `useCreatePipeline`: the header's "New pipeline" button and dialog
-// (`NewPipelineDialog.jsx` — title, goal, machine; both views)
-// and the Cards view's "New pipeline" tile (`NewPipelineCard.jsx` — title
-// only, defaults for the rest). A new plan is born `draft` and opens at once.
+// (`NewPipelineDialog.jsx` — title, goal, machine; both views; opens the plan)
+// and the Cards view's "+ New pipeline" tile (`NewPipelineCard.jsx`), which
+// since req #3804 puts an unsaved card at the FRONT of the grid and makes the
+// plan there, in place. Both write the new plan below every existing
+// `sort_order`, so a new plan is always first.
+//
+// ── REQ #3804: EDIT IN PLACE, HAND-SORTED, CLOSABLE, LIVE ───────────────────
+// * The Cards view is the editor: title, goal, machine, lock and close are
+//   changed on the card (`PipelinesCardsView.jsx`), and cards are dragged into
+//   the reader's own order, held in `pipelines.sort_order`.
+// * A plan can be CLOSED: hidden here unless "Closed" is lit (unlit by
+//   default), and parked from orchestration — the server's derivation
+//   launch-suppresses every epic of a closed plan (engine code CLOSED).
+// * The page's reads POLL (`LIVE_REFRESH_MS`) — status, counts, holders and
+//   thumbnails are written by swarm workers and engines in other processes,
+//   which no invalidation in this browser ever hears, so before this the
+//   cards stayed as they were when the page loaded until the window lost and
+//   regained focus.
 //
 // `pipeline_status` renders as a DISPLAY-ONLY chip, not a click-to-cycle
 // control — status transitions carry started_at/completed_at side effects
@@ -48,7 +63,7 @@
 // per-plan storage against the live id set — the record is alive, it simply
 // has no decoration on this surface any more.
 
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -86,12 +101,11 @@ import {
     pipelineStatusChipProps,
     lockedChipProps,
     lockedLabel,
+    toolbarChipProps,
     PIPELINE_STATUS_VALUES,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import {
     hiddenPipelineStatusCounts,
-    REQ_COUNTS_STORAGE_KEY,
-    DEFAULT_REQ_COUNTS,
 } from '../SwarmView/pipelines/pipelineViewModel';
 // req #3463/#3372 built the reachable 2.0 visualizer at
 // planDetailPath(id). This list is that visualizer's PRODUCER
@@ -103,10 +117,14 @@ import { planDetailPath } from '../SwarmView/pipelines/planEra';
 // the orphan sweep for per-plan camera/scroll keys and has nothing to do with
 // the mark.
 import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
-import { pipelineSummaries, pipelineRequirementCounts } from './pipelinesViewModel';
+import {
+    pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
+    reorderPipelines, isClosedPipeline,
+} from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import NewPipelineDialog from './NewPipelineDialog';
-import { updatePipeline } from './pipelinesApi';
+import useCreatePipeline from './useCreatePipeline';
+import { updatePipeline, updatePipelines, REST_NULL } from './pipelinesApi';
 
 // req #3356 — the `2` is out of both keys now that there is one plan list.
 // Dropping it ORPHANS the two stored preferences rather than migrating them, so
@@ -125,6 +143,22 @@ const VIEWS = [
 
 const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 
+// req #3804 — how often the page re-reads what other processes write. Each
+// cycle is 7 list reads (one gateway call each); every call is an API Gateway
+// + Lambda request, so the interval is a COST, stated to the user: about 840
+// list calls an hour plus one per card per minute for the thumbnails, only
+// while the tab is visible.
+export const LIVE_REFRESH_MS = 30_000;
+// The thumbnails are one composed read PER CARD, so they refresh at half the
+// rate of the list reads. Neither polls a hidden tab (TanStack's
+// `refetchIntervalInBackground` default), so a page left in a background tab
+// costs nothing.
+export const THUMBNAIL_REFRESH_MS = 60_000;
+
+// On a LOCKED plan the gateway still writes these (plan_lock.py) — everything
+// else is authoring, refused 423, so it is refused here first in the lock's words.
+const LOCK_FREE_FIELDS = new Set(['locked', 'closed', 'sort_order', 'pipeline_status']);
+
 // `description` is NOT in `pipelines`' own defaultFields (devopsQueries.js
 // deliberately keeps req #3463's id-producer index light) — this page both
 // RENDERS and EDITS the description, so it must ask for it explicitly. Code
@@ -135,7 +169,8 @@ const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 // (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
 // req #3649 — `locked` added so the Lock column reads the stored flag.
-const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,'
+// req #3804 — `closed` and the hand-sorted `sort_order`.
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,closed,sort_order,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
@@ -204,8 +239,12 @@ export default function PipelinesPage() {
         }
         setView(next);
     };
-    const [showReqCountsPref] = useViewPreference(REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
-    const showReqCounts = showReqCountsPref === 'on';
+    // The card's requirement figures are its info block (req #3804) — always
+    // shown, so the old show-counts preference no longer gates them.
+
+    // req #3804 — closed plans are hidden until this is lit. Unlit on every
+    // visit: a closed plan is one the reader put away.
+    const [showClosed, setShowClosed] = useState(false);
 
     const [statusFilter, setStatusFilter] = useState(
         () => readStoredStatusFilter() || DEFAULT_PIPELINE_STATUSES);
@@ -232,8 +271,9 @@ export default function PipelinesPage() {
         if (to) navigate(to);
     };
 
+    const live = { refetchInterval: LIVE_REFRESH_MS };
     const { data: pipelines = [], isLoading: pipelinesLoading } =
-        useAllPipelines(creatorFk, { fields: PIPELINES_FIELDS });
+        useAllPipelines(creatorFk, { fields: PIPELINES_FIELDS, ...live });
 
     // The orphan sweep for per-plan camera/scroll storage (viewportMemory.js
     // keys keyed by plan id) had no caller anywhere in `src/` after the 1.0
@@ -249,19 +289,19 @@ export default function PipelinesPage() {
     }, [pipelinesLoading, pipelines]);
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
     const { data: initiatives = [], isLoading: initiativesLoading, isError: initiativesError } =
-        useAllInitiatives(creatorFk);
+        useAllInitiatives(creatorFk, live);
     const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
-        useAllPipelineEpics(creatorFk);
+        useAllPipelineEpics(creatorFk, live);
     const { data: epicRequirements = [], isLoading: linksLoading } =
-        useAllPipelineEpicRequirements(creatorFk);
+        useAllPipelineEpicRequirements(creatorFk, live);
     // req #3823 — initiative-to-initiative edges, counted per plan.
-    const { data: initiativeDeps = [] } = useAllInitiativeDeps(creatorFk);
+    const { data: initiativeDeps = [] } = useAllInitiativeDeps(creatorFk, live);
     // `id,requirement_status` is enough for the met/total counts — see
     // pipelinesViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
     // on purpose: this page derives no epic state from it, only a stored-status tally.
     const { data: requirements = [], isLoading: reqsLoading } =
-        useAllRequirements(creatorFk, { fields: 'id,requirement_status' });
-    const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
+        useAllRequirements(creatorFk, { fields: 'id,requirement_status', ...live });
+    const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk, live);
 
     const isLoading = pipelinesLoading || machinesLoading || initiativesLoading
         || epicsLoading || linksLoading || reqsLoading;
@@ -282,20 +322,82 @@ export default function PipelinesPage() {
     const reqCounts = pipelineRequirementCounts({
         pipelines, epics, initiatives, epicRequirements, requirements });
 
-    const filtered = pipelines.filter((p) => statusFilter.includes(p.pipeline_status));
-    const hiddenStatusCounts = hiddenPipelineStatusCounts(pipelines, statusFilter);
+    // req #3804 — the reader's hand-sorted order; closed plans only when lit.
+    const ordered = useMemo(() => orderPipelines(pipelines), [pipelines]);
+    const closedCount = ordered.filter(isClosedPipeline).length;
+    const shown = showClosed ? ordered : ordered.filter((p) => !isClosedPipeline(p));
+    const filtered = shown.filter((p) => statusFilter.includes(p.pipeline_status));
+    const hiddenStatusCounts = hiddenPipelineStatusCounts(shown, statusFilter);
 
+    const listKey = [...pipelineKeys.all(creatorFk), { fields: PIPELINES_FIELDS }];
     const invalidatePipelines = () =>
         queryClient.invalidateQueries({ queryKey: pipelineKeys.all(creatorFk) });
+    // Optimistic: the card shows the change at once, a poll in flight is
+    // cancelled so it cannot land the old row on top, and every write ends in
+    // a re-read either way.
+    const patchCache = async (patchRows) => {
+        await queryClient.cancelQueries({ queryKey: listKey });
+        queryClient.setQueryData(listKey, (old) => (Array.isArray(old) ? patchRows(old) : old));
+    };
+
+    // ONE write path for every in-place edit (req #3804). Resolves true when it
+    // landed — a card's text field puts the stored text back on false.
+    const updateRow = async (row, fields, problem) => {
+        if (problem) { showError(problem); return false; }
+        if (Number(row.locked) && Object.keys(fields).some((k) => !LOCK_FREE_FIELDS.has(k))) {
+            showError('This pipeline is locked — unlock it first');
+            return false;
+        }
+        const shownValues = Object.fromEntries(Object.entries(fields)
+            .map(([k, v]) => [k, v === REST_NULL ? null : v]));
+        await patchCache((rows) => rows.map((p) => (p.id === row.id ? { ...p, ...shownValues } : p)));
+        try {
+            await updatePipeline(darwinUri, idToken, row.id, fields);
+            return true;
+        } catch (err) {
+            showError(err, 'Could not save the pipeline');
+            return false;
+        } finally {
+            invalidatePipelines();
+        }
+    };
 
     // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
-    const toggleLock = async (row) => {
+    const toggleLock = (row) => updateRow(row, { locked: Number(row.locked) ? 0 : 1 });
+    const toggleClosed = (row) => updateRow(row, { closed: isClosedPipeline(row) ? 0 : 1 });
+
+    // req #3804 — a card dropped on another's place. Renumbers over the FULL
+    // ordered list, so plans the filters hide keep their places.
+    const reorder = async (fromId, toId) => {
+        const move = reorderPipelines(ordered, fromId, toId);
+        if (!move || !move.writes.length) return;
+        const position = new Map(move.rows.map((p) => [p.id, p.sort_order]));
+        await patchCache((rows) => rows.map((p) => (position.has(p.id)
+            ? { ...p, sort_order: position.get(p.id) } : p)));
         try {
-            await updatePipeline(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
-            invalidatePipelines();
+            await updatePipelines(darwinUri, idToken, move.writes);
         } catch (err) {
-            showError(err, 'Could not change the plan lock');
+            showError(err, 'Could not save the pipeline order');
+        } finally {
+            invalidatePipelines();
         }
+    };
+
+    // req #3804 — the front card's Enter: a draft plan made in place, first.
+    const { create, creating } = useCreatePipeline();
+    // A new plan is born `draft`: if that status is filtered out, light it,
+    // or the card the reader just made would vanish the moment it is written.
+    const createInPlace = async (title) => {
+        const done = await create({ title, sort_order: frontSortOrder(pipelines), open: false });
+        if (done) {
+            setStatusFilter((current) => {
+                if (current.includes('draft')) return current;
+                const next = [...current, 'draft'];
+                writeStoredStatusFilter(next);
+                return next;
+            });
+        }
+        return done;
     };
 
     const columns = [
@@ -360,6 +462,24 @@ export default function PipelinesPage() {
             ),
         },
         {
+            // req #3804 — closed plans are parked from orchestration.
+            field: 'closed', headerName: 'Closed', width: 100, sortable: false,
+            renderCell: (params) => {
+                const closed = isClosedPipeline(params.row);
+                return (
+                    <Tooltip title={closed
+                        ? 'Closed — hidden by default and not orchestrated. Click to reopen.'
+                        : 'Click to close — hide this plan and stop every engine launching its work.'}>
+                        <Chip label={closed ? 'closed' : 'open'} size="small"
+                              variant={closed ? 'filled' : 'outlined'}
+                              clickable
+                              onClick={(e) => { e.stopPropagation(); toggleClosed(params.row); }}
+                              data-testid={`pipelines-closed-chip-${params.row.id}`} />
+                    </Tooltip>
+                );
+            },
+        },
+        {
             // req #3823 — how many initiative-to-initiative dependencies the plan holds.
             field: 'initiative_deps', headerName: 'Initiative deps', width: 120, type: 'number',
             valueGetter: (_v, row) => summaries.get(row.id)?.initiativeDeps ?? 0,
@@ -420,19 +540,40 @@ export default function PipelinesPage() {
                     onViewChange={changeView}
                     testIdPrefix="pipelines"
                     filters={
-                        <ChipFilter
-                            options={pipelineStatusOptions}
-                            selected={statusFilter}
-                            onToggle={toggleStatus}
-                            testId="pipelines-status-filter"
-                            chipTestIdPrefix="pipelines-status-chip"
-                        />
+                        <Stack direction="row" spacing={1} alignItems="center"
+                               sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+                            <ChipFilter
+                                options={pipelineStatusOptions}
+                                selected={statusFilter}
+                                onToggle={toggleStatus}
+                                testId="pipelines-status-filter"
+                                chipTestIdPrefix="pipelines-status-chip"
+                            />
+                            {/* req #3804 — LIT = SHOWN, like the plan
+                                toolbar's Closed chip (req #3816). Unlit by
+                                default: closed plans are put away. */}
+                            <Tooltip title={showClosed
+                                ? 'Showing closed pipelines — click to hide them'
+                                : `Show closed pipelines (${closedCount})`}>
+                                <Chip
+                                    label={`Closed${closedCount ? ` (${closedCount})` : ''}`}
+                                    aria-label={`${showClosed ? 'Hide' : 'Show'} closed pipelines`}
+                                    onClick={() => setShowClosed((v) => !v)}
+                                    {...toolbarChipProps(showClosed)}
+                                    data-testid="pipelines-show-closed"
+                                />
+                            </Tooltip>
+                        </Stack>
                     }
-                    actions={<NewPipelineDialog machines={machines} />}
+                    actions={<NewPipelineDialog machines={machines}
+                                                sortOrder={frontSortOrder(pipelines)} />}
                     accounting={<>
                         {filtered.length} of {pipelines.length} pipeline
-                        {pipelines.length === 1 ? '' : 's'} — click a{' '}
-                        {activeView === 'table' ? 'row' : 'card'} for the plan
+                        {pipelines.length === 1 ? '' : 's'}
+                        {!showClosed && closedCount > 0 && ` (${closedCount} closed hidden)`}
+                        {activeView === 'table'
+                            ? ' — click a row for the plan'
+                            : ' — edit a card in place, drag to reorder, click its picture for the plan'}
                     </>}
                 />
             </Box>
@@ -473,11 +614,17 @@ export default function PipelinesPage() {
                         pipelines={filtered}
                         summaries={summaries}
                         reqCounts={reqCounts}
-                        showReqCounts={showReqCounts}
                         machines={machines}
                         claims={orchestrationClaims}
                         onOpen={open}
+                        onUpdate={updateRow}
+                        onReorder={reorder}
+                        onCreate={createInPlace}
+                        creating={creating}
                         hiddenStatusCounts={hiddenStatusCounts}
+                        closedHidden={showClosed ? 0 : closedCount}
+                        refetchInterval={LIVE_REFRESH_MS}
+                        thumbnailRefetchInterval={THUMBNAIL_REFRESH_MS}
                     />
                 )}
             </Box>

@@ -252,6 +252,8 @@ export function fairShare(free, own, peers) {
 /** core.py `epic_hold`: [code, detail] for the first epic-level code that applies, or [null, null]. */
 export function epicHold(row, derivedNow) {
     const by = asList(row.suppressed_by);
+    // req #3804 — a closed plan is parked.
+    if (by.includes('closed')) return ['CLOSED', { by: ['plan'] }];
     const paused = by.filter((s) => s === 'pipeline' || s === 'initiative')
         .map((s) => (s === 'pipeline' ? 'plan' : 'initiative'));
     if (paused.length) return ['PAUSED', { by: paused }];
