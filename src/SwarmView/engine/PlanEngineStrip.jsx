@@ -1,5 +1,5 @@
 // PlanEngineStrip.jsx — the plan view's engine overlay control and launch
-// line (req #3762), pinned to the canvas's bottom-left corner.
+// line (req #3762), pinned to the canvas's bottom-right corner.
 //
 // Three rows:
 //   1. THE SWITCH for this plan's engine on this machine (desired_state, R6),

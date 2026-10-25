@@ -1,10 +1,9 @@
 // EngineLocationPanel.jsx — WHERE an engine is (rule R7): machine, terminal,
 // scope, role and how long it has held its claim (req #3760).
 //
-// The machine is drawn with the plan header's orchestration badge
-// (`OrchestrationBadges`, req #3809) so an engine reads the same here as it
-// does beside a plan's name: green the lead, orange a subscriber, a dashed
-// outline when it is not alive.
+// The machine is drawn with the orchestration badge (`OrchestrationBadges`,
+// req #3809): green the lead, orange a subscriber, a dashed outline when it is
+// not alive.
 
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';

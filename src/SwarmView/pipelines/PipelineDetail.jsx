@@ -62,8 +62,6 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
-import { orchestrationBadges } from './orchestrationHolder';
-import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 import PlanTitle from './PlanTitle';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
@@ -665,12 +663,9 @@ export default function PipelineDetail() {
     // is optional.
     const planReqCounts = plan?.requirementCounts?.overall;
 
-    // req #3809 — who is orchestrating this plan, one circular badge per
-    // machine beside the plan's name: green the master (the first machine in,
-    // req #3678), orange each secondary, the platform printed inside.
-    const orchestrationBadgeList = useMemo(
-        () => orchestrationBadges(orchestrationClaims, pipeline?.id, machines),
-        [orchestrationClaims, pipeline?.id, machines]);
+    // The orchestration badges beside the plan's name (req #3809) were REMOVED
+    // by req #3908 (user directive): the Engine on/off control at the canvas's
+    // bottom right is where an engine is read and driven now.
 
     // `planMachines` — the distinct machine set behind the header's machine chip
     // — was REMOVED with the rest of the dead code (req #3241). The chip itself
@@ -1054,25 +1049,15 @@ export default function PipelineDetail() {
                     The title's tooltip was dropped by req #3648 (user
                     directive), so a clipped name is read from the plan list. */}
                 {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
-                    pixel of slack); the title text sits at its start (after
-                    the orchestration badges, req #3820), shrinking to clip,
+                    pixel of slack); the title text sits at its start,
+                    shrinking to clip,
                     and the Full screen switch follows the text
                     (and the Req # launcher, req #3798) inside the
                     slot (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
-                {/* The floor is the NAME's (req #3809 review): the badges are
-                    rigid, so the slot's floor grows by their width rather than
-                    letting them eat the name's stub. */}
                 <Box sx={{ flex: 1,
-                           minWidth: TITLE_MIN_W + REQ_JUMP_W + orchestrationBadgesWidth(
-                               orchestrationBadgeList.length),
+                           minWidth: TITLE_MIN_W + REQ_JUMP_W,
                            display: 'flex', alignItems: 'center', gap: 1 }}>
-                {/* ── ORCHESTRATION BADGES (req #3809; req #3820 moved them,
-                    user directive: "it should be to the left of pipeline's
-                    name in the title") ──────────────────────────────────────
-                    Rigid, so the plan's name is what clips first; they render
-                    only while somebody orchestrates this plan. */}
-                <OrchestrationBadges badges={orchestrationBadgeList} />
                 {/* req #3853 — the name and its counts carry the initiative
                     and epic names' gestures (click: the plan's editor; double
                     click: zoom to the active epics; long press / F2: rename in
