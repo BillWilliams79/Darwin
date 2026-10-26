@@ -13,8 +13,8 @@
 // elsewhere meanwhile keeps every field this save did not touch.
 //
 // Lifecycle (`pipeline_status`) and the lock are not here: the plan is started,
-// paused and stopped by the `/pipeline-*` commands, and locked from the plan
-// toolbar.
+// paused and stopped by the `/pipeline-*` commands, and locked from the
+// Pipelines page (table and cards).
 
 import { useContext, useRef, useState } from 'react';
 

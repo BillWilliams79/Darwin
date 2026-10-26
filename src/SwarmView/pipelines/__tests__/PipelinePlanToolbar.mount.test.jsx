@@ -212,15 +212,9 @@ describe('PipelinePlanToolbar (req #3648)', () => {
             expect(events.at(-1)).toBe(null);
         });
 
-        it('unpins when the pinned chip leaves the page (Lock view)', () => {
+        it('unpins when the pinned chip leaves the page (Engine view unmounts the row)', () => {
             longPress(q('pipeline-viz-colorkey-machine'));
-            act(() => root.render(
-                <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
-                                     onChangeEpicWidthLevel={() => {}} colorKey="state"
-                                     onChangeColorKey={() => {}} planLevelPref="auto"
-                                     effectiveLevel="out" onChangeLevelPref={() => {}}
-                                     onResetView={() => {}} viewMode="lock"
-                                     onKeyHover={(h) => events.push(h && `${h.key}${h.pinned ? '*' : ''}`)} />));
+            act(() => root.render(<></>));
             expect(q('pipeline-viz-colorkey-machine')).toBeNull();
             expect(events).toEqual(['machine', 'machine*', null]);
         });
