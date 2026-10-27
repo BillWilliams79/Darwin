@@ -67,6 +67,11 @@
 // a category card outlines that card, and a click files the new requirement in
 // that category (filerCategoryAim.js). Anywhere else the + files as it always has.
 //
+// ON TOP (req #4044): the filer and its editor stack above every other Action
+// Popup and the pinned drag's outline (filerHover.js FILER_Z, EDITOR_Z), and
+// pinned, the other Action Popups — the plan's Active box among them — are
+// elements it can point at like any other.
+//
 // ADDRESSABLE: any page's `?filer=` (`1`, and the older `new`/`bug` links) opens
 // the filer — a link (or a dev server) can land on it. Only the filer: the
 // editor opens on a press of the + and never on its own (req #3974), so a dev
@@ -96,7 +101,7 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
-import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, aimAt, clearAim, showAim } from './filerHover';
+import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, FILER_Z, aimAt, clearAim, showAim } from './filerHover';
 import { categoryAimAt, highlightCategoryAim, placeProblem } from './filerCategoryAim';
 import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
 import { useFilerFilesElsewhere } from './filerScope';
@@ -409,7 +414,7 @@ export default function RequirementFiler() {
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
-                       rackId={FILER_RACK_ID}
+                       rackId={FILER_RACK_ID} zIndex={FILER_Z}
                        rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
                        rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock} onMoveTrack={onMoveTrack}

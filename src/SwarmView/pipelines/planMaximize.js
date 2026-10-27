@@ -30,7 +30,9 @@ export const MAXIMIZE_SWITCH = Object.freeze({
  * Above every floating box that can be dragged over the corner — a placed
  * Orchestration Ready box (`UNSEATED_FLOAT_Z`, 1201) and the Active box
  * (AnchoredPanel's default 1250) — and below MUI's modal layer (1300), so a
- * dialog's backdrop still covers it.
+ * dialog's backdrop still covers it. The Requirement Filer and its editor are
+ * the exception: they stack over everything but the modals (req #4044,
+ * RequirementFiler/filerHover.js FILER_Z, EDITOR_Z), and can be moved off it.
  */
 export const MAXIMIZE_SWITCH_Z = 1251;
 
