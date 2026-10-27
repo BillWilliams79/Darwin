@@ -275,6 +275,22 @@ describe('Requirement Filer (req #3811)', () => {
         expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('3999');
     });
 
+    it('Clear empties the filed list, and is drawn only while there is one (req #3975)', async () => {
+        useRequirementFilerStore.setState({ show: true, filed: [{ id: 3999, title: 'A' }, { id: 3998, title: 'B' }] });
+        renderAll();
+        rest.mockRejectedValueOnce({ data: [], httpStatus: { httpStatus: 404 } });
+        fireEvent.click(screen.getByTestId('requirement-filer-item-3998'));
+        await waitFor(() => expect(screen.getByTestId('requirement-filer-note')).toBeTruthy());
+        fireEvent.click(screen.getByTestId('requirement-filer-clear'));
+        expect(useRequirementFilerStore.getState().filed).toEqual([]);
+        expect(screen.queryByTestId('requirement-filer-item-3999')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-note')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-clear')).toBe(null);
+        expect(screen.getByTestId('requirement-filer-list').textContent).toBe('');
+        // The list only: nothing was sent for the requirements themselves.
+        expect(rest).toHaveBeenCalledTimes(1);
+    });
+
     it('a new requirement joins the list when it is filed, newest first (req #3830)', async () => {
         useRequirementFilerStore.setState({ show: true, filed: [{ id: 10, title: 'Earlier' }] });
         renderAll();
