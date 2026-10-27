@@ -7,6 +7,12 @@
 // `initiative` once; it reads its own category list, writes through initiativesApi itself,
 // and reports back through `onSaved` (the caller invalidates or re-reads what
 // it draws) and `onClose`.
+//
+// req #3967 — an existing initiative also gets a Delete: it reads what the delete
+// would touch (`planInitiativeDelete`) and confirms with the counts and three
+// choices — the initiative goes; its epics go by default (or move to another
+// initiative of the plan); the requirements in them stay by default. Every
+// dependency onto what is deleted is detached.
 
 import { useContext, useMemo, useState } from 'react';
 
@@ -25,14 +31,19 @@ import FormControl from '@mui/material/FormControl';
 import FormHelperText from '@mui/material/FormHelperText';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Alert from '@mui/material/Alert';
+import { useQueryClient } from '@tanstack/react-query';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { useAllCategories } from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { createInitiative, updateInitiative, isRestNullLiteral, REST_NULL,
-    setInitiativeDeps } from './initiativesApi';
+    setInitiativeDeps, planInitiativeDelete, deleteInitiativeWithOptions } from './initiativesApi';
 import { initiativeDepEdit } from '../SwarmView/pipelines/pipelineInitiativeDeps';
+import { pipelineComposeKeys, requirementKeys, pipelineEpicKeys,
+    pipelineEpicRequirementKeys } from '../hooks/useQueryKeys';
 
 // Same projection 1.0's InitiativesPage requests — a NAME DICTIONARY, no `closed`
 // filter (an initiative filed under a since-closed category must still render it).
@@ -57,6 +68,54 @@ const parseSortOrder = (raw) => {
     return { value: n };
 };
 
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const idList = (ids) => ids.join(', ');
+
+/**
+ * What the delete does, one line per kind of row, in the confirmation's words
+ * (req #3967) — every count stated whether the rows go or stay.
+ *
+ * @param {Object} planned  `planInitiativeDelete`'s answer
+ * @param {Object} choices  `{ deleteEpics, moveToTitle, deleteRequirements }`
+ * @returns {string[]}
+ */
+export const initiativeDeleteConsequence = (planned, { deleteEpics, moveToTitle, deleteRequirements }) => {
+    const { initiative, epics, reqIds, outsideDependents, waitingEdges } = planned;
+    const lines = [`Delete initiative ${initiative.id} "${initiative.title || ''}"? `
+        + 'This is permanent — there is no undo.'];
+    const epicIds = epics.map((e) => e.id);
+    if (!epicIds.length) {
+        lines.push('Epics: it holds none.');
+    } else if (deleteEpics) {
+        lines.push(`Epics: ${plural(epicIds.length, 'epic')} deleted (${idList(epicIds)}).`);
+    } else {
+        lines.push(`Epics: ${plural(epicIds.length, 'epic')} kept (${idList(epicIds)}) — moved to `
+            + `"${moveToTitle || '?'}" with their dependencies.`);
+    }
+    if (!reqIds.length) {
+        lines.push('Requirements: its epics hold none.');
+    } else if (deleteRequirements) {
+        lines.push(`Requirements: ${plural(reqIds.length, 'requirement')} deleted (${idList(reqIds)}).`);
+    } else {
+        lines.push(`Requirements: ${plural(reqIds.length, 'requirement')} kept — `
+            + (deleteEpics || !epicIds.length ? 'un-orchestrated, not deleted.'
+                : 'still seated in their epics.'));
+    }
+    const waiting = [...new Set(waitingEdges.map((r) => r.initiative_fk))].sort((a, b) => a - b);
+    const detached = [];
+    if (deleteEpics && outsideDependents.length) {
+        detached.push(`${outsideDependents.length === 1 ? 'epic' : 'epics'} `
+            + `${idList(outsideDependents)} outside it stop${outsideDependents.length === 1 ? 's' : ''} `
+            + 'waiting on its epics');
+    }
+    if (waiting.length) {
+        detached.push(`${waiting.length === 1 ? 'initiative' : 'initiatives'} ${idList(waiting)} `
+            + `stop${waiting.length === 1 ? 's' : ''} waiting on it`);
+    }
+    if (detached.length) lines.push(`Dependencies detached: ${detached.join('; ')}.`);
+    return lines;
+};
+
 /**
  * @param {Object} props
  * @param {boolean} props.open
@@ -78,6 +137,7 @@ export default function InitiativeEditDialog({
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
+    const queryClient = useQueryClient();
     const { data: categories = [] } =
         useAllCategories(profile?.userName, { fields: CATEGORY_FIELDS });
 
@@ -108,6 +168,12 @@ export default function InitiativeEditDialog({
     const [formInitiativeStatus, setFormInitiativeStatus] = useState(
         initiative?.initiative_status === 'paused' ? 'paused' : 'active');
     const [submitting, setSubmitting] = useState(false);
+    // req #3967 — the delete: null until asked for, then the live plan of what
+    // it touches, and the reader's three choices.
+    const [deletePlan, setDeletePlan] = useState(null);
+    const [deleteEpics, setDeleteEpics] = useState(true);
+    const [deleteReqs, setDeleteReqs] = useState(false);
+    const [moveTo, setMoveTo] = useState('');
     const pipelineName = initiative
         ? (pipelineOptions.find((p) => String(p.id) === String(initiative.pipeline_fk))?.title
             || `Pipeline ${initiative.pipeline_fk}`)
@@ -129,6 +195,64 @@ export default function InitiativeEditDialog({
             .map((id) => ({ id, title: `Initiative ${id}`, disabled: false,
                 reason: 'not in this plan — untick to remove' }))];
     const depTitle = (id) => depChoices.find((c) => c.id === id)?.title ?? `Initiative ${id}`;
+
+    const startDelete = async () => {
+        setSubmitting(true);
+        try {
+            const planned = await planInitiativeDelete(darwinUri, idToken, initiative.id);
+            setDeleteEpics(true);
+            setDeleteReqs(false);
+            setMoveTo(planned.moveTargets.find((t) => !t.cycle)?.id ?? '');
+            setDeletePlan(planned);
+        } catch (err) {
+            showError(err?.namedRefusal ? err.message : err, 'Could not read what the delete would touch');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const cancelDelete = () => setDeletePlan(null);
+    // A locked epic outside waiting on one of its epics blocks only DELETING
+    // them: kept, they move with that edge intact.
+    const deleteBlocked = deletePlan
+        && (deletePlan.blocked || (deleteEpics ? deletePlan.blockedDeletingEpics : null));
+
+    const handleDelete = async () => {
+        setSubmitting(true);
+        let deleted = false;
+        try {
+            await deleteInitiativeWithOptions(darwinUri, idToken, deletePlan, {
+                deleteEpics,
+                moveToInitiativeFk: deleteEpics ? null : moveTo,
+                deleteRequirements: deleteReqs,
+            });
+            deleted = true;
+        } catch (err) {
+            deleted = !!err?.initiativeDeleted;
+            if (!deleted) setDeletePlan(null);
+            const status = err?.httpStatus?.httpStatus;
+            const reason = err?.httpStatus?.httpDetail?.message;
+            if (err?.namedRefusal || err?.initiativeDeleted) showError(err.message);
+            else if (reason) showError(`Could not delete initiative (${status}) — ${reason}`);
+            else showError(err, 'Could not delete initiative');
+        } finally {
+            setSubmitting(false);
+        }
+        // Re-read either way: after a failure, whatever landed (or its
+        // rollback) is the plan now. Epics, seats and requirements are every
+        // page's reads, not only the caller's.
+        const creatorFk = profile?.userName;
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all }),
+            creatorFk && queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(creatorFk) }),
+            creatorFk && queryClient.invalidateQueries({
+                queryKey: pipelineEpicRequirementKeys.all(creatorFk) }),
+            // Deleted or only un-seated, requirements change (`pipelined` is derived).
+            creatorFk && queryClient.invalidateQueries({ queryKey: requirementKeys.all(creatorFk) }),
+            onSaved?.(),
+        ]);
+        if (deleted) onClose();
+    };
 
     const handleSubmit = async () => {
         const title = formTitle.trim();
@@ -317,7 +441,84 @@ export default function InitiativeEditDialog({
                     />
                 </Stack>
             </DialogContent>
+            {deletePlan && (() => {
+                const hasEpics = deletePlan.epics.length > 0;
+                const canKeepEpics = hasEpics && deletePlan.moveTargets.some((t) => !t.cycle);
+                const moveToTitle = deletePlan.moveTargets.find((t) => t.id === moveTo)?.title;
+                const reqCount = deletePlan.reqIds.length;
+                return (
+                    <Stack spacing={1} sx={{ mx: 3, mt: 1 }} data-testid="initiative-delete-panel">
+                        {deleteBlocked && (
+                            <Alert severity="error" data-testid="initiative-delete-blocked">
+                                {deleteBlocked}
+                            </Alert>
+                        )}
+                        <Alert severity="warning" data-testid="initiative-delete-consequence">
+                            {initiativeDeleteConsequence(deletePlan,
+                                { deleteEpics, moveToTitle, deleteRequirements: deleteReqs })
+                                .map((line) => <div key={line}>{line}</div>)}
+                        </Alert>
+                        <FormControlLabel
+                            control={<Checkbox checked={deleteEpics || !canKeepEpics}
+                                               disabled={submitting || !canKeepEpics}
+                                               onChange={(e) => setDeleteEpics(e.target.checked)}
+                                               slotProps={{ input: {
+                                                   'data-testid': 'initiative-delete-epics' } }} />}
+                            label={!hasEpics ? 'Delete its epics — it holds none'
+                                : `Delete its ${plural(deletePlan.epics.length, 'epic')}`
+                                    + (canKeepEpics ? ''
+                                        : ' — no other unlocked initiative in this plan to keep them in')} />
+                        {!deleteEpics && canKeepEpics && (
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Move its epics to</InputLabel>
+                                <Select label="Move its epics to" value={moveTo}
+                                        onChange={(e) => setMoveTo(e.target.value)}
+                                        disabled={submitting}
+                                        data-testid="initiative-delete-move-target">
+                                    {deletePlan.moveTargets.map((t) => (
+                                        <MenuItem key={t.id} value={t.id} disabled={t.cycle}
+                                                  data-testid={`initiative-delete-move-option-${t.id}`}>
+                                            <ListItemText primary={t.title}
+                                                secondary={t.cycle
+                                                    ? 'its epics there would close a dependency loop'
+                                                    : null} />
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        )}
+                        <FormControlLabel
+                            control={<Checkbox checked={deleteReqs}
+                                               disabled={submitting || !reqCount}
+                                               onChange={(e) => setDeleteReqs(e.target.checked)}
+                                               slotProps={{ input: {
+                                                   'data-testid': 'initiative-delete-requirements' } }} />}
+                            label={reqCount
+                                ? `Delete the ${plural(reqCount, 'requirement')} in its epics — permanently`
+                                : 'Delete the requirements in its epics — they hold none'} />
+                    </Stack>
+                );
+            })()}
+            {deletePlan ? (
+                <DialogActions>
+                    <Button onClick={cancelDelete} disabled={submitting}
+                            data-testid="initiative-delete-keep">Keep initiative</Button>
+                    <Button variant="contained" color="error" onClick={handleDelete}
+                            disabled={submitting || !!deleteBlocked
+                                || (!deleteEpics && moveTo === '')}
+                            data-testid="initiative-delete-confirm">
+                        {submitting ? 'Deleting…' : 'Delete initiative'}
+                    </Button>
+                </DialogActions>
+            ) : (
             <DialogActions>
+                {initiative && (
+                    <Button color="error" onClick={startDelete} disabled={submitting}
+                            sx={{ mr: 'auto' }} aria-label={`Delete initiative ${initiative.id}`}
+                            data-testid="initiative-delete">
+                        Delete
+                    </Button>
+                )}
                 <Button onClick={() => onClose()} disabled={submitting}>Cancel</Button>
                 <Button variant="contained" onClick={handleSubmit}
                         disabled={submitting || !formTitle.trim() || categoryValue === ''
@@ -326,6 +527,7 @@ export default function InitiativeEditDialog({
                     {initiative ? 'Save' : 'Create'}
                 </Button>
             </DialogActions>
+            )}
         </Dialog>
     );
 }
