@@ -94,7 +94,8 @@ export default function DevServerActionPopup() {
     const isDesktop = useMediaQuery('(min-width:900px)');
     const open = useDevServerInfoStore(s => s.open);
     const storedDock = useDevServerInfoStore(s => s.dock);
-    const { toggleOpen, setDock } = useDevServerInfoStore.getState();
+    const titleLock = useDevServerInfoStore(s => s.titleLock);
+    const { toggleOpen, setDock, setTitleLock } = useDevServerInfoStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || HOME;
     const visible = isDev && isDesktop;
 
@@ -156,6 +157,7 @@ export default function DevServerActionPopup() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Server" testid="devserver-info"
                        rackId={DEV_INFO_RACK_ID}
+                       titleLock={titleLock} onTitleLockChange={setTitleLock}
                        rackIcon={FormatListBulletedIcon} rackIconLabel={iconLabel}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX}
                        colors={FRAME_COLORS}

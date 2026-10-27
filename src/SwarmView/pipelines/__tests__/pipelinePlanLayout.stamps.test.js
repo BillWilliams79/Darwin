@@ -8,7 +8,7 @@ import {
     CARD_PAD_X, CARD_PAD_Y, CARD_FRAME_X, CARD_STAMP_H, CARD_STAMP_TEXT_H,
     EPIC_WIDTH_RUNGS,
 } from '../pipelinePlanLayout';
-import { formatClock } from '../planEpicTimes';
+import { formatClock, formatStartStamp } from '../planEpicTimes';
 
 const mk = (id, extra = {}, depIds = [], reqIds = [100 + id]) => ({
     id, title: `epic ${id}`, run: 'auto', state: 'pending', reqIds,
@@ -130,6 +130,35 @@ describe('the epic card time line (req #3825)', () => {
                             }
                         }
                     }
+                }
+            }
+        }
+    });
+
+    // req #3963 — the Time chip's date state: `Oct 23 03:05PM` on each side.
+    it('writes the date in front of each time in date format, and it fits every width', () => {
+        const long = 'A requirement title long enough to wrap onto its second line';
+        const rows = ROWS.map((r) => ({ ...r, reqIds: [101, 102, 103],
+            // The widest dates a stamp can carry: a two-digit day, both sides.
+            ...(r.startedAt ? { startedAt: '2026-12-28T15:05:00' } : {}),
+            ...(r.endedAt ? { endedAt: '2026-12-29T21:40:00' } : {}) }));
+        const reqTitles = new Map([[101, long], [102, 'short'], [103, long]]);
+        for (const epicWidthLevel of EPIC_WIDTH_RUNGS) {
+            const l = computePlanLayout(rows, {
+                epicWidthLevel, reqLabel: 'title', reqTitles, stampFormat: 'date',
+            });
+            const [start, end] = ['start', 'end'].map(
+                (side) => stampsOf(l, 1).find((s) => s.side === side));
+            expect(start.text).toBe(formatStartStamp(rows[0].startedAt, 'date'));
+            expect(end.text).toBe(formatStartStamp(rows[0].endedAt, 'date'));
+            expect(start.text).toMatch(/^[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}(AM|PM)$/);
+            const n = l.nodes.get(1);
+            expect(start.x).toBeCloseTo(n.left + CARD_FRAME_X + CARD_PAD_X, 6);
+            expect(end.x + end.w).toBeCloseTo(n.right - CARD_PAD_X, 6);
+            const stamps = l.labels.filter((x) => x.kind === 'stamp');
+            for (const st of stamps) {
+                for (const o of l.labels) {
+                    if (o !== st) expect(rectsOverlap(st, o)).toBe(false);
                 }
             }
         }

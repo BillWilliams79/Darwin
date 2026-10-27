@@ -39,6 +39,7 @@ import { useViewPreference } from '../../hooks/useViewPreference';
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_PLAN_EPIC_WIDTH,
 } from './pipelinePlanLayout';
+import { DEFAULT_EPIC_TIME_MODE } from './planEpicTimes';
 
 // `flag` settings are booleans stored as '1' / '0'; `value` settings are the
 // strings their consumer validates (each consumer normalizes — the value came
@@ -59,7 +60,11 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // and the dashed line above them, hidden from every epic card. Off until asked for.
     hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
     // req #3825 — the epic cards' start / end time line. On until switched off.
-    showTimes: { kind: 'flag', storageKey: 'darwin-pipeline-viz-show-times', default: true },
+    // req #3963 — three states, `off` / `time` / `date` (`planEpicTimes.js`
+    // owns them and normalizes); same key, so a stored '1' / '0' from the
+    // two-state chip still reads as `time` / `off`.
+    epicTimes: { kind: 'value', storageKey: 'darwin-pipeline-viz-show-times',
+        default: DEFAULT_EPIC_TIME_MODE },
     // req #3708 — the machines the reader has DESELECTED in the toolbar's
     // machine filter, as `planMachineFilter.js` encodes them. Nothing hidden
     // until asked for.
