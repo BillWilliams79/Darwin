@@ -580,10 +580,10 @@ export default function PipelinePlanVisualizer({
     keyHover = null,
     // req #3762 — the engine overlay (`usePlanEngineOverlay`, run by the page,
     // which owns the machine, claim and session reads it needs): `{ctl,
-    // machines, thisMachineId, onPickMachine, timezone}`.
+    // machines, thisMachineId, timezone}`.
     // Its badges ride the badge layer on each epic card; its box — the
-    // switch, the limits and the launch queue with its cut — is an Action
-    // Popup over the page (req #3935). Null draws neither.
+    // switch, its role and the slots (req #3981) — is an Action Popup over
+    // the page (req #3935). Null draws neither.
     engineOverlay = null,
 }) {
     const navigate = useNavigate();
@@ -5685,14 +5685,11 @@ export default function PipelinePlanVisualizer({
                            maximized={maximized}
                            onOpen={openActiveReq} />
 
-            {/* req #3762 — the engine switch, the limits and the launch queue
-                with its cut line: an Action Popup since req #3935, mounted
-                beside the Active box for the same reason. */}
+            {/* req #3762 — the engine switch, its role and the slots (req
+                #3981): an Action Popup since req #3935, mounted beside the
+                Active box for the same reason. */}
             {engineOverlay && (
-                <PlanEngineBox ctl={engineOverlay.ctl}
-                               machines={engineOverlay.machines}
-                               onPickMachine={engineOverlay.onPickMachine}
-                               timezone={engineOverlay.timezone} />
+                <PlanEngineBox ctl={engineOverlay.ctl} />
             )}
 
             {/* Req #3235 — the `?initiative=` deep link named an initiative no band on THIS
