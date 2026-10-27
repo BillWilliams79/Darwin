@@ -62,8 +62,18 @@
 // `PipelineDetail.jsx` still WRITES it on arrival and this page still prunes
 // per-plan storage against the live id set — the record is alive, it simply
 // has no decoration on this surface any more.
+//
+// ── REQ #3978: ALL ACTIVE ───────────────────────────────────────────────────
+// The plan visualizer's Active box (`PlanActiveBox.jsx`, req #3721) — the SAME
+// component, named "All Active" — fed every plan's requirements whose latest
+// session is under way (`allActiveRequirements`). No sort and no source
+// column, by directive. It costs THREE more list reads on this page's poll
+// (the requirement↔session junction, a light session projection and
+// `dev_servers` — what the plan page reads for the same box) and a wider
+// requirement projection: the title and the columns the reader's colour key
+// paints the ids with.
 
-import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -91,6 +101,9 @@ import {
     useAllInitiativeDeps,
     useAllRequirements,
     useOrchestrationClaims,
+    useAllRequirementSessions,
+    useAllSessionTerminals,
+    useDevServers,
     initiativeKeys,
     pipelineEpicKeys,
     pipelineEpicRequirementKeys,
@@ -113,7 +126,14 @@ import {
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import {
     hiddenPipelineStatusCounts,
+    buildSessionStatusIndex,
 } from '../SwarmView/pipelines/pipelineViewModel';
+// req #3978 — the All Active box: the plan's Active box and what feeds it.
+import PlanActiveBox from '../SwarmView/pipelines/PlanActiveBox';
+import { buildReqPills } from '../SwarmView/pipelines/planReqPills';
+import { buildReqColorViews, reqIdStyle } from '../SwarmView/pipelines/pipelinePlanLayout';
+import { usePlanViewSetting } from '../SwarmView/pipelines/planViewSettings';
+import { useAllActiveBoxStore } from '../stores/usePlanActiveBoxStore';
 // req #3463/#3372 built the reachable 2.0 visualizer at
 // planDetailPath(id). This list is that visualizer's PRODUCER
 // (the whole reason it was safe to ship) — a row here has to open it, or the
@@ -126,7 +146,7 @@ import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, isClosedPipeline,
+    reorderPipelines, isClosedPipeline, allActiveRequirements,
 } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import NewPipelineDialog from './NewPipelineDialog';
@@ -184,6 +204,9 @@ const LOCK_FREE_FIELDS = new Set(['locked', 'closed', 'sort_order', 'pipeline_st
 // req #3804 — `closed` and the hand-sorted `sort_order`.
 const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,closed,sort_order,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
+
+// req #3978 — `id,requirement_status` for the counts, the rest for All Active.
+const REQUIREMENT_FIELDS = 'id,title,requirement_status,coordination_type,ai_model,machine_fk';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
     value: status,
@@ -318,16 +341,24 @@ export default function PipelinesPage() {
         useAllInitiatives(creatorFk, live);
     const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
         useAllPipelineEpics(creatorFk, live);
-    const { data: epicRequirements = [], isLoading: linksLoading } =
+    const { data: epicRequirements = [], isLoading: linksLoading, isError: linksError } =
         useAllPipelineEpicRequirements(creatorFk, live);
     // req #3823 — initiative-to-initiative edges, counted per plan.
     const { data: initiativeDeps = [] } = useAllInitiativeDeps(creatorFk, live);
     // `id,requirement_status` is enough for the met/total counts — see
     // pipelinesViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
     // on purpose: this page derives no epic state from it, only a stored-status tally.
-    const { data: requirements = [], isLoading: reqsLoading } =
-        useAllRequirements(creatorFk, { fields: 'id,requirement_status', ...live });
+    // req #3978 — plus the All Active box's title and the columns its id colour
+    // reads (autonomy, model, machine — `REQ_COLOR_SCALES`).
+    const { data: requirements = [], isLoading: reqsLoading, isError: reqsError } =
+        useAllRequirements(creatorFk, { fields: REQUIREMENT_FIELDS, ...live });
     const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk, live);
+    // req #3978 — the All Active box's reads. They never gate the page: the box
+    // says "…" until the session reads have data, as the plan's does.
+    const { data: requirementSessions } = useAllRequirementSessions(creatorFk, live);
+    const { data: sessionTerminals } = useAllSessionTerminals(creatorFk, live);
+    const { data: devServers } = useDevServers(creatorFk, live);
+    const [colorKey] = usePlanViewSetting('colorKey');
 
     const isLoading = pipelinesLoading || machinesLoading || initiativesLoading
         || epicsLoading || linksLoading || reqsLoading;
@@ -343,6 +374,38 @@ export default function PipelinesPage() {
         .filter(Boolean).join(' and ');
 
     const machineById = new Map(machines.map((m) => [m.id, m]));
+
+    // req #3978 — All Active: the latest session per requirement, from the
+    // junction and the session projection (it carries `swarm_status`); null
+    // until both have data, so the box reads loading, never "None running".
+    const sessionStatus = useMemo(() => buildSessionStatusIndex({
+        requirementSessions, sessions: sessionTerminals,
+        ready: requirementSessions !== undefined && sessionTerminals !== undefined,
+    }), [requirementSessions, sessionTerminals]);
+    const activeItems = useMemo(() => allActiveRequirements({
+        pipelines, initiatives, epics, epicRequirements, requirements, sessionStatus,
+    }), [pipelines, initiatives, epics, epicRequirements, requirements, sessionStatus]);
+    const activeReqPills = useMemo(() => buildReqPills({
+        requirementSessions, sessions: sessionTerminals, devServers,
+        machines: machinesLoading ? undefined : machines,
+    }), [requirementSessions, sessionTerminals, devServers, machines, machinesLoading]);
+    // The ids in the reader's own plan colour key, built over the listed rows.
+    const activeColorViews = useMemo(() => {
+        const listed = new Set(activeItems.map((r) => r.id));
+        return buildReqColorViews({
+            requirements: requirements
+                .filter((r) => listed.has(Number(r.id)))
+                .map((r) => ({ ...r, id: Number(r.id), session_status: sessionStatus?.get(Number(r.id)) })),
+            machines, presentReqIds: listed,
+        });
+    }, [activeItems, requirements, sessionStatus, machines]);
+    const activeIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey, views: activeColorViews, reqId: Number(reqId),
+    }), [colorKey, activeColorViews]);
+    // A failed plan or requirement read is "could not tell", never "None running".
+    const activeUnknown = sessionStatus == null
+        || initiativesError || epicsError || linksError || reqsError;
+    const openActiveReq = useCallback((id) => navigate(`/swarm/requirement/${id}`), [navigate]);
 
     const summaries = pipelineSummaries({ pipelines, epics, initiatives, initiativeDeps });
     const reqCounts = pipelineRequirementCounts({
@@ -587,6 +650,14 @@ export default function PipelinesPage() {
 
     return (
         <Box className="app-content-planpage" data-testid="pipelines-page">
+            {/* req #3978 — every plan's Active box in one: viewport-fixed, so
+                it floats over whichever view is showing. */}
+            <PlanActiveBox items={activeItems} reqPills={activeReqPills}
+                           idStyleOf={activeIdStyleOf}
+                           isLoading={activeUnknown}
+                           onOpen={openActiveReq}
+                           name="All Active" testid="pipelines-all-active"
+                           rackId="all-active" store={useAllActiveBoxStore} />
             <Box className="app-content-view-toggle" sx={{ mt: 3, px: 3 }}>
                 <ViewerHeader
                     title="Pipelines"
