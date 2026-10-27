@@ -15,7 +15,7 @@
 //
 // A NEW REQUIREMENT STARTS FROM THE LAST ONE (user ruling 2026-10-23, req #3815,
 // replacing #3812's Defaults form): its settings — status, autonomy, model,
-// effort, machine, tracking — are the last filed requirement's
+// effort, machine — are the last filed requirement's
 // (useRequirementFilerStore `defaults`, written on every save), its place is
 // where that one was filed, and before any has been filed it is SRDOH — Swarm
 // Ready · Deployed · Opus · High — on Any machine (FILER_DEFAULT_SPEC). A
@@ -27,6 +27,11 @@
 // darwin-mcp/services/requirement_spec.py's; this copy is held to it by
 // __tests__/requirementFilerModel.test.js, which reads that file when the
 // workspace has it.
+//
+// NO TRACKING FLAG (req #3982, "remove this feature"): the editor neither shows
+// nor sends `tracking`. A new requirement takes the column's default (work, 0);
+// a reopened container keeps its flag, because no save here ever names it. A
+// `tracking` key an older build left in a persisted draft or `defaults` is inert.
 
 import { requirementStatusTimestampFields } from '../utils/requirementStatusTimestamps';
 
@@ -59,7 +64,7 @@ export function specCode(values) {
 }
 
 /** The settings a new requirement takes from the last one filed. */
-export const CARRIED_FIELDS = Object.freeze([...ENUMS, 'machine_fk', 'tracking']);
+export const CARRIED_FIELDS = Object.freeze([...ENUMS, 'machine_fk']);
 
 /** The last requirement's settings, as `defaults` keeps them. */
 export function carriedSettings(values) {
@@ -75,7 +80,7 @@ const blank = (v) => v == null || String(v).trim() === '';
  *  `defaultsUnchecked` names the references taken from `defaults` — the editor
  *  checks each against live data once and drops a stale one, so Save waits. */
 export function newRequirementDraft(projectId = null, categoryId = null, defaults = {}) {
-    const d = { ...FILER_DEFAULT_SPEC, machine_fk: null, tracking: 0 };
+    const d = { ...FILER_DEFAULT_SPEC, machine_fk: null };
     for (const f of CARRIED_FIELDS) {
         if (defaults && defaults[f] !== undefined && !(ENUMS.includes(f) && blank(defaults[f]))) d[f] = defaults[f];
     }
@@ -90,7 +95,6 @@ export function newRequirementDraft(projectId = null, categoryId = null, default
         effort: d.effort,
         machine_fk: d.machine_fk ?? null,
         affected_repos: '',
-        tracking: d.tracking ? 1 : 0,
         // The carried place and machine are checked against live data before File.
         defaultsUnchecked: [...(categoryId != null ? ['category'] : []), ...(d.machine_fk != null ? ['machine'] : [])],
         notice: null,
@@ -146,7 +150,7 @@ export function staleMachine(values, machines) {
 
 /** The columns a filed requirement is read back with, to reopen it. */
 export const REOPEN_FIELDS = Object.freeze(['id', 'title', 'description', 'category_fk', ...ENUMS,
-    'machine_fk', 'affected_repos', 'tracking']);
+    'machine_fk', 'affected_repos']);
 
 /** A filed requirement's row, as the editor's draft — under `projectId`, its
  *  category's project. Nothing in it is carried, so nothing waits on a check. */
@@ -162,7 +166,6 @@ export function draftFromRow(row, projectId) {
         effort: row.effort,
         machine_fk: row.machine_fk ?? null,
         affected_repos: row.affected_repos ?? '',
-        tracking: flagOn(row.tracking) ? 1 : 0,
         defaultsUnchecked: [],
         notice: null,
     };
@@ -203,14 +206,13 @@ export function savedValues(draft) {
         effort: draft.effort,
         machine_fk: draft.machine_fk ?? null,
         affected_repos: (draft.affected_repos ?? '').trim(),
-        tracking: draft.tracking ? 1 : 0,
     };
 }
 
 /** The POST body (one object) for a draft that has never been saved. */
 export function buildPostBody(draft, now = new Date().toISOString()) {
     const v = savedValues(draft);
-    const body = { title: v.title, category_fk: v.category_fk, tracking: v.tracking };
+    const body = { title: v.title, category_fk: v.category_fk };
     if (v.description !== '') body.description = v.description;
     for (const f of ENUMS) if (!blank(v[f])) body[f] = v[f];
     if (v.machine_fk != null) body.machine_fk = v.machine_fk;
@@ -225,7 +227,7 @@ export function buildPostBody(draft, now = new Date().toISOString()) {
 export function buildPutBody(id, draft, saved, now = new Date().toISOString()) {
     const v = savedValues(draft);
     const row = {};
-    for (const f of ['title', 'description', 'category_fk', 'tracking']) {
+    for (const f of ['title', 'description', 'category_fk']) {
         if (v[f] !== saved[f]) row[f] = v[f];
     }
     for (const f of ENUMS) {

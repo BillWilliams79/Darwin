@@ -55,10 +55,10 @@ vi.mock('../debugBundle', async (importOriginal) => {
 });
 
 import RequirementFiler, { CREATE_WAIT_MS, FILER_RACK_ID, createSettled } from '../RequirementFiler';
-import RequirementEditorPopup from '../RequirementEditorPopup';
+import RequirementEditorPopup, { EDITOR_HOME, descriptionSizePx } from '../RequirementEditorPopup';
 import FilerDataScope from '../filerScope';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
-import { migrateFilerState, useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
+import { EDITOR_DEFAULT_HT, migrateFilerState, useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
@@ -130,6 +130,7 @@ describe('Requirement Filer (req #3811)', () => {
             show: false, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: null, lastCategoryId: null,
             draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
+            descriptionCollapsed: false,
         });
     });
     afterEach(cleanup);
@@ -406,7 +407,8 @@ describe('Requirement Filer (req #3811)', () => {
         fill('machine', '2');
         setDraft({ affected_repos: 'Darwin' });
         expect(screen.queryByTestId('requirement-editor-field-repos')).toBe(null);
-        fireEvent.click(screen.getByTestId('requirement-editor-field-tracking'));
+        // No tracking (container) flag (req #3982).
+        expect(screen.queryByTestId('requirement-editor-field-tracking')).toBe(null);
 
         rest.mockResolvedValueOnce(ok([{ id: 3999, title: 'File from anywhere' }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
@@ -417,8 +419,9 @@ describe('Requirement Filer (req #3811)', () => {
         expect(body).toMatchObject({
             title: 'File from anywhere', description: 'The body', category_fk: 862,
             requirement_status: 'swarm_ready', coordination_type: 'deployed', ai_model: 'sonnet',
-            effort: 'medium', machine_fk: 2, affected_repos: 'Darwin', tracking: 1,
+            effort: 'medium', machine_fk: 2, affected_repos: 'Darwin',
         });
+        expect(body).not.toHaveProperty('tracking');
         const link = screen.getByTestId('requirement-editor-id-link');
         expect(link.textContent).toBe('3999');
         expect(link.getAttribute('href')).toBe('/swarm/requirement/3999');
@@ -834,6 +837,97 @@ describe('Requirement Filer (req #3811)', () => {
         expect(screen.getByTestId('requirement-editor-problem').textContent).toBe('A title is required — not saving');
         await new Promise(r => setTimeout(r, 900));
         expect(rest).toHaveBeenCalledTimes(1);
+    });
+
+    it('every open gives the editor its content-fitted size, where it was left (req #3982)', async () => {
+        const moved = { h: 'l', x: 400, v: 't', y: 150, w: 700, ht: 900 };
+        useRequirementFilerStore.setState({ show: true, editorDock: moved });
+        renderAll();
+        const atDefault = { ...moved, w: null, ht: null };
+        // A new requirement.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Reshaped, then closed and shown again (a create failure, a reopen of the same row).
+        act(() => useRequirementFilerStore.getState().setEditorDock({ ...moved, w: 300 }));
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        act(() => useRequirementFilerStore.getState().setEditorShow(true));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Reshaping while it is shown is the reader's, until the next open.
+        act(() => useRequirementFilerStore.getState().setEditorDock({ ...moved, w: 300 }));
+        act(() => useRequirementFilerStore.getState().setEditorShow(true));
+        expect(useRequirementFilerStore.getState().editorDock.w).toBe(300);
+        // A filed requirement reopened from the list.
+        act(() => useRequirementFilerStore.getState().openFiled(ROW(3999), 4));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Never placed: home, content-fitted too.
+        act(() => useRequirementFilerStore.getState().setEditorDock(null));
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(useRequirementFilerStore.getState().editorDock).toBe(null);
+        expect(EDITOR_HOME).toMatchObject({ w: null, ht: null });
+    });
+
+    it('the description folds to two lines and back, and the choice is kept (req #3982)', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        const desc = () => screen.getByTestId('requirement-editor-field-description');
+        const toggle = () => screen.getByTestId('requirement-editor-description-toggle');
+        // Open by default: it grows (to the screen's edge, then scrolls).
+        expect(desc().getAttribute('data-collapsed')).toBe('0');
+        expect(toggle().getAttribute('aria-expanded')).toBe('true');
+        expect(toggle().getAttribute('aria-label')).toBe('Collapse the description');
+        fireEvent.click(toggle());
+        expect(desc().getAttribute('data-collapsed')).toBe('1');
+        expect(toggle().getAttribute('aria-expanded')).toBe('false');
+        expect(useRequirementFilerStore.getState().descriptionCollapsed).toBe(true);
+        // The reader's choice, not the draft's: the next requirement opens folded too.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(desc().getAttribute('data-collapsed')).toBe('1');
+        fireEvent.click(toggle());
+        expect(desc().getAttribute('data-collapsed')).toBe('0');
+        expect(useRequirementFilerStore.getState().descriptionCollapsed).toBe(false);
+    });
+});
+
+// Req #3982 — open, the description fills the panel to its default size and
+// may grow until the panel meets the screen's edge.
+describe('descriptionSizePx (req #3982)', () => {
+    const build = ({ racked = '0', top = 100, bottom = 400, height = 300, clientH = 270, scrollH = 270, ownH = 40 } = {}) => {
+        const panel = document.createElement('div');
+        panel.setAttribute('data-testid', 'requirement-editor');
+        panel.setAttribute('data-racked', racked);
+        const body = document.createElement('div');
+        body.setAttribute('data-testid', 'requirement-editor-body');
+        const el = document.createElement('textarea');
+        body.appendChild(el); panel.appendChild(body); document.body.appendChild(panel);
+        panel.getBoundingClientRect = () => ({ top, bottom, height });
+        Object.defineProperty(body, 'clientHeight', { value: clientH });
+        Object.defineProperty(body, 'scrollHeight', { value: scrollH });
+        Object.defineProperty(el, 'offsetHeight', { value: ownH });
+        return el;
+    };
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    it('defaults to as wide as its form and at least 431 tall', () => {
+        expect(EDITOR_HOME.w).toBe(null);
+        expect(EDITOR_DEFAULT_HT).toBe(431);
+    });
+
+    it('max is the screen below the panel\'s top less the rest; min brings the panel to its default height', () => {
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        // max: reach 900 − head 30 − rest 230 − gap 4; min: 431 − 30 − 230.
+        expect(descriptionSizePx(build(), 't')).toEqual({ max: 636, min: 171 });
+        // Already scrolling (capped): measured from scroll sizes, the same answer.
+        expect(descriptionSizePx(build({ height: 300, clientH: 270, scrollH: 500, ownH: 270 }), 't'))
+            .toEqual({ max: 636, min: 171 });
+        // Docked to the bottom it grows upward: the room above its foot.
+        expect(descriptionSizePx(build({ bottom: 700 }), 'b')).toEqual({ max: 436, min: 171 });
+        // Never negative, and the default height never pushes past the screen.
+        expect(descriptionSizePx(build({ top: 990 }), 't')).toEqual({ max: 0, min: 0 });
+        expect(descriptionSizePx(build({ top: 700 }), 't')).toEqual({ max: 36, min: 36 });
+        // Nothing to measure when racked or detached.
+        expect(descriptionSizePx(build({ racked: '1' }), 't')).toBe(null);
+        expect(descriptionSizePx(document.createElement('textarea'), 't')).toBe(null);
     });
 });
 
