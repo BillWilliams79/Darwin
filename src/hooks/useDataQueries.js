@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueries, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -1073,35 +1073,60 @@ export const engineKeys = {
 // is a real object — `null` and `undefined` are both "nothing to derive from
 // yet" at the fetch layer, same as `!pipeline` was for the 1.0 list lookup
 // this replaces.
+// The one fetcher both hooks below use, so a plan's composed read is the SAME
+// cache entry whichever of them asked for it (req #3972).
+async function fetchComposedPipeline(darwinUri, idToken, pipelineId) {
+    // `call_rest_api` THROWS on every non-2xx status (RestApi.jsx) —
+    // it never returns control past a 404, so the 404 check has to
+    // live in the `catch`, mirroring `fetchEntity`'s own pattern
+    // (`createEntityQueries.js`). A bare `if (result.httpStatus...)`
+    // here was dead code (code review 2026-08-09): every "not found"
+    // fell through to react-query's retry (x2) before the caller
+    // ever saw anything.
+    try {
+        const result = await call_rest_api(`${darwinUri}/pipeline_compose?id=${pipelineId}`,
+            'GET', '', idToken);
+        if (result.httpStatus.httpStatus < 200 || result.httpStatus.httpStatus >= 300) {
+            throw result;
+        }
+        return result.data;
+    } catch (error) {
+        if (error?.httpStatus?.httpStatus === 404) return null;
+        throw error;
+    }
+}
+
 export function useComposedPipeline(pipelineId, { enabled = true, refetchInterval } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const validId = Number.isFinite(pipelineId);
-    const uri = `${darwinUri}/pipeline_compose?id=${pipelineId}`;
 
     return useQuery({
         queryKey: pipelineComposeKeys.byId(pipelineId),
-        queryFn: async () => {
-            // `call_rest_api` THROWS on every non-2xx status (RestApi.jsx) —
-            // it never returns control past a 404, so the 404 check has to
-            // live in the `catch`, mirroring `fetchEntity`'s own pattern
-            // (`createEntityQueries.js`). A bare `if (result.httpStatus...)`
-            // here was dead code (code review 2026-08-09): every "not found"
-            // fell through to react-query's retry (x2) before the caller
-            // ever saw anything.
-            try {
-                const result = await call_rest_api(uri, 'GET', '', idToken);
-                if (result.httpStatus.httpStatus < 200 || result.httpStatus.httpStatus >= 300) {
-                    throw result;
-                }
-                return result.data;
-            } catch (error) {
-                if (error?.httpStatus?.httpStatus === 404) return null;
-                throw error;
-            }
-        },
+        queryFn: () => fetchComposedPipeline(darwinUri, idToken, pipelineId),
         enabled: enabled && validId && !!idToken,
         ...(refetchInterval !== undefined ? { refetchInterval } : {}),
+    });
+}
+
+// req #3972 — every listed plan's composed read at once, for the Pipelines
+// page's "Pipeline group" view (all plans in one scene). One call per plan —
+// the same fan-out, and the same cache entries, as the Cards view's
+// thumbnails, so switching between the two views is a cache hit. Returns the
+// `useQueries` results in `pipelineIds` order.
+export function useComposedPipelines(pipelineIds, { enabled = true, refetchInterval } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    return useQueries({
+        // One query per id, invalid ones disabled rather than dropped, so
+        // result i always answers pipelineIds[i].
+        queries: (pipelineIds || []).map((pipelineId) => ({
+            queryKey: pipelineComposeKeys.byId(pipelineId),
+            queryFn: () => fetchComposedPipeline(darwinUri, idToken, pipelineId),
+            enabled: enabled && !!idToken && Number.isFinite(pipelineId),
+            ...(refetchInterval !== undefined ? { refetchInterval } : {}),
+        })),
     });
 }
 
