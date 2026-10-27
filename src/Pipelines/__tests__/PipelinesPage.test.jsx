@@ -101,6 +101,10 @@ let requirements;
 let orchestrationClaims;
 let loading;
 let initiativeDeps = [];
+// req #3978 — the All Active box's reads.
+let requirementSessions;
+let sessionTerminals;
+let requirementsError = false;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -112,10 +116,14 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllPipelineEpicRequirements: () => ({
             data: epicRequirements, isLoading: loading.links }),
-        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements }),
+        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements,
+            isError: requirementsError }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
         // req #3823 — initiative-to-initiative edges (none unless a test seeds them).
         useAllInitiativeDeps: () => ({ data: initiativeDeps }),
+        useAllRequirementSessions: () => ({ data: requirementSessions }),
+        useAllSessionTerminals: () => ({ data: sessionTerminals }),
+        useDevServers: () => ({ data: [] }),
     };
 });
 
@@ -134,6 +142,21 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
 vi.mock('../PipelinePlanThumbnail', () => ({
     default: ({ pipelineId }) => (
         <div data-testid={`pipelines-card-thumb-${pipelineId}`} />
+    ),
+}));
+
+// req #3972 — the Pipeline group view is STUBBED here for the thumbnail's
+// reason: it draws with WebGL, which jsdom does not have. The stub exposes
+// what the PAGE hands it (the plans, the focus) and its two callbacks, so the
+// page's wiring — `?view=group`, `?focus=` — is what these tests pin.
+vi.mock('../PipelineGroupView', () => ({
+    default: ({ pipelines: shown, focusId, onFocusChange, onOpen }) => (
+        <div data-testid="pipelines-group-view" data-focus={focusId ?? ''}
+             data-ids={shown.map((p) => p.id).join(',')}>
+            <button data-testid="group-stub-focus-8" onClick={() => onFocusChange(8)} />
+            <button data-testid="group-stub-clear" onClick={() => onFocusChange(null)} />
+            <button data-testid="group-stub-open-7" onClick={() => onOpen(7)} />
+        </div>
     ),
 }));
 
@@ -229,7 +252,8 @@ beforeEach(() => {
           sort_order: 1, locked: 1, machine_fk: null, started_at: null,
           completed_at: null },
     ];
-    machines = [{ id: 4, title: 'Mac mini' }];
+    machines = [{ id: 4, title: 'Mac mini', platform: 'darwin' },
+                { id: 5, title: 'Gaming PC', platform: 'wsl' }];
     initiatives = [
         { id: 40, pipeline_fk: 7, title: 'Initiative Seven' },
         { id: 41, pipeline_fk: 8, title: 'Initiative Eight' },
@@ -248,6 +272,9 @@ beforeEach(() => {
         { id: 901, requirement_status: 'development' },
     ];
     orchestrationClaims = [];
+    requirementsError = false;
+    requirementSessions = [{ requirement_fk: 901, session_fk: 3001 }];
+    sessionTerminals = [{ id: 3001, swarm_status: 'active' }];
     useSnackBarStore.setState({ open: false, message: '' });
 });
 
@@ -255,6 +282,38 @@ afterEach(() => {
     act(() => { mountedRoots.forEach(r => r.unmount()); });
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+});
+
+// req #3978 — every plan's Active box in one, on this page.
+describe('PipelinesPage2 — All Active', () => {
+    it('lists the active requirements of every plan in the Active box', () => {
+        requirements = [
+            { id: 900, title: 'Done thing', requirement_status: 'met' },
+            { id: 901, title: 'Running thing', requirement_status: 'development' },
+        ];
+        mount();
+        expect(node('pipelines-all-active-title').textContent).toBe('All Active');
+        expect(node('pipelines-all-active-count').textContent).toBe('1');
+        expect(node('pipelines-all-active-item-title-901').textContent).toBe('Running thing');
+        expect(node('pipelines-all-active-item-900')).toBeNull();
+        click(node('pipelines-all-active-item-901'));
+        expect(navigations).toEqual(['/swarm/requirement/901']);
+    });
+
+    it('reads loading, not None running, until the session reads have data', () => {
+        sessionTerminals = undefined;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
+
+    it('reads loading, not None running, when the requirement read failed', () => {
+        requirements = [];
+        requirementsError = true;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
 });
 
 describe('PipelinesPage2 — Cards view (default)', () => {
@@ -325,9 +384,45 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         }];
         mount();
         expect(node('pipelines-card-holder-7')).not.toBeNull();
-        expect(node('pipelines-card-holder-7').textContent).toContain('Mac mini');
         // Scoped — plan 8 carries no claim.
         expect(node('pipelines-card-holder-8')).toBeNull();
+    });
+
+    // req #3973 — the holder is a round badge between the grip and the title,
+    // carrying only the machine's letter; the bottom chip is gone.
+    it('draws the holder as an M / W badge between the grip and the title', () => {
+        const fresh = new Date().toISOString().slice(0, 19);
+        orchestrationClaims = [
+            { id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 4,
+              claimed_at: '2026-08-10T10:00:00', update_ts: fresh },
+            { id: 2, pipeline_fk: 7, initiative_fk: null, machine_fk: 5,
+              claimed_at: '2026-08-10T10:00:00', update_ts: fresh },
+        ];
+        mount();
+        const lead = node('pipelines-card-holder-7-lead');
+        expect(lead.textContent).toBe('M');
+        expect(lead.getAttribute('data-tone')).toBe('lead');
+        expect(lead.getAttribute('aria-label')).toContain('Mac mini');
+        const sub = node('pipelines-card-holder-7-claim-2');
+        expect(sub.textContent).toBe('W');
+        expect(sub.getAttribute('data-tone')).toBe('subscriber');
+        // Row one, in order: grip, badge, title.
+        const row = node('pipelines-card-grip-7').parentElement;
+        const order = [...row.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid);
+        const at = (id) => order.indexOf(id);
+        expect(at('pipelines-card-grip-7')).toBeLessThan(at('pipelines-card-holder-7'));
+        expect(at('pipelines-card-holder-7')).toBeLessThan(at('pipelines-card-title-7'));
+    });
+
+    it('draws a stale holder as an outline badge', () => {
+        orchestrationClaims = [{
+            id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 5,
+            claimed_at: '2026-08-10T10:00:00', update_ts: '2026-08-10T10:00:00',
+        }];
+        mount();
+        const lead = node('pipelines-card-holder-7-lead');
+        expect(lead.textContent).toBe('W');
+        expect(lead.getAttribute('data-tone')).toBe('stale');
     });
 
     // req #3804 — a click on the card body is an EDIT now, so the plan opens
@@ -340,6 +435,31 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         click(node('pipelines-card-menu-7'));
         expect(document.body.textContent).not.toContain('Open plan');
         click(node('pipelines-card-thumb-8'));
+        expect(navigations).toEqual(['/swarm/pipeline/8']);
+    });
+
+    // req #4027 — the picture is a real link, so the browser's right-click
+    // menu offers "Open link in new tab", and a modified click is the browser's.
+    it('makes the picture a link to the plan, leaving modified clicks to the browser', () => {
+        mount();
+        const link = node('pipelines-card-thumbnail-8');
+        expect(link.tagName).toBe('A');
+        expect(link.getAttribute('href')).toBe('/swarm/pipeline/8');
+        expect(link.getAttribute('draggable')).toBe('false');
+        // Read what the app did, then stop jsdom following the link itself.
+        const seen = [];
+        const record = (e) => { seen.push(e.defaultPrevented); e.preventDefault(); };
+        window.addEventListener('click', record);
+        for (const mod of ['metaKey', 'ctrlKey', 'shiftKey']) {
+            const e = new MouseEvent('click', { bubbles: true, cancelable: true, [mod]: true });
+            act(() => { link.dispatchEvent(e); });
+        }
+        window.removeEventListener('click', record);
+        expect(seen).toEqual([false, false, false]);
+        expect(navigations).toEqual([]);
+        const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
+        act(() => { link.dispatchEvent(plain); });
+        expect(plain.defaultPrevented).toBe(true);
         expect(navigations).toEqual(['/swarm/pipeline/8']);
     });
 
@@ -422,6 +542,63 @@ describe('PipelinesPage2 — view toggle', () => {
         click(node('view-toggle-cards'));
         expect(node('pipelines-cards-view')).not.toBeNull();
         expect(node('location-probe').textContent).toBe('?view=cards');
+    });
+});
+
+describe('PipelinesPage2 — Pipeline group view (req #3972)', () => {
+    const groupView = async (entry) => {
+        mount(entry);
+        await flush();
+        return node('pipelines-group-view');
+    };
+
+    it('is a third view in the toggle and renders every shown plan', async () => {
+        mount();
+        expect(node('view-toggle-group')).not.toBeNull();
+        click(node('view-toggle-group'));
+        await flush();
+        const view = node('pipelines-group-view');
+        expect(view).not.toBeNull();
+        expect(view.dataset.ids).toBe('7,8');
+        expect(node('pipelines-cards-view')).toBeNull();
+        expect(localStorage.getItem('darwin-swarm-pipelines-view')
+            ?? sessionStorage.getItem('darwin-swarm-pipelines-view')).toContain('group');
+    });
+
+    it('opens from a ?view=group link and honours the page filters', async () => {
+        sessionStorage.setItem('darwin-swarm-pipelines-status-filter', JSON.stringify(['active']));
+        const view = await groupView('/swarm/pipelines?view=group');
+        expect(view.dataset.ids).toBe('7');
+    });
+
+    it('reads the focused pipeline from ?focus= and writes it back on a focus change', async () => {
+        const view = await groupView('/swarm/pipelines?view=group&focus=7');
+        expect(view.dataset.focus).toBe('7');
+        click(node('group-stub-focus-8'));
+        expect(node('pipelines-group-view').dataset.focus).toBe('8');
+        expect(node('location-probe').textContent).toBe('?view=group&focus=8');
+        click(node('group-stub-clear'));
+        expect(node('pipelines-group-view').dataset.focus).toBe('');
+        expect(node('location-probe').textContent).toBe('?view=group');
+    });
+
+    it('ignores a ?focus= that is not a pipeline id', async () => {
+        const view = await groupView('/swarm/pipelines?view=group&focus=abc');
+        expect(view.dataset.focus).toBe('');
+    });
+
+    it('leaving the view drops ?focus=', async () => {
+        await groupView('/swarm/pipelines?view=group&focus=7&keep=1');
+        click(node('view-toggle-cards'));
+        expect(node('pipelines-cards-view')).not.toBeNull();
+        expect(node('location-probe').textContent).toBe('?keep=1');
+    });
+
+    it('opens a plan\'s visualizer from the focus panel', async () => {
+        await groupView('/swarm/pipelines?view=group');
+        click(node('group-stub-open-7'));
+        expect(navigations).toHaveLength(1);
+        expect(String(navigations[0])).toContain('7');
     });
 });
 

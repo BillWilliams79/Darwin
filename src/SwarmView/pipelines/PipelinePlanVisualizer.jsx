@@ -554,7 +554,8 @@ export default function PipelinePlanVisualizer({
     hideClosed = false,
     // req #3825 — draw the epic cards' start / end time line. Off, the line is
     // dropped from the layout's input, so the cards close up.
-    showTimes = true,
+    // req #3963 — `off` / `time` / `date` (the clock, or date and clock).
+    epicTimeMode = 'time',
     // req #3708 — machine ids deselected in the toolbar's machine filter: the
     // requirements pinned to them are drawn nowhere (epic cards, Orchestrables).
     hiddenMachines = NO_HIDDEN_MACHINES,
@@ -900,10 +901,10 @@ export default function PipelinePlanVisualizer({
     // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
     const layoutRows = useMemo(() => {
         const open = hideClosed ? hideClosedReqs(rows) : rows;
-        const timed = showTimes ? open
+        const timed = epicTimeMode !== 'off' ? open
             : open.map((r) => (r.stampsReserved ? { ...r, stampsReserved: false } : r));
         return hideMachineReqs(timed, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
-    }, [rows, hideClosed, showTimes, hiddenMachines, reqInfo]);
+    }, [rows, hideClosed, epicTimeMode, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
             epicLabel, reqLabel, reqTitles: layoutTitles, reqPills,
@@ -918,10 +919,12 @@ export default function PipelinePlanVisualizer({
                         lockedInitiativeIds: [...(plan.lockedInitiativeIds || [])] },
             epicWidthLevel,
             collapsedInitiativeIds: collapsed.initiativeIds, collapsedEpicIds: collapsed.epicIds,
+            // req #3963 — the time line's clock alone, or date and clock.
+            stampFormat: epicTimeMode === 'date' ? 'date' : 'time',
         }),
         [plan.timeAxis, epicLabel,
             reqLabel, layoutTitles, reqPills, initiativeCounts, plan.pause, plan.locked,
-            plan.lockedInitiativeIds, activePalette, epicWidthLevel, collapsed]);
+            plan.lockedInitiativeIds, activePalette, epicWidthLevel, collapsed, epicTimeMode]);
     const layout = useMemo(
         () => computePlanLayout(layoutRows, layoutOpts), [layoutRows, layoutOpts]);
     // req #3695 — THE LAYOUT THE CANVAS DRAWS. While an initiative's fold animates it
@@ -1783,7 +1786,8 @@ export default function PipelinePlanVisualizer({
     // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
     // closed does, so it rides the same anchor under one combined key.
     // req #3825 — the Time toggle re-lays the cards out too, so it rides it.
-    const layoutFilterKey = `${hideClosed ? 1 : 0}|${showTimes ? 1 : 0}|`
+    // (req #3963's `date` state only rewrites the line, so it moves nothing.)
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${epicTimeMode === 'off' ? 0 : 1}|`
         + `${[...hiddenMachines].sort().join(',')}`;
     const shownHideClosedRef = useRef(layoutFilterKey);
     const anchorFromRef = useRef(null);

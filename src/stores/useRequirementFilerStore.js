@@ -24,7 +24,8 @@ import {
 //     over (filerHover.js) and the + records the place (`filedFrom.pointedAt`);
 //     not pressed, neither. Off by default, remembered per browser.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
-//     (FILED_LIMIT), the title as last saved here.
+//     (FILED_LIMIT), the title as last saved here. Its Clear empties it
+//     (req #3975); the requirements themselves are untouched.
 //   • `filedInto` — the database every id here names: production, from every
 //     build since req #3888 (FilerDataScope); see migrateFilerState.
 //   • `reopened` — the editor holds one of them again (`openFiled`), not a new
@@ -32,6 +33,13 @@ import {
 //
 // THE EDITOR — the popup requirement editor the filer opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
+//     `editorShow` alone is NOT persisted (req #3974): the editor opens on a
+//     press of the + (or a pick from the filer's list), never on a page load —
+//     so a reload, or a dev server reusing this origin, starts it closed. Its
+//     draft is persisted all the same, and `restoredDraft` (live only) marks it
+//     as one the reader never closed: the next press asks before discarding it
+//     unsent, and shows it if kept (RequirementFiler.jsx keepsEditorDraft). This
+//     replaces req #3860's bringing a draft caught mid-create back into view.
 //   • `draft` — the values in the editor's fields (requirementFilerModel.js);
 //     its `seat` is the plan epic the filer's + was aimed at (req #3854,
 //     filerEpicAim.js) — never sent with the row, Create seats it after the POST.
@@ -130,6 +138,7 @@ export const useRequirementFilerStore = create(
             filedInto: FILED_INTO,
             reopened: false,
             forgetFiled: (id) => set({ filed: get().filed.filter(f => f.id !== id) }),
+            clearFiled: () => set({ filed: [] }),
 
             editorShow: false,
             editorOpen: true,
@@ -148,19 +157,27 @@ export const useRequirementFilerStore = create(
             captureDropped: [],
             captureSentDropped: null,
             captureStage: null,
-            setEditorShow: (editorShow) => set({ editorShow }),
+            restoredDraft: false,
+            setEditorShow: (editorShow) => set({ editorShow, restoredDraft: false }),
             toggleEditorOpen: () => set({ editorOpen: !get().editorOpen }),
             setEditorDock: (editorDock) => set({ editorDock }),
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
             // capture, and `seat` is the plan epic the + was aimed at (req #3854,
-            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
-            startNew: (withCapture = false, seat = null) => {
+            // filerEpicAim.js) — Create seats it there; `place` (`{ projectId,
+            // categoryId }`) is the category card the + was aimed at (req #4026,
+            // filerCategoryAim.js), filed there instead of the last place.
+            // Returns the new draft's key.
+            startNew: (withCapture = false, seat = null, place = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
+                const projectId = place ? place.projectId : lastProjectId;
+                const categoryId = place ? place.categoryId : lastCategoryId;
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
-                    savedId: null, saved: null, editorShow: true, editorOpen: true,
+                    // `aimedPlace`: its place is the card's, not the last requirement's —
+                    // the editor's carried-place check says so if it drops it.
+                    draft: { ...newRequirementDraft(projectId, categoryId, defaults), seat, aimedPlace: !!place },
+                    savedId: null, saved: null, editorShow: true, restoredDraft: false, editorOpen: true,
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
                     captureStage: withCapture ? 'capturing' : null,
@@ -174,7 +191,7 @@ export const useRequirementFilerStore = create(
                 const draftKey = get().draftKey + 1;
                 const draft = draftFromRow(row, projectId);
                 set({
-                    draft, savedId: row.id, saved: savedValues(draft), editorShow: true, editorOpen: true,
+                    draft, savedId: row.id, saved: savedValues(draft), editorShow: true, restoredDraft: false, editorOpen: true,
                     draftKey, orphaned: false, focusPending: false, reopened: true,
                     capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
                     filed: withFiled(get().filed, row.id, draft.title),
@@ -240,13 +257,18 @@ export const useRequirementFilerStore = create(
             migrate: (persisted, version) => migrateFilerState(persisted, version, database),
             // The capture stays in memory; a reload that loses it before its
             // row is saved says so ('lost') rather than waiting on it forever.
-            // A reload mid-create (req #3860) brings its draft back into view —
-            // whether it was filed is then for the reader to see.
-            partialize: ({ focusPending, creating, capture, ...persisted }) => ({
+            // The editor's visibility stays in memory too (req #3974): it opens
+            // only on a press, never on a load. A draft caught by a reload —
+            // mid-create included — comes back hidden, marked `restoredDraft`.
+            partialize: ({ focusPending, creating, capture, editorShow, restoredDraft, ...persisted }) => ({
                 ...persisted,
-                editorShow: persisted.editorShow || creating != null,
                 captureStage: ['capturing', 'ready'].includes(persisted.captureStage) ? 'lost' : persisted.captureStage,
             }),
+            // A store written before req #3974 still holds `editorShow: true`.
+            merge: (persisted, current) => {
+                const state = { ...current, ...persisted, editorShow: false };
+                return { ...state, restoredDraft: state.draft != null };
+            },
         }
     )
 );

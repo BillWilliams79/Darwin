@@ -13,6 +13,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { PLAN_VIEW_SETTINGS, usePlanViewSetting } from '../planViewSettings';
+import { normalizeEpicTimeMode } from '../planEpicTimes';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,13 +51,20 @@ describe('usePlanViewSetting', () => {
         unmount();
     });
 
-    it('opens the epic-card times ON (req #3825) and remembers them off', () => {
-        mount('showTimes');
-        expect(api.value).toBe(true);
-        act(() => { api.set(false); });
+    it('opens the epic-card times at time-only (req #3825, #3963) and remembers the date', () => {
+        mount('epicTimes');
+        expect(api.value).toBe('time');
+        act(() => { api.set('date'); });
         unmount();
-        mount('showTimes');
-        expect(api.value).toBe(false);
+        mount('epicTimes');
+        expect(api.value).toBe('date');
+        unmount();
+    });
+
+    it('keeps the two-state chip\'s stored choice under the same key (req #3963)', () => {
+        localStorage.setItem(PLAN_VIEW_SETTINGS.epicTimes.storageKey, '0');
+        mount('epicTimes');
+        expect(normalizeEpicTimeMode(api.value)).toBe('off');
         unmount();
     });
 

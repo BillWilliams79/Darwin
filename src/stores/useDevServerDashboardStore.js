@@ -7,6 +7,8 @@ import { persist } from 'zustand/middleware';
 //   • `open` — its list is expanded (its ▾ head; folded, the panel is the head).
 //   • `dock` — where it sits and its shape (see anchoredPanelGeometry.js); null =
 //     home. Written once per move or reshape, on release.
+//   • `titleLock` — `{ side, x }`: it is LOCKED INTO THE PAGE'S TITLE BAR where
+//     the reader dropped it (req #3961, titleBarLock.js); null = it floats.
 // Persisted per browser: where the reader parks it is a viewer convenience.
 export const useDevServerDashboardStore = create(
     persist(
@@ -18,6 +20,8 @@ export const useDevServerDashboardStore = create(
             setShow: (show) => set({ show }),
             toggleOpen: () => set({ open: !get().open }),
             setDock: (dock) => set({ dock }),
+            titleLock: null,
+            setTitleLock: (titleLock) => set({ titleLock }),
         }),
         {
             name: 'darwin_devserver_dashboard',

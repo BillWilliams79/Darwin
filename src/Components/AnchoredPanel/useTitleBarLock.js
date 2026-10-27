@@ -15,12 +15,21 @@
 // null when it was not dropped on a bar with room for it. `cancel()` ends the
 // glow. `over` is true while the bar glows, so the popup itself can say it
 // would lock if let go (req #3893).
+//
+// Other popups locked into the bar are occupied too (req #3961): placed, it
+// keeps clear of those ahead of it in document order (titleBarLock.js
+// lockedPopupRects — the later one yields, so two settle); dropped, of all of
+// them. Their moves reach it through the poll. So a popup dropped into a gap
+// narrower than its content, or unfolded wider, can push a LATER one along the
+// bar (or off it, floating until there is room) — the earlier one never moves
+// for a later one. While dragged, a popup is not locked (AnchoredPanel), so the
+// others do not make way for a drag passing over the bar.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { rackGlow } from './panelRack';
 import {
-    findTitleBar, lockFromDrop, onTitleBar, titleBarOccupied, titleBarPlace, validLock,
+    findTitleBar, lockFromDrop, lockedPopupRects, onTitleBar, titleBarOccupied, titleBarPlace, validLock,
 } from './titleBarLock';
 
 /** The poll that notices a bar appearing or going, ms. */
@@ -60,7 +69,10 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
             const naturalW = Math.max(box.offsetWidth, l.minW);
             box.style.width = width;
             box.style.maxWidth = maxWidth;
-            next = titleBarPlace(h, bar.rect, titleBarOccupied(bar.el), naturalW, l);
+            // Clear of the bar's own elements and of the popups locked ahead
+            // of it (req #3961).
+            next = titleBarPlace(h, bar.rect,
+                [...titleBarOccupied(bar.el), ...lockedPopupRects(box, { earlierOnly: true, headPx: l.headPx })], naturalW, l);
         }
         setPlace(prev => (samePlace(prev, next) ? prev : next));
     };
@@ -140,7 +152,9 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
         // Only where it can be drawn: a bar with no gap wide enough is no drop
         // zone. Dropped over the bar's own elements, it is locked where it
         // lands — the gap beside them — not under them.
-        const fits = titleBarPlace(lockFromDrop(rect, bar.rect), bar.rect, titleBarOccupied(bar.el),
+        // Nor over another popup locked there (req #3961).
+        const occupied = [...titleBarOccupied(bar.el), ...lockedPopupRects(boxRef.current, { headPx: limits.headPx })];
+        const fits = titleBarPlace(lockFromDrop(rect, bar.rect), bar.rect, occupied,
             Math.max(rect.width, limits.minW), limits);
         return fits ? lockFromDrop(fits, bar.rect) : null;
     };

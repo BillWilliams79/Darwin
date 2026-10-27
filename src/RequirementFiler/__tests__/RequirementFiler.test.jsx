@@ -64,6 +64,7 @@ import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
 import { draftDirty } from '../requirementFilerModel';
 import { registerEpicAim } from '../filerEpicAim';
+import { categoryAimAt, filerPinned, placeProblem } from '../filerCategoryAim';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
@@ -273,6 +274,22 @@ describe('Requirement Filer (req #3811)', () => {
         await waitFor(() => expect(screen.getByTestId('requirement-filer-note').textContent).toContain('#3998 no longer exists'));
         expect(screen.queryByTestId('requirement-filer-item-3998')).toBe(null);
         expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('3999');
+    });
+
+    it('Clear empties the filed list, and is drawn only while there is one (req #3975)', async () => {
+        useRequirementFilerStore.setState({ show: true, filed: [{ id: 3999, title: 'A' }, { id: 3998, title: 'B' }] });
+        renderAll();
+        rest.mockRejectedValueOnce({ data: [], httpStatus: { httpStatus: 404 } });
+        fireEvent.click(screen.getByTestId('requirement-filer-item-3998'));
+        await waitFor(() => expect(screen.getByTestId('requirement-filer-note')).toBeTruthy());
+        fireEvent.click(screen.getByTestId('requirement-filer-clear'));
+        expect(useRequirementFilerStore.getState().filed).toEqual([]);
+        expect(screen.queryByTestId('requirement-filer-item-3999')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-note')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-clear')).toBe(null);
+        expect(screen.getByTestId('requirement-filer-list').textContent).toBe('');
+        // The list only: nothing was sent for the requirements themselves.
+        expect(rest).toHaveBeenCalledTimes(1);
     });
 
     it('a new requirement joins the list when it is filed, newest first (req #3830)', async () => {
@@ -566,11 +583,55 @@ describe('Requirement Filer (req #3811)', () => {
         expect(document.activeElement).not.toBe(screen.getByTestId('requirement-editor-field-title'));
     });
 
-    it('is addressable: ?filer=new opens the filer and a new requirement', () => {
-        renderAll({ at: '/swarm?filer=new' });
+    // ── Req #3974 — the editor opens on a press of the +, never on its own ──
+    it.each(['1', 'new', 'bug'])('is addressable: ?filer=%s opens the filer and never the editor', (param) => {
+        useRequirementFilerStore.setState({ show: false });
+        renderAll({ at: `/swarm?filer=${param}` });
         expect(screen.getByTestId('requirement-filer')).toBeTruthy();
-        expect(screen.getByTestId('requirement-editor')).toBeTruthy();
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        expect(useRequirementFilerStore.getState().draftKey).toBe(0);
+        // The + is what opens it.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+    });
+
+    it('an editor left open does not come back on the next load; its draft does', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        const stored = JSON.parse(localStorage.getItem('darwin_requirement_filer'));
+        expect(stored.state).not.toHaveProperty('editorShow');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().draft.title).toBe('half written');
+    });
+
+    it('a draft a reload hid is asked about at the next +, and shown if kept', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('half written');
+        // Closed by the reader with ×, it is theirs to drop: the next + does not ask.
+        act(() => { useRequirementFilerStore.getState().setEditorShow(false); });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+        confirm.mockRestore();
+    });
+
+    it('a store written before req #3974 with the editor shown loads it closed', async () => {
+        localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 3,
+            state: { show: true, editorShow: true, filedInto: 'darwin', draft: null } }));
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().show).toBe(true);
     });
 
     it('asks before discarding unsaved changes', () => {
@@ -866,8 +927,9 @@ describe('FILE records where it was filed (req #3813), in its debug capture (req
         expect(ctx.state.actionPopups.map(p => p.id)).toContain('requirement-editor');
     });
 
-    it('?filer=new records the page it landed on', async () => {
+    it('a press on a page landed on with ?filer=new records the page, not the parameter', async () => {
         renderAll({ at: '/swarm?filer=new' });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         const ctx = await filedFromOf();
         expect(ctx.surface).toBe('/swarm');
         // The filer's own parameter is gone: opening the URL must not file again.
@@ -1009,5 +1071,131 @@ describe('the + aimed at a plan epic files the requirement into it (req #3854)',
         press();
         expect(screen.queryByTestId('requirement-editor-epic')).toBe(null);
         expect(useRequirementFilerStore.getState().draft.seat).toBe(null);
+    });
+});
+
+describe('the + of a floating filer aimed at a category card files into that category (req #4026)', () => {
+    let card = null;
+    const realHit = document.elementsFromPoint;
+    // A Cards-view category card (CategoryCard.jsx's attributes) beneath the + —
+    // jsdom has no layout, so the hit test answers the card for the press point.
+    const cardAt = ({ db = 'https://api/darwin_dev', id = 862, project = 4, closed = false } = {}) => {
+        card = document.createElement('div');
+        card.setAttribute('data-filer-closed', closed ? '1' : '0');
+        card.setAttribute('data-filer-category', String(id));
+        card.setAttribute('data-filer-project', String(project));
+        card.setAttribute('data-filer-db', db);
+        const inner = document.createElement('span');
+        card.appendChild(inner);
+        document.body.appendChild(card);
+        document.elementsFromPoint = (x, y) => (x === 400 && y === 300 ? [inner, card, document.body] : [document.body]);
+    };
+    beforeEach(() => {
+        captureOn = false;
+        desktop = true;
+        projectsQ = PROJECTS;
+        localStorage.clear();
+        rest.mockReset();
+        usePanelRackStore.setState({ racked: [], seeded: [], slot: null, navSlot: null, pageSlot: null, drag: null, covered: false });
+        useRequirementFilerStore.setState({
+            show: true, open: true, dock: null, titleLock: null, editorShow: false, editorOpen: true, editorDock: null,
+            draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: null,
+            draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
+        });
+    });
+    afterEach(() => { card?.remove(); card = null; document.elementsFromPoint = realHit; cleanup(); });
+
+    const press = (detail = 1) => {
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerDown(add, { clientX: 400, clientY: 300 });
+        fireEvent.click(add, { detail });
+    };
+    const place = () => {
+        const { draft } = useRequirementFilerStore.getState();
+        return { projectId: draft.projectId, category_fk: draft.category_fk };
+    };
+
+    it('hovering outlines the card; a click starts the draft in its project and category', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('ok');
+        press();
+        expect(card.hasAttribute('data-filer-aim')).toBe(false);
+        expect(place()).toEqual({ projectId: 4, category_fk: 862 });
+        // The editor shows that category, checked against live data like any carried place.
+        expect(screen.getByTestId('requirement-editor-field-category').value).toBe('862');
+    });
+
+    it('leaving the + clears the outline', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerMove(add, { clientX: 400, clientY: 300 });
+        fireEvent.pointerLeave(add);
+        expect(card.hasAttribute('data-filer-aim')).toBe(false);
+    });
+
+    it('with no card beneath it the + files to the last place, as before', () => {
+        renderAll({ at: '/swarm' });
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('a keyboard press aims at nothing', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        press(0);
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('pinned — racked or locked into the title bar — the filer aims at nothing', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        const panel = screen.getByTestId('requirement-filer');
+        panel.setAttribute('data-racked', '1');
+        expect(filerPinned(screen.getByTestId('requirement-filer-add'))).toBe(true);
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add'))).toBe(null);
+        panel.setAttribute('data-racked', '0');
+        panel.setAttribute('data-title-locked', '1');
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add'))).toBe(null);
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+        panel.setAttribute('data-title-locked', '0');
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add')))
+            .toEqual({ categoryId: 862, projectId: 4, darwinUri: 'https://api/darwin_dev', closed: false });
+    });
+
+    it('on a dev server a darwin_dev card is outlined as a refusal and never names a production category', () => {
+        cardAt();
+        renderAll({ at: '/swarm', scoped: true });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('refused');
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+        expect(placeProblem({ darwinUri: 'https://api/darwin' }, 'https://api/darwin')).toBe(null);
+    });
+
+    it('a closed category card is outlined as a refusal and not filed into', () => {
+        cardAt({ closed: true });
+        renderAll({ at: '/swarm' });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('refused');
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('an aimed category the editor cannot vouch for is named as the card\'s, not the last requirement\'s', async () => {
+        cardAt({ id: 777 });
+        renderAll({ at: '/swarm' });
+        press();
+        await waitFor(() => expect(useRequirementFilerStore.getState().draft.notice)
+            .toBe("The aimed card's category is closed or deleted — choose one."));
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('a card with no id (the new-category template) is no target', () => {
+        cardAt({ id: '' });
+        expect(categoryAimAt(400, 300)).toBe(null);
     });
 });

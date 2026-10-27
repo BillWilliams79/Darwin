@@ -16,9 +16,13 @@
 //     the minimum width), and when no gap is wide enough at all it floats at its
 //     own dock until there is room again. The bar's elements never move for it.
 //
-// The pure half is here (unit-tested); the DOM half — finding the bar and what
-// it draws — is the two functions at the end; the live tracking is
-// useTitleBarLock.js.
+//   • Several popups may lock into one bar (req #3961 — the requirements views'
+//     bar holds the Requirement Filer and the Dev Servers popups); each keeps
+//     clear of the others locked there as it does of the bar's own elements.
+//
+// The pure half is here (unit-tested); the DOM half — finding the bar, what
+// it draws and the other popups locked into it — is the functions at the end;
+// the live tracking is useTitleBarLock.js.
 
 /** Clear space kept between the popup and the bar's own elements, px — the
  *  bar rows' own `gap: 1`. */
@@ -143,6 +147,34 @@ export function findTitleBar(doc = document) {
         if (r.width > 0 && r.height > 0) return { el, rect: rectOf(r) };
     }
     return null;
+}
+
+/**
+ * The rects of the OTHER popups locked into the bar now (req #3961 — several
+ * Action Popups may share one bar, and none may cover another). `self` is the
+ * asking popup. With `earlierOnly`, only those before it in document order: a
+ * locked popup yields to the ones ahead of it and never to the ones after, so
+ * two that want one spot settle — the later one moves, the earlier one stays —
+ * rather than both moving and both coming back. A DROP counts them all.
+ * Each counts as its HEAD only (`headPx` tall): an open one's rows hang below
+ * the bar and must not widen the bar's line (titleBarLine) the others centre on.
+ */
+export function lockedPopupRects(self, { earlierOnly = false, headPx = Infinity } = {}) {
+    const doc = self?.ownerDocument;
+    if (!doc) return [];
+    const out = [];
+    doc.querySelectorAll('[data-title-locked="1"]').forEach((n) => {
+        if (n === self) return;
+        // eslint-disable-next-line no-bitwise
+        if (earlierOnly && !(n.compareDocumentPosition(self) & 4 /* FOLLOWING */)) return;
+        const r = n.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) return;
+        const head = rectOf(r);
+        head.bottom = Math.min(head.bottom, head.top + headPx);
+        head.height = head.bottom - head.top;
+        out.push(head);
+    });
+    return out;
 }
 
 /** The rects of what `el` (a title bar) draws, in viewport px. */

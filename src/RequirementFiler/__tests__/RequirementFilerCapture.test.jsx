@@ -389,9 +389,11 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         await waitFor(() => expect(useRequirementFilerStore.getState().captureStage).toBe('ready'));
     });
 
-    it('is addressable: ?filer=bug (the two-button era\'s link) files a new requirement with its capture', async () => {
+    it('?filer=bug (the two-button era\'s link) opens the filer; its + files with a capture (req #3974)', async () => {
         useRequirementFilerStore.setState({ show: false });
         renderAll({ at: '/maps?filer=bug' });
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
             .toMatch(/^\d+(\.\d)? (B|KB)$/));
         expect(screen.getByTestId('requirement-filer')).toBeTruthy();
