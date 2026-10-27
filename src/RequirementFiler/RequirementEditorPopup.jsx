@@ -494,7 +494,9 @@ export default function RequirementEditorPopup() {
             if (!reason) continue;
             if (f === 'category') {
                 Object.assign(patch, { category_fk: null, ...(reason.project ? { projectId: null } : null) });
-                notes.push(`The last requirement's ${reason.project ? 'project' : 'category'} ${reason.text} — choose one`);
+                // A place aimed at a category card (req #4026) is the card's, not the last requirement's.
+                const whose = draft.aimedPlace ? "The aimed card's" : "The last requirement's";
+                notes.push(`${whose} ${reason.project ? 'project' : 'category'} ${reason.text} — choose one`);
             } else {
                 patch.machine_fk = null;
                 notes.push(`The last requirement's machine ${reason} — Any instead`);

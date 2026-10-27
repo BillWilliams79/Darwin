@@ -43,6 +43,7 @@
 // join, not a derivation.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -78,6 +79,7 @@ import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { isStale, cardOrchestrationBadges } from '../SwarmView/pipelines/orchestrationHolder';
+import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import OrchestrationBadges from '../SwarmView/pipelines/OrchestrationBadges';
 import CollapseToggle from '../Components/Collapsible/CollapseToggle';
 import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleField';
@@ -470,9 +472,21 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                 </Box>
 
                 {/* THE WHOLE PLAN, SMALL (req #3804) — and the way in: a click
-                    on the picture opens the plan it draws. */}
+                    on the picture opens the plan it draws. It is a REAL LINK
+                    (req #4027), so a right-click offers the browser's own "Open
+                    link in new tab" and a cmd/ctrl or middle click opens one;
+                    only a plain left click is taken over by the router. It
+                    stays a grab surface (`data-grab-through`), and is not
+                    natively draggable, so a pan can still start on it. */}
                 <Tooltip title="Open the plan" placement="top" enterDelay={600}>
-                    <Box onClick={() => onOpen(p.id)} sx={{ cursor: 'pointer' }}
+                    <Box component={RouterLink} to={planDetailPath(p.id) ?? ''}
+                         draggable={false} data-grab-through="true"
+                         onClick={(e) => {
+                             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                             e.preventDefault();
+                             onOpen(p.id);
+                         }}
+                         sx={{ display: 'block', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}
                          data-testid={`pipelines-card-thumbnail-${p.id}`}>
                         <PipelinePlanThumbnail pipelineId={p.id} machines={machines}
                                                refetchInterval={refetchInterval} />

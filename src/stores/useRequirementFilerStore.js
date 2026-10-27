@@ -19,6 +19,10 @@ import {
 //     where the reader dropped it (req #3857, titleBarLock.js); null = it
 //     floats at `dock`. A page with no title bar floats it at `dock`, the lock
 //     kept for the next page that has one.
+//   • `pinned` — its PUSHPIN, between the title and the × (user ruling
+//     2026-10-26, req #3958): pressed, a head drag outlines the element it flies
+//     over (filerHover.js) and the + records the place (`filedFrom.pointedAt`);
+//     not pressed, neither. Off by default, remembered per browser.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here. Its Clear empties it
 //     (req #3975); the requirements themselves are untouched.
@@ -140,6 +144,8 @@ export const useRequirementFilerStore = create(
             setDock: (dock) => set({ dock }),
             titleLock: null,
             setTitleLock: (titleLock) => set({ titleLock }),
+            pinned: false,
+            setPinned: (pinned) => set({ pinned }),
             filed: [],
             filedInto: FILED_INTO,
             reopened: false,
@@ -175,12 +181,19 @@ export const useRequirementFilerStore = create(
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
             // capture, and `seat` is the plan epic the + was aimed at (req #3854,
-            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
-            startNew: (withCapture = false, seat = null) => {
+            // filerEpicAim.js) — Create seats it there; `place` (`{ projectId,
+            // categoryId }`) is the category card the + was aimed at (req #4026,
+            // filerCategoryAim.js), filed there instead of the last place.
+            // Returns the new draft's key.
+            startNew: (withCapture = false, seat = null, place = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
+                const projectId = place ? place.projectId : lastProjectId;
+                const categoryId = place ? place.categoryId : lastCategoryId;
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
+                    // `aimedPlace`: its place is the card's, not the last requirement's —
+                    // the editor's carried-place check says so if it drops it.
+                    draft: { ...newRequirementDraft(projectId, categoryId, defaults), seat, aimedPlace: !!place },
                     savedId: null, saved: null, editorShow: true, restoredDraft: false, editorOpen: true,
                     editorDock: atDefaultSize(get().editorDock),
                     draftKey, orphaned: false, focusPending: true, reopened: false,

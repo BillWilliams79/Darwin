@@ -51,7 +51,21 @@
 // AIMED AT AN EPIC (req #3854): on a plan visualizer, the + hovered over an
 // epic card outlines that epic, and a click files the new requirement into it —
 // the editor names it on its Epic line and Create seats it there
-// (filerEpicAim.js). Anywhere else the + files as it always has.
+// (filerEpicAim.js).
+//
+// ITS PUSHPIN (req #3958, user ruling 2026-10-26), between the title and the ×:
+// pressed — PICKER MODE — a head drag outlines the element under its centre —
+// the one its + records first in `pointedAt` — (filerHover.js), the bars'
+// elements included, for it docks nowhere meanwhile (`dockable={false}`: the
+// navbar, the topology toolbar and the title bar take it no more than any other
+// spot), and the + records the place; pressing it outlines where it sits now
+// for a moment. Not pressed, it docks as always, outlines nothing and records no
+// place (`pointedAtReason` notPinned).
+//
+// AIMED AT A CATEGORY (req #4026): on the requirements page's Cards view, the +
+// of a floating filer — not racked, not locked into the title bar — hovered over
+// a category card outlines that card, and a click files the new requirement in
+// that category (filerCategoryAim.js). Anywhere else the + files as it always has.
 //
 // ADDRESSABLE: any page's `?filer=` (`1`, and the older `new`/`bug` links) opens
 // the filer — a link (or a dev server) can land on it. Only the filer: the
@@ -65,6 +79,8 @@ import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupAdd, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
@@ -80,6 +96,8 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
+import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, aimAt, clearAim, showAim } from './filerHover';
+import { categoryAimAt, highlightCategoryAim, placeProblem } from './filerCategoryAim';
 import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
 import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
@@ -100,8 +118,30 @@ export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't',
 // Timed: a press that never became a click (dragged off) is forgotten.
 let focusAtPress = null;
 const PRESS_MS = 2000;
-// The plan epic beneath the + as that press began (req #3854, filerEpicAim.js).
+// The plan epic beneath the + as that press began (req #3854, filerEpicAim.js),
+// and the category card (req #4026, filerCategoryAim.js).
 let aimAtPress = null;
+/** How long pressing the pushpin outlines where the filer sits, ms. */
+const PIN_FLASH_MS = 1500;
+
+/** The pushpin's size: 25% over its first 1.05em (user, 2026-10-26); its
+ *  button is the head row's content height (the +'s), so the row never grows. */
+const PIN_ICON_EM = `${1.05 * 1.25}em`;
+
+/** The head's pushpin (req #3958), between the title and the ×. */
+function PinButton({ pinned, onClick, open }) {
+    const label = pinned ? 'Pinned — dragged, it outlines the element under it, and + records that place. Click to unpin'
+        : 'Pin — dragged, it outlines the element under it, and + records that place';
+    return (
+        <Box component="button" type="button" onClick={onClick} aria-pressed={pinned ? 'true' : 'false'}
+             aria-label={label} title={label} data-testid="requirement-filer-pin"
+             sx={{ width: '1.6em', height: '1.6em', p: 0, mr: open ? '0.2em' : 0, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: '0.4em',
+                    color: pinned ? AIM_COLOR : P.dim, cursor: 'pointer', '&:hover': { color: AIM_COLOR } }}>
+            {pinned ? <PushPinIcon sx={{ fontSize: PIN_ICON_EM }} /> : <PushPinOutlinedIcon sx={{ fontSize: PIN_ICON_EM }} />}
+        </Box>
+    );
+}
 
 /** Whether the requirement in the editor stays there: asked when it has
  *  changes not yet sent (an orphaned draft — committed, id unknown — has none
@@ -154,9 +194,9 @@ function keepCreating() {
 /** Starts a new requirement in the editor, unless the reader keeps the one in
  *  it (keepsEditorDraft). `withCapture` — it awaits a debug capture (req #3815).
  *  Returns the new draft's key, or null when the reader kept the one in the editor. */
-export function startNewRequirement(withCapture = false, seat = null) {
+export function startNewRequirement(withCapture = false, seat = null, place = null) {
     if (keepsEditorDraft()) return null;
-    return useRequirementFilerStore.getState().startNew(withCapture, seat);
+    return useRequirementFilerStore.getState().startNew(withCapture, seat, place);
 }
 
 /** Brings filed requirement `id` back into the editor (req #3830), read fresh:
@@ -201,11 +241,12 @@ export async function reopenFiledRequirement(id, darwinUri, idToken) {
  *  still being written (req #3860) is waited for first (createSettled), and
  *  then null is returned; otherwise the new draft's key, or null when the
  *  reader kept the draft in the editor. `seat` — the plan epic the + was
- *  aimed at (req #3854): Create seats the requirement in it. */
-export function fileRequirementNow(filedFrom, profile, seat = null) {
+ *  aimed at (req #3854): Create seats the requirement in it. `place` — the
+ *  category card it was aimed at (req #4026): the draft starts there. */
+export function fileRequirementNow(filedFrom, profile, seat = null, place = null) {
     const pending = buildDebugCapture({ profile, filedFrom });
     const start = () => {
-        const key = startNewRequirement(true, seat);
+        const key = startNewRequirement(true, seat, place);
         // Kept the draft in the editor: this capture is for no one — settle it quietly.
         if (key == null) { pending.catch(() => {}); return null; }
         const { setCapture } = useRequirementFilerStore.getState();
@@ -231,6 +272,7 @@ export default function RequirementFiler() {
     const open = useRequirementFilerStore(s => s.open);
     const storedDock = useRequirementFilerStore(s => s.dock);
     const titleLock = useRequirementFilerStore(s => s.titleLock);
+    const pinned = useRequirementFilerStore(s => s.pinned);
     const filed = useRequirementFilerStore(s => s.filed);
     const editingId = useRequirementFilerStore(s => (s.editorShow ? s.savedId : null));
     // Why the last pick could not be opened — this session's, cleared by the next.
@@ -238,7 +280,7 @@ export default function RequirementFiler() {
     // Bumped by Clear (req #3975): a pick still being read when the list was
     // cleared says nothing about a list that no longer holds it.
     const clears = useRef(0);
-    const { setShow, toggleOpen, setDock, setTitleLock, clearFiled } = useRequirementFilerStore.getState();
+    const { setShow, toggleOpen, setDock, setTitleLock, clearFiled, setPinned } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(location.search).get('filer');
     const signedIn = !!profile?.userName;
@@ -251,6 +293,7 @@ export default function RequirementFiler() {
             location, profile, database, theme, popupId: FILER_RACK_ID,
             popupStore: { open: useRequirementFilerStore.getState().open, dock,
                 titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
+            pinned: useRequirementFilerStore.getState().pinned,
         });
     };
     // The epic the + was aimed at as its press began (req #3854) — read at the
@@ -260,22 +303,86 @@ export default function RequirementFiler() {
     const fileRequirement = (e) => {
         const pointed = e?.detail !== 0 && aimAtPress && performance.now() - aimAtPress.t < PRESS_MS;
         const seat = pointed ? aimAtPress.seat : null;
+        const card = pointed ? aimAtPress.card : null;
+        const place = card && !placeProblem(card, darwinUri)
+            ? { projectId: card.projectId, categoryId: card.categoryId } : null;
         aimAtPress = null;
         highlightEpicAim(null);
-        return fileRequirementNow(filedFrom(), profile, seat);
+        highlightCategoryAim(null);
+        return fileRequirementNow(filedFrom(), profile, seat, place);
     };
     // What held focus as a press on the + began (req #3829) — the head's + and,
     // in a minimized bar, the icon's (req #3886) — and the plan epic beneath it.
     const notePress = (e) => {
         focusAtPress = { el: document.activeElement, t: performance.now() };
-        aimAtPress = { seat: epicAimAt(e?.clientX, e?.clientY), t: performance.now() };
+        aimAtPress = { seat: epicAimAt(e?.clientX, e?.clientY),
+            card: categoryAimAt(e?.clientX, e?.clientY, e?.currentTarget), t: performance.now() };
     };
     // Hovering the + over a plan's epic outlines the epic it would file into.
     // An epic it could not be seated in (locked, or a plan read from another
     // database than the filer files into) is outlined as the refusal it is.
+    // A category card beneath a floating filer's + is outlined the same way (req #4026).
     const aimHover = (e) => {
         const target = epicAimAt(e.clientX, e.clientY);
         highlightEpicAim(target && { ...target, ok: !seatProblem(target, darwinUri) });
+        const card = categoryAimAt(e.clientX, e.clientY, e.currentTarget);
+        highlightCategoryAim(card, !placeProblem(card, darwinUri));
+    };
+    const aimLeave = () => { highlightEpicAim(null); highlightCategoryAim(null); };
+    // Dragged by its head with the pin pressed (req #3958): what its + would point at is outlined.
+    const flashRef = useRef(0);
+    // Sampled at most every AIM_SAMPLE_MS. The outline follows the element it
+    // shows; a DIFFERENT element (or nothing) takes over only once it has stayed
+    // under the filer for AIM_SETTLE_MS — what is merely crossed never flashes.
+    const hoverRef = useRef({ t: -Infinity, shown: null, pending: null, timer: 0 });
+    const settleHover = (target) => {
+        const h = hoverRef.current;
+        clearTimeout(h.timer);
+        h.pending = null;
+        h.shown = target;
+        showAim(target);
+    };
+    const onMoveTrack = ({ phase, rect, docking }) => {
+        clearTimeout(flashRef.current);
+        const h = hoverRef.current;
+        // Unpinned, docking, or the drag over: nothing, at once.
+        if (!useRequirementFilerStore.getState().pinned || phase !== 'move' || docking) {
+            h.t = -Infinity;
+            settleHover(null);
+            return false;
+        }
+        const now = performance.now();
+        if (now - h.t < AIM_SAMPLE_MS) return !!h.shown;
+        h.t = now;
+        const target = aimAt(rect);
+        const el = target?.el ?? null;
+        if (el === (h.shown?.el ?? null)) {
+            if (target) settleHover(target);      // the same element, where it is drawn now
+            else { clearTimeout(h.timer); h.pending = null; }
+        } else if (el !== (h.pending?.el ?? null)) {
+            clearTimeout(h.timer);
+            h.pending = { el, target };
+            h.timer = setTimeout(() => settleHover(h.pending?.target ?? null), AIM_SETTLE_MS);
+        } else {
+            h.pending.target = target;
+        }
+        return !!h.shown;
+    };
+    useEffect(() => () => { clearTimeout(flashRef.current); clearTimeout(hoverRef.current.timer); clearAim(); }, []);
+    // The pushpin: pressed, the place it sits over now is outlined a moment.
+    const togglePin = () => {
+        clearTimeout(flashRef.current);
+        clearAim();
+        const next = !useRequirementFilerStore.getState().pinned;
+        setPinned(next);
+        if (!next) return;
+        const el = document.querySelector(`[data-rack-id="${FILER_RACK_ID}"]`);
+        if (!el || el.getAttribute('data-racked') === '1' || el.getAttribute('data-title-locked') === '1') return;
+        const r = el.getBoundingClientRect();
+        const target = aimAt({ left: r.left, top: r.top, width: r.width, height: r.height });
+        if (!target) return;
+        showAim(target);
+        flashRef.current = setTimeout(clearAim, PIN_FLASH_MS);
     };
     useEffect(() => {
         if (!filerParam || !signedIn) return;
@@ -305,7 +412,8 @@ export default function RequirementFiler() {
                        rackId={FILER_RACK_ID}
                        rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
                        rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
-                       titleLock={titleLock} onTitleLockChange={setTitleLock}
+                       titleLock={titleLock} onTitleLockChange={setTitleLock} onMoveTrack={onMoveTrack}
+                       dockable={!pinned}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>
@@ -313,11 +421,12 @@ export default function RequirementFiler() {
                            <Box sx={{ mr: open ? '0.3em' : 0, display: 'flex' }}
                                 onPointerDownCapture={notePress}
                                 onPointerMove={aimHover}
-                                onPointerLeave={() => highlightEpicAim(null)}>
+                                onPointerLeave={aimLeave}>
                                <ActionPopupAdd onClick={fileRequirement}
                                                label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />
                            </Box>
+                           <PinButton pinned={pinned} onClick={togglePin} open={open} />
                            <ActionPopupClose onClick={() => setShow(false)}
                                              label="Close the Requirement Filer"
                                              testid="requirement-filer-close" />

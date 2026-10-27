@@ -244,7 +244,7 @@ describe('what the filer points at (req #3829)', () => {
         // Other popups' ids are what is left after the trims before it: grow them until
         // only dropping pointedAt[1] fits the cap.
         const press = () => filedFromNow({ location: { pathname: '/swarm', search: '', hash: '' }, profile: {},
-            database: 'darwin_dev', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null } });
+            database: 'darwin_dev', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null }, pinned: true });
         let hit = null;
         for (let n = 100; n <= 160 && !hit; n++) {
             swarmPage();
@@ -268,7 +268,7 @@ describe('what the filer points at (req #3829)', () => {
     it('rides in the capture as filedFrom.pointedAt', () => {
         swarmPage();
         const ctx = captureFiledFrom({ location: { pathname: '/swarm', search: '', hash: '' }, profile: {},
-            database: 'darwin_dev', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null } });
+            database: 'darwin_dev', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null }, pinned: true });
         expect(ctx.popup.rect).toEqual({ x: 120, y: 50, w: 140, h: 40 });
         expect(ctx.pointedAt[0].testidPath[0]).toBe('req-title-3829');
     });
