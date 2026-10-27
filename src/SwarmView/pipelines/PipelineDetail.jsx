@@ -78,6 +78,7 @@ import {
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
 import { useVisualizerMaximize } from '../../hooks/useVisualizerMaximize';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 // req #3793 — the shared full screen switch, and the plan's words for it.
 import FullscreenSwitch from '../../Components/FullscreenSwitch';
 import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
@@ -709,6 +710,11 @@ export default function PipelineDetail() {
         writePipelinePlace({ at: 'plan', pipelineId: placePipelineId });
     }, [placePipelineId]);
 
+    // req #3970 — the browser tab carries the plan's name while it is shown,
+    // and "Darwin" again once this page unmounts. Called above the loading and
+    // not-found returns, so neither of those states renames the tab.
+    useDocumentTitle(pipeline?.title);
+
     if (isLoading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
@@ -778,9 +784,11 @@ export default function PipelineDetail() {
     // The orchestration chip left this group for the title (req #3809).
     const hasStatusChips = pipeline.pipeline_status === 'paused';
 
-    // req #3242 — initiatives represented in THIS plan (a requirement with no initiative
+    // req #3242 — the initiatives in THIS plan (a requirement with no initiative
     // is excluded by `requirementCounts` itself, so this is never inflated by
-    // a "no initiative" bucket).
+    // a "no initiative" bucket). Since req #3969 `byInitiative` carries every
+    // initiative in the plan, an empty one included, so adding an initiative
+    // moves this count — the same number the Pipelines page card shows.
     // `plan` is null while `diagnostic` is set (req #3381 item 3 — a
     // withheld/absent `derived` block is a hard stop, so there is no
     // requirement-counts derivation to read).

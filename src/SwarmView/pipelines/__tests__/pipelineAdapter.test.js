@@ -384,6 +384,23 @@ describe('adaptComposedPipeline — the plan object', () => {
         });
     });
 
+    // req #3969 — a newly added initiative holds no requirement, so the
+    // derivation has no bucket for it; it still counts, at 0/0, in id order.
+    it('gives every initiative in the payload a byInitiative entry, empty ones at 0/0', () => {
+        const withEmpty = {
+            ...payload,
+            initiatives: [{ id: 12, title: 'New', sort_order: 0 }, ...payload.initiatives,
+                { id: 4, title: 'Also new', sort_order: 2 }],
+        };
+        const plan = adaptComposedPipeline(withEmpty);
+        expect(plan.requirementCounts.byInitiative).toEqual([
+            { initiativeId: 4, met: 0, total: 0 },
+            { initiativeId: 9, met: 0, total: 1 },
+            { initiativeId: 12, met: 0, total: 0 },
+        ]);
+        expect(plan.requirementCounts.overall).toEqual({ met: 0, total: 1 });
+    });
+
     it('reshapes pause verbatim under the camelCase field names the layout reads', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.pause).toEqual({
