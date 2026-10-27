@@ -19,6 +19,10 @@ import {
 //     where the reader dropped it (req #3857, titleBarLock.js); null = it
 //     floats at `dock`. A page with no title bar floats it at `dock`, the lock
 //     kept for the next page that has one.
+//   • `pinned` — its PUSHPIN, between the title and the × (user ruling
+//     2026-10-26, req #3958): pressed, a head drag outlines the element it flies
+//     over (filerHover.js) and the + records the place (`filedFrom.pointedAt`);
+//     not pressed, neither. Off by default, remembered per browser.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here. Its Clear empties it
 //     (req #3975); the requirements themselves are untouched.
@@ -128,6 +132,8 @@ export const useRequirementFilerStore = create(
             setDock: (dock) => set({ dock }),
             titleLock: null,
             setTitleLock: (titleLock) => set({ titleLock }),
+            pinned: false,
+            setPinned: (pinned) => set({ pinned }),
             filed: [],
             filedInto: FILED_INTO,
             reopened: false,

@@ -11,7 +11,9 @@
 //
 // A host owns its own move gesture and calls three things from it:
 //   • `track(x, y, fromRack, color)` on every move frame — publishes the drag,
-//     so the rack under it glows in `color` (the window's frame);
+//     so the rack under it glows in `color` (the window's frame), and answers
+//     whether a release there would rack it — `canRack` false (a host's picker
+//     mode, req #3958) publishes the carry but never over a rack;
 //   • `release(x, y, fromRack)` on a real release — racks it when dropped on a
 //     rack ('racked' — into THAT rack, out of any other), unracks it when a
 //     racked one is dropped off every rack ('unracked'), else null: the host
@@ -163,19 +165,23 @@ export function usePanelRack(rackId) {
     // Read live: a gesture's release must see the page as it is now.
     const target = (x, y, fromRack) => (rackId && !usePanelRackStore.getState().covered
         ? rackTarget(rackId, x, y, fromRack) : NOWHERE);
-    const track = (x, y, fromRack, color) => {
-        if (!rackId) return;
+    const track = (x, y, fromRack, color, canRack = true) => {
+        if (!rackId) return false;
         const from = fromRack ? rackPlacement(usePanelRackStore.getState(), rackId)?.where ?? null : null;
-        const { over, rack, index } = target(x, y, fromRack);
+        // Still published when it cannot rack: a page toolbar's frame gives up
+        // the pointer to a carried window (Systems/ToolbarRack.jsx).
+        const { over, rack, index } = canRack ? target(x, y, fromRack) : NOWHERE;
         // `color` — its frame: the rack under it glows in it (req #3728).
         publishRackDrag({ id: rackId, fromRack, from, color, over, rack, index });
+        // Whether a release here would rack it (req #3958: the host aims at nothing then).
+        return over;
     };
     const isOver = (x, y, fromRack) => target(x, y, fromRack).over;
     const isOverOwn = (x, y, fromRack) => target(x, y, fromRack).own;
     const cancel = () => { if (rackId) publishRackDrag(null); };
-    const release = (x, y, fromRack) => {
+    const release = (x, y, fromRack, canRack = true) => {
         if (!rackId) return null;
-        const t = target(x, y, fromRack);
+        const t = canRack ? target(x, y, fromRack) : NOWHERE;
         publishRackDrag(null);
         const { rack, unrack } = usePanelRackStore.getState();
         // Dropped on a rack: into its stack where the pointer is, out of the other.

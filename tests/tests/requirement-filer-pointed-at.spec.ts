@@ -51,7 +51,7 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
   });
 
   /** /swarm on the seeded project's tab, the filer shown — floating, or racked. */
-  async function openSwarm(page: Page, racked: boolean) {
+  async function openSwarm(page: Page, racked: boolean, pinned = true) {
     prodCalls = [];
     if (TEST_DATABASE !== 'darwin') {
       await page.route(PROD_FILER_CALL, (route) => {
@@ -60,13 +60,14 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
         return route.continue({ url: req.url().replace('/eng/darwin/', `/eng/${TEST_DATABASE}/`) });
       });
     }
-    await page.addInitScript(({ pid, cid, racked }) => {
+    await page.addInitScript(({ pid, cid, racked, pinned }) => {
       localStorage.setItem('darwin-swarm-view', 'cards');
+      // The pushpin (req #3958): pressed, the + records the place.
       localStorage.setItem('darwin_requirement_filer', JSON.stringify({
-        state: { show: true, open: true, dock: null, lastProjectId: pid, lastCategoryId: cid, defaults: {} }, version: 3 }));
+        state: { show: true, open: true, dock: null, pinned, lastProjectId: pid, lastCategoryId: cid, defaults: {} }, version: 3 }));
       localStorage.setItem('darwin_panel_rack', JSON.stringify({
         state: { racked: racked ? ['requirement-filer'] : [], seeded: ['dev-servers'] }, version: 1 }));
-    }, { pid: Number(projectId), cid: Number(categoryId), racked });
+    }, { pid: Number(projectId), cid: Number(categoryId), racked, pinned });
     await page.goto('/swarm');
     await page.getByRole('tab', { name: projectName }).click();
     await expect(page.getByTestId(`requirement-${targetId}`)).toBeVisible({ timeout: 15000 });
@@ -74,7 +75,7 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
   }
 
   /** Drags the floating filer by its head so its centre sits on `target`'s centre. */
-  async function dragFilerOnto(page: Page, targetTestid: string) {
+  async function dragFilerOnto(page: Page, targetTestid: string, beforeRelease?: () => Promise<void>) {
     const filer = (await page.getByTestId('requirement-filer').boundingBox())!;
     const head = (await page.getByTestId('requirement-filer-header').boundingBox())!;
     const t = (await page.getByTestId(targetTestid).boundingBox())!;
@@ -85,6 +86,7 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     await page.mouse.move(sx, sy);
     await page.mouse.down();
     for (let i = 1; i <= 10; i++) await page.mouse.move(sx + (dx * i) / 10, sy + (dy * i) / 10);
+    if (beforeRelease) await beforeRelease();
     await page.mouse.up();
   }
 
@@ -122,7 +124,10 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
 
   test('FPA-01: over a requirement card, the description names it and the bundle carries its rect', async ({ page }) => {
     await openSwarm(page, false);
-    await dragFilerOnto(page, `requirement-${targetId}`);
+    // Pinned (req #3958): mid-drag the card is outlined.
+    await dragFilerOnto(page, `requirement-${targetId}`, async () => {
+      await expect(page.getByTestId('requirement-aim')).toHaveAttribute('data-aim', `requirement-${targetId}`);
+    });
     const { description, filedFrom } = await fileIt(page, uniqueName('FilerPointed'));
     const line = description.split('\n').find(l => l.startsWith('Pointed at: '));
     expect(line).toBeDefined();
@@ -148,6 +153,19 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     const fields = filedFrom.pointedAt.filter((p: { field?: unknown }) => p.field);
     expect(fields.length).toBeGreaterThan(0);
     for (const p of fields) expect(p.field.copied).toBe(false);
+  });
+
+  test('FPA-04: unpinned over a requirement card, the press records no place and says why (req #3958)', async ({ page }) => {
+    await openSwarm(page, false, false);
+    await expect(page.getByTestId('requirement-filer-pin')).toHaveAttribute('aria-pressed', 'false');
+    // Mid-drag, over the card: no outline.
+    await dragFilerOnto(page, `requirement-${targetId}`, async () => {
+      await expect(page.getByTestId('requirement-aim')).toHaveCount(0);
+    });
+    const { description, filedFrom } = await fileIt(page, uniqueName('FilerUnpinned'));
+    expect(filedFrom.pointedAt).toBeNull();
+    expect(filedFrom.pointedAtReason).toMatch(/not pinned/);
+    expect(description).not.toContain('Pointed at:');
   });
 
   test('FPA-03: racked in the navbar, the press points at nothing and says why', async ({ page }) => {
