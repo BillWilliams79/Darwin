@@ -2285,7 +2285,7 @@ export default function PipelinePlanVisualizer({
             const status = move.req?.requirement_status;
             if (move.toEpicId == null && status && status !== 'swarm_ready') {
                 showMessage(`Requirement ${move.reqId} is no longer orchestrated. `
-                    + `It is ${status}, and Orchestrables lists swarm-ready work only.`);
+                    + `It is ${status}, and Orchestrable lists swarm-ready work only.`);
             }
         }
         if (pipeline?.id != null) {
