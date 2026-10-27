@@ -688,6 +688,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
               data-testid={category.id === '' ? 'category-card-template' : `category-card-${category.id}`}
               data-dragging={cardDrag.isDragging ? 'true' : undefined}
               data-drop-highlight={highlighted ? 'true' : undefined}
+              // The filer's + aims at this card (req #4026, filerCategoryAim.js).
+              {...(!isTemplate && category.id !== '' && {
+                  'data-filer-category': category.id, 'data-filer-project': projectId, 'data-filer-db': darwinUri,
+                  'data-filer-closed': category.closed ? '1' : '0' })}
               {...(isTemplate ? {} : { ...cardDrag.attributes, ...cardDrag.listeners })}
               style={cardDrag.style}
               sx={(theme) => ({
@@ -713,6 +717,10 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                       backgroundColor: alpha(theme.palette.primary.main, 0.06),
                       boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.35)}`,
                   }),
+                  // Under the filer's + (req #4026): the category a click files into —
+                  // red when it cannot (a darwin_dev card, the filer filing into production).
+                  '&[data-filer-aim="ok"]': { borderColor: 'primary.main' },
+                  '&[data-filer-aim="refused"]': { borderColor: 'error.main', borderStyle: 'dashed' },
               })}>
             {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
                 it (-15% left, -33% right) widens the requirement display area. The

@@ -100,6 +100,7 @@ describe('migrateFilerState (req #3888)', () => {
         const st = migrateFilerState({ ...v2, editorMode: 'defaults' }, 1, 'darwin_dev');
         expect(st).not.toHaveProperty('editorMode');
         expect(st.draft).toBeNull();
-        expect(st.defaults).toEqual({ ai_model: 'sonnet', effort: 'low', tracking: 0 });
+        // The v1 step keeps only what is carried — no tracking flag since req #3982.
+        expect(st.defaults).toEqual({ ai_model: 'sonnet', effort: 'low' });
     });
 });
