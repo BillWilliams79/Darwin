@@ -52,9 +52,10 @@
 // the editor names it on its Epic line and Create seats it there
 // (filerEpicAim.js). Anywhere else the + files as it always has.
 //
-// ADDRESSABLE: any page's `?filer=1` opens the filer and `?filer=new` also opens
-// a new requirement from that page, as the + does (`?filer=bug`, the
-// two-button era's link, does the same) — a link (or a dev server) can land on it.
+// ADDRESSABLE: any page's `?filer=` (`1`, and the older `new`/`bug` links) opens
+// the filer — a link (or a dev server) can land on it. Only the filer: the
+// editor opens on a press of the + and never on its own (req #3974), so a dev
+// server landing on the filer never starts a requirement nobody asked for.
 
 import { useContext, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -102,9 +103,11 @@ let aimAtPress = null;
 
 /** Whether the requirement in the editor stays there: asked when it has
  *  changes not yet sent (an orphaned draft — committed, id unknown — has none
- *  it can send) or a debug capture not yet saved, before another replaces it. */
+ *  it can send) or a debug capture not yet saved, before another replaces it.
+ *  A draft a reload brought back hidden (`restoredDraft`, req #3974) is asked
+ *  about as if shown, and kept, this press shows it. */
 function keepsEditorDraft() {
-    const { editorShow, draft, savedId, saved, orphaned, captureStage } = useRequirementFilerStore.getState();
+    const { editorShow, restoredDraft, draft, savedId, saved, orphaned, captureStage } = useRequirementFilerStore.getState();
     const touched = !orphaned && draft && (savedId != null || (draft.title ?? '').trim() !== ''
         || (draft.description ?? '').trim() !== '');
     // A filed requirement whose capture is not saved (or not yet linked from its
@@ -113,8 +116,10 @@ function keepsEditorDraft() {
     const changes = touched && draftDirty(draft, savedId, saved);
     const lost = [changes && 'unsaved changes',
         captureUnsent && (captureStage === 'posted' ? 'the link to its debug capture' : 'its debug capture')].filter(Boolean);
-    return !!(editorShow && lost.length
-        && !window.confirm(`Discard ${lost.join(' and ')} in the requirement editor?`));
+    if (!((editorShow || restoredDraft) && lost.length)) return false;
+    if (window.confirm(`Discard ${lost.join(' and ')} in the requirement editor?`)) return false;
+    if (!editorShow) useRequirementFilerStore.getState().setEditorShow(true);
+    return true;
 }
 
 /** How long a new or reopened requirement waits for a create still being
@@ -270,9 +275,6 @@ export default function RequirementFiler() {
     useEffect(() => {
         if (!filerParam || !signedIn) return;
         useRequirementFilerStore.setState({ show: true, open: true });
-        if (filerParam === 'new' || filerParam === 'bug') fileRequirementNow(filedFrom(), profile);
-        // Once per landing on the parameter, as the page then is.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filerParam, signedIn]);
 
     if (!show || !isDesktop || !profile?.userName) return null;

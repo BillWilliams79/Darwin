@@ -566,11 +566,55 @@ describe('Requirement Filer (req #3811)', () => {
         expect(document.activeElement).not.toBe(screen.getByTestId('requirement-editor-field-title'));
     });
 
-    it('is addressable: ?filer=new opens the filer and a new requirement', () => {
-        renderAll({ at: '/swarm?filer=new' });
+    // ── Req #3974 — the editor opens on a press of the +, never on its own ──
+    it.each(['1', 'new', 'bug'])('is addressable: ?filer=%s opens the filer and never the editor', (param) => {
+        useRequirementFilerStore.setState({ show: false });
+        renderAll({ at: `/swarm?filer=${param}` });
         expect(screen.getByTestId('requirement-filer')).toBeTruthy();
-        expect(screen.getByTestId('requirement-editor')).toBeTruthy();
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        expect(useRequirementFilerStore.getState().draftKey).toBe(0);
+        // The + is what opens it.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+    });
+
+    it('an editor left open does not come back on the next load; its draft does', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        const stored = JSON.parse(localStorage.getItem('darwin_requirement_filer'));
+        expect(stored.state).not.toHaveProperty('editorShow');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().draft.title).toBe('half written');
+    });
+
+    it('a draft a reload hid is asked about at the next +, and shown if kept', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('half written');
+        // Closed by the reader with ×, it is theirs to drop: the next + does not ask.
+        act(() => { useRequirementFilerStore.getState().setEditorShow(false); });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+        confirm.mockRestore();
+    });
+
+    it('a store written before req #3974 with the editor shown loads it closed', async () => {
+        localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 3,
+            state: { show: true, editorShow: true, filedInto: 'darwin', draft: null } }));
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().show).toBe(true);
     });
 
     it('asks before discarding unsaved changes', () => {
@@ -866,8 +910,9 @@ describe('FILE records where it was filed (req #3813), in its debug capture (req
         expect(ctx.state.actionPopups.map(p => p.id)).toContain('requirement-editor');
     });
 
-    it('?filer=new records the page it landed on', async () => {
+    it('a press on a page landed on with ?filer=new records the page, not the parameter', async () => {
         renderAll({ at: '/swarm?filer=new' });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         const ctx = await filedFromOf();
         expect(ctx.surface).toBe('/swarm');
         // The filer's own parameter is gone: opening the URL must not file again.
