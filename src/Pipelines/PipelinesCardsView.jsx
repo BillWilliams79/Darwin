@@ -11,13 +11,16 @@
 // stood beside the title and in the menu went in the req #3804 review.
 //
 // ── WHAT THE CARD SAYS (req #3804 review) ───────────────────────────────────
-// Grip and name, then ONE plain info block — initiatives, epics, requirements
+// Grip, who is orchestrating it, and name, then ONE plain info block — initiatives, epics, requirements
 // closed / total (labelled just "requirements"), in large figures — right
 // above the whole plan drawn small, then the goal. No badges for those
 // figures, no status or machine chips, no "x of y met" line and no progress
 // bar restating the block (the bar went in the last review). The chips that remain are states a reader must not
-// miss: closed, locked, and who is orchestrating it. The goal sits collapsed
-// to a few lines under the shared Show more toggle (req #3945).
+// miss: closed and locked. Who is orchestrating it is a round badge between
+// the grip and the title (req #3973) — green the holder, orange any other
+// machine, a dashed outline when the holder's claim is stale — carrying only
+// the machine's letter, M or W. The goal sits collapsed to a few lines under
+// the shared Show more toggle (req #3945).
 //
 // What is NOT editable here is the lifecycle (`pipeline_status`): its
 // transitions carry started_at/completed_at side effects, and the plan is
@@ -74,7 +77,8 @@ import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
-import { orchestrationView, isStale } from '../SwarmView/pipelines/orchestrationHolder';
+import { isStale, cardOrchestrationBadges } from '../SwarmView/pipelines/orchestrationHolder';
+import OrchestrationBadges from '../SwarmView/pipelines/OrchestrationBadges';
 import CollapseToggle from '../Components/Collapsible/CollapseToggle';
 import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleField';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
@@ -272,7 +276,7 @@ function Stat({ value, label, testId }) {
     );
 }
 
-function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, onUpdate,
+function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, onUpdate,
     onDelete, refetchInterval }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
@@ -325,7 +329,7 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, mb: 0.25 }}>
                     {/* THE GRIP (req #3804) — the one place a card lifts from. A
                         closed card is not a position: its grip is drawn dim and
-                        does nothing, so every title still starts at one x. */}
+                        does nothing, so it still keeps its place before the title. */}
                     {/* No touch listener: MUI's touch-hold tooltip fires mid-drag
                         and restores the body's user-select under the lift. */}
                     <Tooltip title={isDragging ? ''
@@ -352,6 +356,16 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                             <DragIndicatorIcon fontSize="small" />
                         </Box>
                     </Tooltip>
+                    {/* WHO IS ORCHESTRATING IT (req #3973) — between the grip
+                        and the title, centred on the title's first line. */}
+                    {badges.length > 0 && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', height: 30, mr: 0.5 }}>
+                            <OrchestrationBadges badges={badges}
+                                                 size={22} fontSize="0.8rem"
+                                                 testId={`pipelines-card-holder-${p.id}`}
+                                                 badgeTestIdPrefix={`pipelines-card-holder-${p.id}`} />
+                        </Box>
+                    )}
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Tooltip title={locked ? 'Locked — unlock to rename' : ''} placement="top-start">
                             <span>
@@ -474,7 +488,7 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                     sx={{ fontSize: 14, color: 'text.secondary' }}
                 />
 
-                {(closed || locked || holder) && (
+                {(closed || locked) && (
                     <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
                         {closed && (
                             <Tooltip title="Closed — hidden by default, and no engine launches its work. Reopen it from the card menu.">
@@ -492,15 +506,6 @@ function PipelineCard({ p, summary, counts, machines, holder, heldLive, onOpen, 
                                       clickable
                                       onClick={() => onUpdate(p, { locked: 0 })}
                                       data-testid={`pipelines-card-locked-${p.id}`} />
-                            </Tooltip>
-                        )}
-                        {holder && (
-                            <Tooltip title={holder.title}>
-                                <Chip size="small"
-                                      color={holder.stale ? 'warning' : 'success'}
-                                      variant={holder.stale ? 'outlined' : 'filled'}
-                                      label={holder.label}
-                                      data-testid={`pipelines-card-holder-${p.id}`} />
                             </Tooltip>
                         )}
                     </Stack>
@@ -577,7 +582,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         summary={summaries.get(p.id)}
                         counts={reqCounts?.get(p.id)}
                         machines={machines}
-                        holder={orchestrationView(claims, p.id, machines)}
+                        badges={cardOrchestrationBadges(claims, p.id, machines)}
                         heldLive={claims.some((c) => c.pipeline_fk === p.id && !isStale(c))}
                         onOpen={onOpen}
                         onUpdate={onUpdate}

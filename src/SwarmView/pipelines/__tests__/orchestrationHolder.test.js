@@ -17,6 +17,8 @@ import {
     holderView,
     humanDuration,
     isStale,
+    cardOrchestrationBadges,
+    machinePlatformInitial,
     machinePlatformLabel,
     orchestrationView,
     parseUtc,
@@ -305,5 +307,67 @@ describe('machinePlatformLabel (req #3809)', () => {
         expect(machinePlatformLabel({ platform: 'linux' })).toBe('Linux');
         expect(machinePlatformLabel({ platform: 'beos' })).toBe('?');
         expect(machinePlatformLabel(null)).toBe('?');
+    });
+});
+
+describe('card orchestration badges (req #3973)', () => {
+    const PLATFORMS = [
+        { id: 4, title: 'Mac mini', platform: 'darwin' },
+        { id: 5, title: 'Gaming PC', platform: 'wsl' },
+    ];
+
+    it('prints one letter per platform', () => {
+        expect(machinePlatformInitial({ platform: 'darwin' })).toBe('M');
+        expect(machinePlatformInitial({ platform: 'wsl' })).toBe('W');
+        expect(machinePlatformInitial({ platform: 'linux' })).toBe('L');
+        expect(machinePlatformInitial({ platform: 'beos' })).toBe('?');
+        expect(machinePlatformInitial(undefined)).toBe('?');
+    });
+
+    const shape = (badges) => badges.map((b) => [b.key, b.text, b.tone]);
+
+    it('is empty when nobody holds the plan', () => {
+        expect(cardOrchestrationBadges([claim({ pipeline_fk: 3 })], 2, PLATFORMS, NOW)).toEqual([]);
+    });
+
+    it('draws the lead green and every other machine orange, lead first', () => {
+        const claims = [claim({ id: 1, machine_fk: 4 }),
+                        claim({ id: 2, machine_fk: 5, initiative_fk: 9 })];
+        const badges = cardOrchestrationBadges(claims, 2, PLATFORMS, NOW);
+        expect(shape(badges)).toEqual([['lead', 'M', 'lead'], ['claim-2', 'W', 'subscriber']]);
+        expect(badges[0].title).toBe(orchestrationView(claims, 2, PLATFORMS, NOW).title);
+    });
+
+    it('draws one badge per machine', () => {
+        const claims = [claim({ id: 1, machine_fk: 4 }),
+                        claim({ id: 2, machine_fk: 5, initiative_fk: 9 }),
+                        claim({ id: 3, machine_fk: 5, initiative_fk: 10 })];
+        expect(shape(cardOrchestrationBadges(claims, 2, PLATFORMS, NOW)))
+            .toEqual([['lead', 'M', 'lead'], ['claim-2', 'W', 'subscriber']]);
+    });
+
+    it('draws a stale holder as the stale tone', () => {
+        const stale = claim({ machine_fk: 5, update_ts: '2026-08-01 11:00:00' });
+        expect(shape(cardOrchestrationBadges([stale], 2, PLATFORMS, NOW))).toEqual([['lead', 'W', 'stale']]);
+    });
+
+    it('shows a plan held only by initiative-scoped engines', () => {
+        const claims = [claim({ id: 1, machine_fk: 4, initiative_fk: 9 }),
+                        claim({ id: 2, machine_fk: 5, initiative_fk: 10 })];
+        expect(shape(cardOrchestrationBadges(claims, 2, PLATFORMS, NOW)))
+            .toEqual([['lead', 'M', 'lead'], ['claim-2', 'W', 'lead']]);
+    });
+
+    it('shows a live initiative engine beside a stale whole-plan holder', () => {
+        const claims = [claim({ id: 1, machine_fk: 4, update_ts: '2026-08-01 11:00:00' }),
+                        claim({ id: 2, machine_fk: 5, initiative_fk: 9 })];
+        expect(shape(cardOrchestrationBadges(claims, 2, PLATFORMS, NOW)))
+            .toEqual([['lead', 'M', 'stale'], ['claim-2', 'W', 'lead']]);
+    });
+
+    it('does not draw a refused claim as a lead', () => {
+        const claims = [claim({ id: 1, machine_fk: 4, initiative_fk: 9 }),
+                        claim({ id: 2, machine_fk: 4 })];
+        expect(shape(cardOrchestrationBadges(claims, 2, PLATFORMS, NOW))).toEqual([['lead', 'M', 'lead']]);
     });
 });
