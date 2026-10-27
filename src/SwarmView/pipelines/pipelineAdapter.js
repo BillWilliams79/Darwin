@@ -343,12 +343,24 @@ export function adaptComposedPipeline(payload, {
         initiativeIds: v.initiative_ids || [],
     }));
 
+    // req #3969 — `by_initiative` buckets REQUIREMENTS, so an initiative holding
+    // none (a freshly added one, its first epic still empty) has no entry, and
+    // the plan title's initiative count and that band's met/total never moved
+    // when it was added. Every initiative in this same payload gets a 0/0 entry
+    // the derivation omitted — the same read, so it is the true answer, not a
+    // stale guess.
     const rc = derived.requirement_counts || {};
+    const countsById = new Map(asArray(rc.by_initiative).map((b) => [b.initiative_id, {
+        initiativeId: b.initiative_id, met: b.met, total: b.total,
+    }]));
+    for (const ini of asArray(payload.initiatives)) {
+        if (ini && ini.id != null && !countsById.has(ini.id)) {
+            countsById.set(ini.id, { initiativeId: ini.id, met: 0, total: 0 });
+        }
+    }
     const requirementCounts = {
         overall: rc.overall || { met: 0, total: 0 },
-        byInitiative: asArray(rc.by_initiative).map((b) => ({
-            initiativeId: b.initiative_id, met: b.met, total: b.total,
-        })),
+        byInitiative: [...countsById.values()].sort((a, b) => a.initiativeId - b.initiativeId),
     };
 
     const pauseSrc = derived.pause || {};

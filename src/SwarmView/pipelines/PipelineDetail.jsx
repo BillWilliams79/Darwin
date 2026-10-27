@@ -778,9 +778,11 @@ export default function PipelineDetail() {
     // The orchestration chip left this group for the title (req #3809).
     const hasStatusChips = pipeline.pipeline_status === 'paused';
 
-    // req #3242 — initiatives represented in THIS plan (a requirement with no initiative
+    // req #3242 — the initiatives in THIS plan (a requirement with no initiative
     // is excluded by `requirementCounts` itself, so this is never inflated by
-    // a "no initiative" bucket).
+    // a "no initiative" bucket). Since req #3969 `byInitiative` carries every
+    // initiative in the plan, an empty one included, so adding an initiative
+    // moves this count — the same number the Pipelines page card shows.
     // `plan` is null while `diagnostic` is set (req #3381 item 3 — a
     // withheld/absent `derived` block is a hard stop, so there is no
     // requirement-counts derivation to read).
