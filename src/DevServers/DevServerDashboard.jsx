@@ -30,6 +30,10 @@
 // RACKABLE (req #3720): drag its head onto the Darwin navbar and it locks in
 // below the nav buttons at the navbar's width (AnchoredPanel's rack); drag it
 // off again to float it. Whether it is racked is the rack's (usePanelRackStore).
+//
+// LOCKABLE (req #3961): drop its head on a page's title bar — the requirements
+// views' header row among them — and it locks into the bar's free space, as the
+// Requirement Filer does (titleBarLock.js).
 
 import { useContext, useMemo } from 'react';
 
@@ -146,7 +150,8 @@ export default function DevServerDashboard() {
     const show = useDevServerDashboardStore(s => s.show);
     const open = useDevServerDashboardStore(s => s.open);
     const storedDock = useDevServerDashboardStore(s => s.dock);
-    const { setShow, toggleOpen, setDock } = useDevServerDashboardStore.getState();
+    const titleLock = useDevServerDashboardStore(s => s.titleLock);
+    const { setShow, toggleOpen, setDock, setTitleLock } = useDevServerDashboardStore.getState();
     const dock = validDock(storedDock, DASH_MIN_W, DASH_MIN_H) || DASH_HOME;
 
     // Dev servers are part of the Swarm app: drawn only where its nav item is
@@ -191,6 +196,7 @@ export default function DevServerDashboard() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
                        rackId={DASH_RACK_ID}
+                       titleLock={titleLock} onTitleLockChange={setTitleLock}
                        rackIcon={DnsIcon} rackIconLabel={`Dev Servers — ${failed ? 'unavailable' : (isLoading ? 'loading' : count)}\nClick to expand`}
                        limits={LIMITS} fontPx={FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
