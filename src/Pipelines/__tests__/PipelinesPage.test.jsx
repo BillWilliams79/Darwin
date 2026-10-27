@@ -28,8 +28,8 @@
 //   · the two-state done/open EPIC progress bar — completeness is measured on
 //     requirements now, because an epic has no status column and the
 //     `completed_at` the bar counted is empty on essentially every epic;
-//   · the requirement tally on the card TITLE — it moved to the accounting
-//     line under the bar that draws it;
+//   · the requirement tally on the card TITLE — it moved to the card's info
+//     block (`pipelines-card-requirements-<id>`);
 //   · the Table view's "Goal" description dialog and its trailing Open icon —
 //     both removed, and their absence is now itself asserted.
 
@@ -328,7 +328,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
     // here: "shows the done/open two-state summary" and "shows the met/total
     // requirement count on the title". Both described behaviour the user
     // directed away on 2026-08-12 — epic state is not shown at all now, and
-    // the requirement tally moved off the title into the accounting line — so
+    // the requirement tally moved off the title into the card's info block — so
     // leaving them passing would have meant pinning a contract nobody holds.
     // req #3804 review — ONE plain info block: initiatives, epics, and
     // requirements closed of total; no badges for them, and no "x of y met"
@@ -347,7 +347,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-7').textContent).not.toContain('requirements met');
     });
 
-    it('keeps the title to the plan NAME, with the tally in the accounting line', () => {
+    it('keeps the title to the plan NAME, with the tally in the card info block', () => {
         mount();
         // req #3804 — the title is an in-place field; its value is the name alone.
         expect(node('pipelines-card-title-7').value).toBe('Plan Seven');
@@ -476,7 +476,8 @@ describe('PipelinesPage2 — status filter', () => {
         mount();
         expect(node('pipelines-card-7')).not.toBeNull();
         expect(node('pipelines-card-8')).not.toBeNull();
-        expect(node('pipelines-accounting').textContent).toContain('2 of 2');
+        // req #3964 — the page carries no accounting line.
+        expect(node('pipelines-accounting')).toBeNull();
     });
 
     it('hides a pipeline when its status chip is toggled off', () => {
@@ -900,7 +901,6 @@ describe('PipelinesPage2 — closed pipelines (req #3804)', () => {
         mount();
         expect(node('pipelines-card-9')).toBeNull();
         expect(node('pipelines-show-closed').textContent).toBe('Closed (1)');
-        expect(node('pipelines-accounting').textContent).toContain('1 closed hidden');
         click(node('pipelines-show-closed'));
         expect(node('pipelines-card-9')).not.toBeNull();
         expect(node('pipelines-card-closed-9')).not.toBeNull();
