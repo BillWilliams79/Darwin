@@ -2,9 +2,8 @@
 //
 // The plan overlay's two pieces on their own (req #3762), over decide()'s
 // records (planOverlayFixture.json): the engine box — an Action Popup since req
-// #3935 — with its switch, state, source, limits and the queue with its cut
-// line, and an epic card's badge with the hold in the
-// engine view's plain words on hover.
+// #3935, cut to its switch, role and slots by req #3981 — and an epic card's
+// badge with the hold in the engine view's plain words on hover.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
@@ -67,70 +66,170 @@ describe('PlanEngineBox', () => {
     beforeEach(() => { usePlanEngineBoxStore.setState({ open: true, dock: null }); });
 
     it('is an Action Popup titled Engine, homed bottom-right, folding to its head (req #3935)', () => {
-        mount(<PlanEngineBox ctl={ctlOf()} machines={MACHINES} onPickMachine={() => {}} />);
+        mount(<PlanEngineBox ctl={ctlOf()} />);
         const box = $('plan-engine-box');
         expect(text('plan-engine-box-title')).toBe('Engine');
         expect(box.getAttribute('data-rack-id')).toBe('engine');
         expect(box.getAttribute('data-dock')).toBe(`${ENGINE_HOME.h}${ENGINE_HOME.x},${ENGINE_HOME.v}${ENGINE_HOME.y}`);
-        // Folded, the badge still says the engine is on.
-        expect($('plan-engine-box-power').getAttribute('title')).toBe('on — running, beating (12s ago)');
+        // Open, no power button beside the title (req #3981).
+        expect($('plan-engine-box-power')).toBeNull();
         act(() => { $('plan-engine-box-toggle').click(); });
         expect(usePlanEngineBoxStore.getState().open).toBe(false);
         expect($('plan-engine-box-body').getAttribute('data-folded')).toBe('1');
-        expect($('plan-engine-box-power')).not.toBeNull();
+        // Folded, the switch rides the head beside the title, the slots after it.
+        expect($('plan-engine-box-badge').contains($('plan-engine-box-power'))).toBe(true);
+        // Pips alone, no "0/2" (req #3981); the count rides the attributes.
+        expect(text('plan-engine-box-slots')).toBe('');
+        expect($('plan-engine-box-slots').getAttribute('data-taken')).toBe('0');
+        expect($('plan-engine-box-slots').getAttribute('data-ceiling')).toBe('2');
+        expect($('plan-engine-box-header').contains($('plan-engine-box-slots'))).toBe(true);
     });
 
-    it('draws the switch, the record\'s cycle, the limits and the cut where the record put it', () => {
-        mount(<PlanEngineBox ctl={ctlOf()} machines={MACHINES}
-                               onPickMachine={() => {}} />);
+    it('folded and off, the head shows no slots', () => {
+        usePlanEngineBoxStore.setState({ open: false, dock: null });
+        mount(<PlanEngineBox ctl={ctlOf({ engineOn: false, engine: engineRow('off', 'stopped', 'stopped', null),
+            overlay: overlayOf('A16', 0, SOURCE_PREDICTED) })} />);
+        expect($('plan-engine-box-power').getAttribute('data-on')).toBe('false');
+        expect($('plan-engine-box-slots')).toBeNull();
+    });
+
+    it('folded, the head\'s power button is the switch (req #3981)', () => {
+        usePlanEngineBoxStore.setState({ open: false, dock: null });
+        const ctl = ctlOf();
+        mount(<PlanEngineBox ctl={ctl} />);
+        const power = $('plan-engine-box-power');
+        expect(power.getAttribute('data-on')).toBe('true');
+        expect(power.getAttribute('aria-pressed')).toBe('true');
+        act(() => { power.click(); });
+        expect(ctl.toggle).toHaveBeenCalledTimes(1);
+        // The click does not fold or unfold the popup.
+        expect(usePlanEngineBoxStore.getState().open).toBe(false);
+    });
+
+    it('folded, the power button waits while a switch is in flight, and with no machine', () => {
+        usePlanEngineBoxStore.setState({ open: false, dock: null });
+        const ctl = ctlOf({ pending: 'off' });
+        mount(<PlanEngineBox ctl={ctl} />);
+        const power = $('plan-engine-box-power');
+        expect(power.getAttribute('aria-disabled')).toBe('true');
+        expect(power.getAttribute('data-pending')).toBe('off');
+        act(() => { power.click(); });
+        expect(ctl.toggle).not.toHaveBeenCalled();
+        act(() => { roots.forEach((r) => r.unmount()); });
+        roots = [];
+        document.body.innerHTML = '';
+        const none = ctlOf({ machineId: null, machine: null, machineResolved: false });
+        mount(<PlanEngineBox ctl={none} />);
+        act(() => { $('plan-engine-box-power').click(); });
+        expect($('plan-engine-box-power').getAttribute('aria-disabled')).toBe('true');
+        expect(none.toggle).not.toHaveBeenCalled();
+    });
+
+    it('draws ON, the role and the slots taken of the capacity (req #3981)', () => {
+        mount(<PlanEngineBox ctl={ctlOf()} />);
         expect($('plan-engine-switch').getAttribute('data-on')).toBe('true');
-        expect(text('plan-engine-switch')).toBe('Engine on');
-        expect(text('plan-engine-machine')).toBe('on Mac mini');
-        expect(text('plan-engine-state')).toBe('on — running, beating (12s ago)');
-        expect($('plan-engine-source').getAttribute('data-source')).toBe('engine');
-        expect(text('plan-engine-source')).toContain('Engine cycle 1');
-        expect(text('plan-engine-limit-ceiling')).toBe('ceiling 2');
-        expect(text('plan-engine-limit-live')).toBe('live 0');
-        expect(text('plan-engine-limit-reserved')).toBe('reserved 0');
-        expect(text('plan-engine-limit-free')).toBe('free 2');
-        expect(text('plan-engine-cut-text')).toBe('the slots run out after #2');
-        // The queue in the record's order, the cut drawn before its third item.
-        const kids = [...$('plan-engine-queue').children].map((n) => n.getAttribute('data-testid'));
-        expect(kids).toEqual(['plan-engine-queue-item-3001', 'plan-engine-queue-item-3003',
-            'plan-engine-cut', 'plan-engine-queue-item-3002']);
-        expect($('plan-engine-queue-item-3002').getAttribute('data-code')).toBe('DEP_PRIORITY');
-        expect($('plan-engine-queue-item-3002').getAttribute('data-below-cut')).toBe('true');
-        expect($('plan-engine-queue-item-3001').textContent).toContain('Mac mini');
+        expect(text('plan-engine-switch')).toBe('ON');
+        expect(text('plan-engine-role')).toBe('Primary');
+        expect($('plan-engine-strip').getAttribute('data-source')).toBe('engine');
+        expect($('plan-engine-strip').getAttribute('data-seq')).toBe('1');
+        const slots = $('plan-engine-slots');
+        expect(slots.getAttribute('data-taken')).toBe('0');
+        expect(slots.getAttribute('data-ceiling')).toBe('2');
+        expect(slots.textContent).toBe('0/2');
+        // Nothing else: no machine, no source line, no limits list, no queue.
+        for (const gone of ['plan-engine-machine', 'plan-engine-state', 'plan-engine-source',
+            'plan-engine-limits', 'plan-engine-queue', 'plan-engine-cut-text']) {
+            expect($(gone)).toBeNull();
+        }
+    });
+
+    it('names a subscriber Secondary, and shows no role for none', () => {
+        const sub = { ...overlayOf('A16', 0), role: 'subscriber' };
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: sub })} />);
+        expect(text('plan-engine-role')).toBe('Secondary');
+        act(() => { roots.forEach((r) => r.unmount()); });
+        roots = [];
+        document.body.innerHTML = '';
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: { ...overlayOf('A16', 0), role: 'refused' } })}
+                             />);
+        expect($('plan-engine-role')).toBeNull();
+    });
+
+    it('reports a role, never predicts one (switched on, not yet published)', () => {
+        const predicted = { ...overlayOf('A16', 0, SOURCE_PREDICTED), role: 'lead' };
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: predicted, engine: engineRow('on', 'starting', 'missing', null) })}
+                             />);
+        expect($('plan-engine-role')).toBeNull();
+    });
+
+    it('takes the role from a beating engine\'s heartbeat until its record loads', () => {
+        const engine = { ...engineRow('on', 'running'), beat: { role: 'subscriber' } };
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: null, engine })} />);
+        expect(text('plan-engine-role')).toBe('Secondary');
+        // No record yet: the slots are loading, not unknown.
+        expect($('plan-engine-slots').getAttribute('data-known')).toBe('loading');
+        expect(text('plan-engine-slots')).toBe('…/…');
+    });
+
+    it('outlines the switch when a read failed', () => {
+        mount(<PlanEngineBox ctl={ctlOf({ readErrors: ['engine states'] })} />);
+        expect($('plan-engine-switch').getAttribute('data-fault')).toBe('true');
+    });
+
+    it('takes the slots from a beating engine\'s heartbeat until its record loads', () => {
+        const engine = { ...engineRow('on', 'running'), beat: { role: 'lead' },
+            healthJson: { limits: { ceiling: 8, live: 1, reserved: 0, free: 7 } } };
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: null, engine })} />);
+        expect(text('plan-engine-slots')).toBe('1/8');
+    });
+
+    it('never shows a prediction\'s slots, even switched on', () => {
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: overlayOf('A16', 0, SOURCE_PREDICTED),
+            engine: engineRow('on', 'starting', 'ok', 5) })} />);
+        expect($('plan-engine-slots').getAttribute('data-known')).toBe('loading');
+    });
+
+    it('says unknown, not loading, for an engine switched on but silent', () => {
+        mount(<PlanEngineBox ctl={ctlOf({ overlay: overlayOf('A16', 0, SOURCE_PREDICTED),
+            engine: engineRow('on', 'starting', 'missing', null) })} />);
+        expect($('plan-engine-slots').getAttribute('data-known')).toBe('false');
+    });
+
+    it('counts live and reserved as taken', () => {
+        const base = overlayOf('A16', 0);
+        const overlay = { ...base, limits: { ...base.limits, ceiling: 6, live: 2, reserved: 1 } };
+        mount(<PlanEngineBox ctl={ctlOf({ overlay })} />);
+        expect(text('plan-engine-slots')).toBe('3/6');
     });
 
     it('flips the switch', () => {
         const ctl = ctlOf({ engineOn: false, engine: engineRow('off', 'stopped', 'stopped', null),
             overlay: overlayOf('A16', 0, SOURCE_PREDICTED) });
-        mount(<PlanEngineBox ctl={ctl} machines={MACHINES}
-                               onPickMachine={() => {}} />);
-        expect(text('plan-engine-switch')).toBe('Engine off');
-        expect(text('plan-engine-state')).toBe('off — stopped');
-        expect($('plan-engine-source').getAttribute('data-source')).toBe('predicted');
+        mount(<PlanEngineBox ctl={ctl} />);
+        expect(text('plan-engine-switch')).toBe('OFF');
+        // Off, it holds no role and no slots: neither is drawn (req #3981).
+        expect($('plan-engine-role')).toBeNull();
+        expect($('plan-engine-slots')).toBeNull();
+        expect($('plan-engine-switch').getAttribute('data-fault')).toBe('false');
+        expect($('plan-engine-strip').getAttribute('data-source')).toBe('predicted');
         act(() => { $('plan-engine-switch').click(); });
         expect(ctl.toggle).toHaveBeenCalledTimes(1);
     });
 
     it('says when capacity is unknown, and when a switch failed', () => {
         const overlay = { ...overlayOf('A16', 0), limitsKnown: false };
-        mount(<PlanEngineBox ctl={ctlOf({ overlay, error: 'HTTP 500' })} machines={MACHINES}
-                             onPickMachine={() => {}} />);
-        expect($('plan-engine-limits-unknown')).not.toBeNull();
-        expect(text('plan-engine-error')).toContain('HTTP 500');
+        mount(<PlanEngineBox ctl={ctlOf({ overlay, error: 'HTTP 500' })} />);
+        expect($('plan-engine-slots').getAttribute('data-known')).toBe('false');
+        expect(text('plan-engine-slots')).toBe('?/?');
+        expect($('plan-engine-switch').getAttribute('data-fault')).toBe('true');
     });
 
-    it('asks for the machine when the browser cannot tell which it is on', () => {
+    it('has no machine picker: with no machine the switch waits (req #3981)', () => {
         const ctl = ctlOf({ machineId: null, machine: null, machineResolved: false, overlay: null,
             engine: null, engineOn: false, openMachines: fixture.machines });
-        mount(<PlanEngineBox ctl={ctl} machines={MACHINES}
-                               onPickMachine={() => {}} />);
+        mount(<PlanEngineBox ctl={ctl} />);
         expect($('plan-engine-switch').disabled).toBe(true);
-        expect(text('plan-engine-source')).toBe('Pick this machine to see the launch order');
-        expect($('plan-engine-machine-select')).not.toBeNull();
+        expect($('plan-engine-machine-select')).toBeNull();
     });
 
     it('phrases the switch and the supervisor together', () => {
