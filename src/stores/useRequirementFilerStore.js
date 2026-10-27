@@ -158,12 +158,19 @@ export const useRequirementFilerStore = create(
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
             // capture, and `seat` is the plan epic the + was aimed at (req #3854,
-            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
-            startNew: (withCapture = false, seat = null) => {
+            // filerEpicAim.js) — Create seats it there; `place` (`{ projectId,
+            // categoryId }`) is the category card the + was aimed at (req #4026,
+            // filerCategoryAim.js), filed there instead of the last place.
+            // Returns the new draft's key.
+            startNew: (withCapture = false, seat = null, place = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
+                const projectId = place ? place.projectId : lastProjectId;
+                const categoryId = place ? place.categoryId : lastCategoryId;
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
+                    // `aimedPlace`: its place is the card's, not the last requirement's —
+                    // the editor's carried-place check says so if it drops it.
+                    draft: { ...newRequirementDraft(projectId, categoryId, defaults), seat, aimedPlace: !!place },
                     savedId: null, saved: null, editorShow: true, restoredDraft: false, editorOpen: true,
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
