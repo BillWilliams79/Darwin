@@ -5,7 +5,8 @@ import { describe, it, expect } from 'vitest';
 
 import {
     buildFirstStartIndex, epicStartAt, epicEndAt, epicWorkBegun, formatClock,
-    formatEndClock, localDaysBetween,
+    formatEndClock, localDaysBetween, formatDate, formatStartStamp, formatEndStamp,
+    normalizeEpicTimeMode, nextEpicTimeMode,
 } from '../planEpicTimes';
 import { buildPlanRows } from '../pipelineAdapter';
 
@@ -274,5 +275,43 @@ describe('formatEndClock — an end on a later day says so', () => {
     it('needs a start to add anything, and an end to say anything', () => {
         expect(formatEndClock(null, at(2026, 9, 23, 9, 30))).toBe('09:30AM');
         expect(formatEndClock(at(2026, 9, 23, 9, 30), null)).toBeNull();
+    });
+});
+
+describe('the Time chip\'s three states (req #3963)', () => {
+    const at = (y, mo, d, h, mi) => new Date(y, mo, d, h, mi);
+    it('cycles off → time → date → off', () => {
+        expect(nextEpicTimeMode('off')).toBe('time');
+        expect(nextEpicTimeMode('time')).toBe('date');
+        expect(nextEpicTimeMode('date')).toBe('off');
+    });
+    it('reads the two-state chip\'s stored flag, and defaults anything else to time', () => {
+        expect(normalizeEpicTimeMode('0')).toBe('off');
+        expect(normalizeEpicTimeMode('1')).toBe('time');
+        expect(normalizeEpicTimeMode('date')).toBe('date');
+        expect(normalizeEpicTimeMode('junk')).toBe('time');
+        expect(normalizeEpicTimeMode(null)).toBe('time');
+        expect(nextEpicTimeMode('junk')).toBe('date');
+    });
+    it('formats the local date as the ruler does', () => {
+        expect(formatDate(at(2026, 9, 3, 9, 5))).toBe('Oct 3');
+        expect(formatDate(at(2026, 11, 28, 23, 5))).toBe('Dec 28');
+        expect(formatDate(null)).toBeNull();
+        expect(formatDate('not a time')).toBeNull();
+    });
+    it('writes the clock alone in time mode, with +Nd on a later day', () => {
+        expect(formatStartStamp(at(2026, 9, 22, 23, 23), 'time')).toBe('11:23PM');
+        expect(formatEndStamp(at(2026, 9, 22, 23, 23), at(2026, 9, 23, 1, 53), 'time'))
+            .toBe('01:53AM+1d');
+    });
+    it('writes the date and the clock in date mode, never +Nd', () => {
+        expect(formatStartStamp(at(2026, 9, 22, 23, 23), 'date')).toBe('Oct 22 11:23PM');
+        expect(formatEndStamp(at(2026, 9, 22, 23, 23), at(2026, 9, 23, 1, 53), 'date'))
+            .toBe('Oct 23 01:53AM');
+        expect(formatEndStamp(at(2026, 9, 22, 23, 23), null, 'date')).toBeNull();
+    });
+    it('writes nothing in off mode', () => {
+        expect(formatStartStamp(at(2026, 9, 22, 23, 23), 'off')).toBeNull();
+        expect(formatEndStamp(at(2026, 9, 22, 23, 23), at(2026, 9, 23, 1, 53), 'off')).toBeNull();
     });
 });

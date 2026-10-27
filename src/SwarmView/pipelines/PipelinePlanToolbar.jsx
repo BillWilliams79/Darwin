@@ -39,6 +39,7 @@ import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
 import { toolbarChipProps } from './pipelineChipStyles';
 import { ANY_MACHINE, machineChipLabel, orderMachineChips } from './planMachineFilter';
 import { resolveThisMachineId } from '../terminalFocus';
+import { DEFAULT_EPIC_TIME_MODE, nextEpicTimeMode } from './planEpicTimes';
 import { LONG_PRESS_MS, PRESS_SLOP_PX } from '../../dnd/pressTimeline';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
@@ -187,6 +188,13 @@ function useKeyHelp(onKeyHover) {
 const NO_MACHINES = [];
 const NO_HIDDEN = new Set();
 
+// req #3963 — what the Time chip shows now, and what a click does next.
+const EPIC_TIME_TIPS = {
+    off: 'Epic times hidden — click to show each epic\'s start and end time',
+    time: 'Showing epic start and end times — click to add the date',
+    date: 'Showing epic start and end dates and times — click to hide them',
+};
+
 /**
  * @param {Object} props
  * @param {function} props.onEpicsAcross       receives the epic count to fit
@@ -203,8 +211,9 @@ const NO_HIDDEN = new Set();
  *                                              a colour-chip press (req #3766, #3859)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
- * @param {boolean} props.showTimes             the epic cards' start / end times are drawn
- * @param {function} props.onChangeShowTimes    receives the next boolean
+ * @param {string} props.epicTimeMode          the epic cards' start / end time line: 'off' |
+ *                                              'time' | 'date' (req #3963)
+ * @param {function} props.onChangeEpicTimeMode receives the next mode
  * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
  * @param {Set<number>} props.hiddenMachines    machine ids whose requirements are hidden
  * @param {function} props.onToggleMachine      receives a machine id
@@ -222,8 +231,8 @@ export default function PipelinePlanToolbar({
     onKeyHover,
     hideClosed,
     onChangeHideClosed,
-    showTimes = true,
-    onChangeShowTimes,
+    epicTimeMode = DEFAULT_EPIC_TIME_MODE,
+    onChangeEpicTimeMode,
     machines = NO_MACHINES,
     hiddenMachines = NO_HIDDEN,
     onToggleMachine,
@@ -321,15 +330,17 @@ export default function PipelinePlanToolbar({
                 Lit: every epic card draws its start (bottom-left) and end
                 (bottom-right) time. Dark: the line is gone and the cards close
                 up. On by default. Drawn like Closed and the machine chips
-                (req #3816). */}
-            <Tooltip title={showTimes
-                ? 'Hide the epic start and end times'
-                : 'Show each epic\'s start and end time'}>
+                (req #3816).
+                req #3963 — THREE states, one click each, in a loop: off (dark),
+                the time alone (lit "Time"), the date and the time (lit
+                "Date+Time") — `planEpicTimes.js` owns the cycle. */}
+            <Tooltip title={EPIC_TIME_TIPS[epicTimeMode] || EPIC_TIME_TIPS.time}>
                 <Chip
-                    label="Time"
-                    aria-label="Show epic start and end times"
-                    onClick={() => onChangeShowTimes?.(!showTimes)}
-                    {...toolbarChipProps(!!showTimes, { sx: { flexShrink: 0 } })}
+                    label={epicTimeMode === 'date' ? 'Date+Time' : 'Time'}
+                    aria-label={`Epic start and end times: ${epicTimeMode === 'off'
+                        ? 'hidden' : epicTimeMode === 'date' ? 'date and time' : 'time only'}`}
+                    onClick={() => onChangeEpicTimeMode?.(nextEpicTimeMode(epicTimeMode))}
+                    {...toolbarChipProps(epicTimeMode !== 'off', { sx: { flexShrink: 0 } })}
                     data-testid="pipeline-viz-show-times"
                 />
             </Tooltip>

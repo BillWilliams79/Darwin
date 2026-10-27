@@ -72,7 +72,7 @@ import {
 // same ladder the swarm canvas uses, deliberately (`semanticLevel`'s own note).
 import { semanticLevel } from '../konvaSwarmModel';
 import { localDayOf } from './pipelinePlanTime';
-import { formatClock, formatEndClock } from './planEpicTimes';
+import { formatStartStamp, formatEndStamp } from './planEpicTimes';
 
 // ── POC design language (viz-generate.py palette, kept verbatim) ────────────
 export const PLAN_VIZ_PALETTE = {
@@ -1989,7 +1989,8 @@ export const CARD_SUBTITLE_H = 14 * CARD_TYPE_SCALE;  // the epic-title line
 // ── THE TIME LINE (req #3825) ───────────────────────────────────────────────
 // The card's last line: the epic's START at its bottom-left, its END at its
 // bottom-right, as `hh:mmAM/PM` (`planEpicTimes.js` derives and formats both);
-// an END on a later local day than its START carries `+Nd`.
+// an END on a later local day than its START carries `+Nd`. With the Time
+// chip's `date` state (req #3963) each carries its local date in front instead.
 // Reserved below the requirement block on every card whose work has begun
 // (`row.stampsReserved`), so a card does not grow when its times arrive.
 export const CARD_STAMP_GAP = 4 * CARD_TYPE_SCALE;     // air above the line
@@ -3782,6 +3783,10 @@ function initiativeBandCountText(initiativeId, initiativeCounts) {
  *                             leaves every band unpaused, matching a caller
  *                             (a test, a hand-built probe) with no pause
  *                             concept at all.
+ * @param {('time'|'date')} [opts.stampFormat]  req #3963 — how a card's start /
+ *                             end line is written: the clock alone, or the date
+ *                             and the clock. Whether the line exists at all is
+ *                             the row's `stampsReserved`.
  * @returns {Object} layout — see the shape assembled at the bottom
  */
 export function computePlanLayout(rows, opts = {}) {
@@ -3824,6 +3829,8 @@ export function computePlanLayout(rows, opts = {}) {
         // overrides the fold for drawing only; `collapsed` still reports the
         // reader's fold. Null (every settled layout) animates nothing.
         foldReveal = null,
+        // req #3963 — the Time chip's `time` / `date` (`planEpicTimes.js`).
+        stampFormat = 'time',
     } = opts || {};
     const initiativeFolded = (key) => !!collapsedInitiativeIds?.has(key);
     // req #3695 — a band's REVEAL: 1 open, 0 folded, between while its fold
@@ -5202,9 +5209,10 @@ export function computePlanLayout(rows, opts = {}) {
         // nothing on its side; the line stays reserved either way.
         if (r.stampsReserved) {
             const stampY = n.bottom - CARD_PAD_Y - CARD_STAMP_TEXT_H;
-            const startText = formatClock(r.startedAt);
-            // `+Nd` when the epic ran past midnight (`formatEndClock`).
-            const endText = formatEndClock(r.startedAt, r.endedAt);
+            const startText = formatStartStamp(r.startedAt, stampFormat);
+            // `+Nd` when the epic ran past midnight (`formatEndClock`), or
+            // the date in front of each in `date` format (req #3963).
+            const endText = formatEndStamp(r.startedAt, r.endedAt, stampFormat);
             if (startText) {
                 labels.push({
                     kind: 'stamp', epicId: r.id, side: 'start', text: startText,
