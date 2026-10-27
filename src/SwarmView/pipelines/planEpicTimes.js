@@ -205,3 +205,79 @@ export function formatEndClock(startAt, endAt) {
     const days = localDaysBetween(startAt, endAt);
     return days > 0 ? `${clock}+${days}d` : clock;
 }
+
+// ── THE TIME CHIP'S THREE STATES (req #3963) ────────────────────────────────
+// The toolbar's Time chip cycles off → time → date → off. `time` is the
+// card's line as req #3825 drew it (`hh:mmAM`, `+Nd` on a later day); `date`
+// puts the local date in front of each (`Oct 26 09:05AM`), in the ruler's own
+// month-day form (`slotTickText`), and drops `+Nd`, which the date makes
+// redundant. Two stamps of that width fit the narrowest card rung.
+export const EPIC_TIME_MODES = Object.freeze(['off', 'time', 'date']);
+export const DEFAULT_EPIC_TIME_MODE = 'time';
+
+/**
+ * A stored mode, normalized. The setting kept its req #3825 storage key, which
+ * held a flag ('1' on / '0' off), so those two still read as `time` / `off`;
+ * anything unrecognised reads as the default.
+ *
+ * @param {*} raw
+ * @returns {'off'|'time'|'date'}
+ */
+export function normalizeEpicTimeMode(raw) {
+    if (EPIC_TIME_MODES.includes(raw)) return raw;
+    if (raw === '0' || raw === false) return 'off';
+    if (raw === '1' || raw === true) return 'time';
+    return DEFAULT_EPIC_TIME_MODE;
+}
+
+/** The mode the Time chip moves to from `mode`. */
+export function nextEpicTimeMode(mode) {
+    const i = EPIC_TIME_MODES.indexOf(normalizeEpicTimeMode(mode));
+    return EPIC_TIME_MODES[(i + 1) % EPIC_TIME_MODES.length];
+}
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A stamp's LOCAL date as `Oct 26`, or null for no stamp or an unparseable
+ * one. Local for the same reason `formatClock` is.
+ *
+ * @param {?(string|Date)} at
+ * @returns {?string}
+ */
+export function formatDate(at) {
+    const d = parseStamp(at);
+    if (d == null) return null;
+    return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
+}
+
+/**
+ * The START as the card writes it in `mode`: `formatClock`, with the date in
+ * front in `date` mode. Null in `off` mode or for no stamp.
+ *
+ * @param {?string} at
+ * @param {'off'|'time'|'date'} mode
+ * @returns {?string}
+ */
+export function formatStartStamp(at, mode) {
+    if (mode === 'off') return null;
+    const clock = formatClock(at);
+    if (clock == null) return null;
+    return mode === 'date' ? `${formatDate(at)} ${clock}` : clock;
+}
+
+/**
+ * The END as the card writes it in `mode`: `formatEndClock` (with `+Nd`), or
+ * the date and the clock in `date` mode. Null in `off` mode or for no stamp.
+ *
+ * @param {?string} startAt
+ * @param {?string} endAt
+ * @param {'off'|'time'|'date'} mode
+ * @returns {?string}
+ */
+export function formatEndStamp(startAt, endAt, mode) {
+    if (mode === 'off') return null;
+    if (mode === 'date') return formatStartStamp(endAt, 'date');
+    return formatEndClock(startAt, endAt);
+}

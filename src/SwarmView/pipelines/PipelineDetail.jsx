@@ -116,7 +116,7 @@ import {
     buildSessionStatusIndex,
 } from './pipelineViewModel';
 import { buildReqPills } from './planReqPills';
-import { buildFirstStartIndex } from './planEpicTimes';
+import { buildFirstStartIndex, normalizeEpicTimeMode } from './planEpicTimes';
 // req #3762 — the plan view's engine overlay.
 import { ENGINE_MACHINE_PARAM, usePlanEngineOverlay } from '../engine/usePlanEngineOverlay';
 
@@ -216,7 +216,9 @@ export default function PipelineDetail() {
     const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
     // req #3686 — hide the closed requirements (and the line above them) on the canvas.
     const [hideClosed, setHideClosed] = usePlanViewSetting('hideClosed');
-    const [showTimes, setShowTimes] = usePlanViewSetting('showTimes');
+    // req #3963 — the Time chip's `off` / `time` / `date`, normalized from storage.
+    const [epicTimesRaw, setEpicTimes] = usePlanViewSetting('epicTimes');
+    const epicTimeMode = normalizeEpicTimeMode(epicTimesRaw);
     // req #3708 — the machines DESELECTED in the toolbar's machine filter.
     const [hiddenMachinesRaw, setHiddenMachinesRaw] = usePlanViewSetting('hiddenMachines');
     const hiddenMachines = useMemo(
@@ -1133,8 +1135,8 @@ export default function PipelineDetail() {
                         onKeyHover={setKeyHover}
                         hideClosed={hideClosed}
                         onChangeHideClosed={setHideClosed}
-                        showTimes={showTimes}
-                        onChangeShowTimes={setShowTimes}
+                        epicTimeMode={epicTimeMode}
+                        onChangeEpicTimeMode={setEpicTimes}
                         machines={filterMachines}
                         hiddenMachines={hiddenMachines}
                         onToggleMachine={handleToggleMachine}
@@ -1259,7 +1261,7 @@ export default function PipelineDetail() {
                              titleZoom={titleZoom}
                              epicWidthLevel={epicWidthLevel}
                              hideClosed={hideClosed}
-                             showTimes={showTimes}
+                             epicTimeMode={epicTimeMode}
                              hiddenMachines={hiddenMachines}
                              reqPills={reqPills}
                              sessionStatus={sessionStatus}

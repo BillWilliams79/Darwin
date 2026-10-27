@@ -29,7 +29,7 @@ vi.mock('konva', () => ({
 
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
-import { formatClock } from '../planEpicTimes';
+import { formatClock, formatStartStamp } from '../planEpicTimes';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
 import AppContext from '../../../Context/AppContext';
 import AuthContext from '../../../Context/AuthContext';
@@ -75,7 +75,7 @@ function payload() {
     });
 }
 
-function render(showTimes) {
+function render(epicTimeMode) {
     const p = payload();
     const plan = adaptComposedPipeline(p, { firstStarts: new Map([[100, SESSION_START]]) });
     const model = buildPlanModel(p);
@@ -91,7 +91,7 @@ function render(showTimes) {
                         <MemoryRouter>
                             <PipelinePlanVisualizer plan={plan} model={model} levelPref="3"
                                                     pipeline={p.pipeline} timezone="UTC"
-                                                    showTimes={showTimes} />
+                                                    epicTimeMode={epicTimeMode} />
                         </MemoryRouter>
                     </AuthContext.Provider>
                 </AppContext.Provider>
@@ -105,13 +105,13 @@ const texts = () => [...document.querySelectorAll('[data-testid="konva-text"]')]
 
 describe('the epic cards\' start / end times on the canvas (req #3825)', () => {
     it('draws the start and the end when Time is on', () => {
-        render(true);
+        render('time');
         expect(texts()).toContain(formatClock(SESSION_START));
         expect(texts()).toContain(formatClock(COMPLETED));
     });
 
     it('draws neither when Time is off', () => {
-        render(false);
+        render('off');
         expect(texts()).not.toContain(formatClock(SESSION_START));
         expect(texts()).not.toContain(formatClock(COMPLETED));
         // …and the epic itself is still drawn: only the time line went.
@@ -121,5 +121,13 @@ describe('the epic cards\' start / end times on the canvas (req #3825)', () => {
     it('is on by default', () => {
         render(undefined);
         expect(texts()).toContain(formatClock(COMPLETED));
+    });
+
+    // req #3963 — the third state puts the local date in front of each.
+    it('draws the date and the time in date mode', () => {
+        render('date');
+        expect(texts()).toContain(formatStartStamp(SESSION_START, 'date'));
+        expect(texts()).toContain(formatStartStamp(COMPLETED, 'date'));
+        expect(texts()).not.toContain(formatClock(COMPLETED));
     });
 });

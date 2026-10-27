@@ -294,17 +294,18 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     });
 
     // req #3825 — one Time chip, lit while the epic cards draw their times.
-    it('draws Time right after Closed, lit when on and dark when off', () => {
+    // req #3963 — three states in a loop: time → date → off → time.
+    it('draws Time right after Closed and cycles time, date and time, off', () => {
         const got = [];
-        const render = (showTimes) => act(() => root.render(
+        const render = (mode) => act(() => root.render(
             <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
                                  onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} hideClosed={false}
-                                 onChangeHideClosed={() => {}} showTimes={showTimes}
-                                 onChangeShowTimes={(v) => got.push(v)} planLevelPref="auto"
+                                 onChangeHideClosed={() => {}} epicTimeMode={mode}
+                                 onChangeEpicTimeMode={(v) => got.push(v)} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}} />));
-        render(true);
+        render('time');
         const time = q('pipeline-viz-show-times');
         expect(time.textContent).toBe('Time');
         // eslint-disable-next-line no-bitwise
@@ -313,29 +314,36 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(time.getAttribute('aria-pressed')).toBe('true');
         expect(time.className).not.toMatch(/outlined/i);
         act(() => q('pipeline-viz-show-times').click());
-        render(false);
+        render('date');
+        expect(q('pipeline-viz-show-times').textContent).toBe('Date+Time');
+        expect(q('pipeline-viz-show-times').getAttribute('aria-pressed')).toBe('true');
+        act(() => q('pipeline-viz-show-times').click());
+        render('off');
+        expect(q('pipeline-viz-show-times').textContent).toBe('Time');
         expect(q('pipeline-viz-show-times').getAttribute('aria-pressed')).toBe('false');
         expect(q('pipeline-viz-show-times').className).toMatch(/outlined/i);
         act(() => q('pipeline-viz-show-times').click());
-        expect(got).toEqual([false, true]);
+        expect(got).toEqual(['date', 'off', 'time']);
     });
 
     // req #3825 + #3816 — Time is drawn like Closed: a machine chip's classes.
     it('Time looks like a machine chip in both states', () => {
         const machines = [{ id: 7, title: 'Mac Mini' }];
-        const render = (showTimes, hiddenMachines) => act(() => root.render(
+        const render = (mode, hiddenMachines) => act(() => root.render(
             <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
                                  onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} hideClosed={false}
-                                 onChangeHideClosed={() => {}} showTimes={showTimes}
-                                 onChangeShowTimes={() => {}} machines={machines}
+                                 onChangeHideClosed={() => {}} epicTimeMode={mode}
+                                 onChangeEpicTimeMode={() => {}} machines={machines}
                                  hiddenMachines={hiddenMachines} onToggleMachine={() => {}}
                                  planLevelPref="auto" effectiveLevel="out"
                                  onChangeLevelPref={() => {}} onResetView={() => {}} />));
         const classes = (el) => [...el.classList].sort();
-        render(true, new Set());
+        render('time', new Set());
         expect(classes(q('pipeline-viz-show-times'))).toEqual(classes(q('pipeline-viz-machine-7')));
-        render(false, new Set([7]));
+        render('date', new Set());
+        expect(classes(q('pipeline-viz-show-times'))).toEqual(classes(q('pipeline-viz-machine-7')));
+        render('off', new Set([7]));
         expect(classes(q('pipeline-viz-show-times'))).toEqual(classes(q('pipeline-viz-machine-7')));
     });
 
