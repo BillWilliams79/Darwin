@@ -51,6 +51,7 @@ vi.mock('../../RestApi/RestApi', () => ({ default: (...a) => rest(...a) }));
 
 import RequirementFiler, { FILER_RACK_ID } from '../RequirementFiler';
 import RequirementEditorPopup from '../RequirementEditorPopup';
+import LastHoveredHighlight from '../LastHoveredHighlight';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
 import { useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
@@ -82,6 +83,7 @@ const renderAll = ({ nav = false, at = '/maps' } = {}) => render(
                         {nav && <NavBarSidebar />}
                         <RequirementFiler />
                         <RequirementEditorPopup />
+                        <LastHoveredHighlight />
                     </MemoryRouter>
                 </ThemeContext.Provider>
             </AppContext.Provider>
@@ -111,7 +113,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
             show: true, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: 862,
             draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
-            capture: null, captureDropped: [], captureStage: null,
+            capture: null, captureDropped: [], captureStage: null, pinned: false,
         });
     });
     afterEach(cleanup);
@@ -396,5 +398,164 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
             .toMatch(/^\d+(\.\d)? (B|KB)$/));
         expect(screen.getByTestId('requirement-filer')).toBeTruthy();
         expect(useRequirementFilerStore.getState().capture.categories[0].key).toBe('filedFrom');
+    });
+
+    it('ACCEPTANCE (req #3958): pinned, the filer dragged outlines what it flies over and + records it; unpinned, neither', async () => {
+        renderAll({ at: '/swarm' });
+        // jsdom lays nothing out: a requirement row on the page, the filer over it.
+        const row = document.createElement('div');
+        row.setAttribute('data-testid', 'requirement-3958');
+        row.textContent = '3958 Requirement editor highlights its hover';
+        document.body.appendChild(row);
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        box(row, 100, 300, 800, 40);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 200, 100, 200, 100);
+        document.elementsFromPoint = (x, y) => [filer, row].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        const head = screen.getByTestId('requirement-filer-header');
+        const pin = screen.getByTestId('requirement-filer-pin');
+        // The pushpin sits between the title and the ×.
+        expect(pin.compareDocumentPosition(screen.getByTestId('requirement-filer-close')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(pin.getAttribute('aria-pressed')).toBe('false');
+        // Unpinned: dragged over the row nothing is outlined, and + records no place.
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 250, clientY: 110 });
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 250, clientY: 280 });
+        expect(screen.queryByTestId('requirement-aim')).toBe(null);
+        fireEvent.pointerUp(head, { pointerId: 1, clientX: 250, clientY: 280 });
+        box(filer, 200, 270, 200, 100);
+        await pressFile();
+        expect(JSON.parse(useRequirementFilerStore.getState().capture.categories[0].text))
+            .toMatchObject({ pointedAt: null, pointedAtReason: expect.stringMatching(/^not pinned/) });
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+
+        // Pinned: pressing it outlines where it sits; dragged, it outlines the row; + records it.
+        fireEvent.click(pin);
+        expect(screen.getByTestId('requirement-filer-pin').getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-3958');
+        fireEvent.pointerDown(head, { button: 0, pointerId: 2, clientX: 250, clientY: 280 });
+        fireEvent.pointerMove(head, { pointerId: 2, clientX: 250, clientY: 290 });
+        // Debounced (AIM_SETTLE_MS): the row is outlined once it has stayed under the filer.
+        await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-3958'));
+        const outline = screen.getByTestId('requirement-aim');
+        expect([outline.style.left, outline.style.top]).toEqual(['100px', '300px']);
+        fireEvent.pointerUp(head, { pointerId: 2, clientX: 250, clientY: 290 });
+        expect(screen.queryByTestId('requirement-aim')).toBe(null);
+        box(filer, 200, 280, 200, 100);
+        await pressFile();
+        const ff = JSON.parse(useRequirementFilerStore.getState().capture.categories[0].text);
+        expect(ff.pointedAt[0].testidPath).toEqual(['requirement-3958']);
+        expect(ff.popup.pinned).toBe(true);
+        row.remove();
+    });
+
+    it('the outline is debounced (req #3958): the tile crossed between two cards never flashes', async () => {
+        useRequirementFilerStore.setState({ pinned: true });
+        renderAll({ at: '/swarm' });
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        const tile = document.createElement('div');
+        tile.setAttribute('data-testid', 'category-card-862');
+        const a = document.createElement('div');
+        a.setAttribute('data-testid', 'requirement-1');
+        const b = document.createElement('div');
+        b.setAttribute('data-testid', 'requirement-2');
+        tile.append(a, b);
+        document.body.appendChild(tile);
+        box(tile, 0, 0, 1000, 800);
+        box(a, 0, 100, 1000, 100);
+        box(b, 0, 260, 1000, 100);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 400, 100, 200, 100);
+        document.elementsFromPoint = (x, y) => [filer, b, a, tile].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        const seen = new Set();
+        const watch = new MutationObserver(() => {
+            const o = document.querySelector('[data-testid="requirement-aim"]');
+            if (o) seen.add(o.getAttribute('data-aim'));
+        });
+        watch.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-aim'] });
+        const head = screen.getByTestId('requirement-filer-header');
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 450, clientY: 110 });
+        // Centre (500, 160) over card 1, held: it is outlined.
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 450, clientY: 120 });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-1'));
+        // Across the gap (the tile) and onto card 2, quickly.
+        await wait(25);
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 450, clientY: 190 });
+        await wait(40);
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 450, clientY: 260 });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-2'));
+        fireEvent.pointerUp(head, { pointerId: 1, clientX: 450, clientY: 260 });
+        watch.disconnect();
+        expect(seen.has('category-card-862')).toBe(false);
+        expect([...seen]).toEqual(['requirement-1', 'requirement-2']);
+        tile.remove();
+    });
+
+    it('Last hovered (req #3958): released pinned, + records it, outlined while the editor is open; dropped, the outline goes', async () => {
+        useRequirementFilerStore.setState({ pinned: true });
+        renderAll({ at: '/swarm' });
+        const row = document.createElement('div');
+        row.setAttribute('data-testid', 'requirement-55');
+        row.textContent = 'Row 55';
+        document.body.appendChild(row);
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        box(row, 100, 300, 800, 40);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 200, 100, 200, 100);
+        document.elementsFromPoint = (x, y) => [filer, row].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        const head = screen.getByTestId('requirement-filer-header');
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 250, clientY: 110 });
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 250, clientY: 280 });   // centre (300, 320): the row
+        fireEvent.pointerUp(head, { pointerId: 1, clientX: 250, clientY: 280 });
+        box(filer, 200, 270, 200, 100);
+        await pressFile();
+        const cats = useRequirementFilerStore.getState().capture.categories;
+        expect(cats[1].key).toBe('lastHovered');
+        expect(JSON.parse(cats[1].text).testidPath).toEqual(['requirement-55']);
+        // While the editor shows it: the one highlight on the row, at 30%, labelled.
+        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded').getAttribute('data-aim')).toBe('requirement-55'));
+        const rec = screen.getByTestId('requirement-aim-recorded');
+        expect(rec.style.opacity).toBe('0.3');
+        expect(rec.style.border).toContain('solid');
+        // A pinned drag draws its own: the recorded one steps aside — one highlight.
+        fireEvent.pointerDown(head, { button: 0, pointerId: 4, clientX: 250, clientY: 280 });
+        fireEvent.pointerMove(head, { pointerId: 4, clientX: 250, clientY: 290 });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim')).toBeTruthy());
+        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
+        fireEvent.pointerUp(head, { pointerId: 4, clientX: 250, clientY: 290 });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded')).toBeTruthy());
+        expect(screen.getByTestId('requirement-aim-recorded-name').textContent).toBe('requirement-55 · last hovered');
+        // Listed right after Filed from; dropping it takes the outline with it.
+        fireEvent.click(screen.getByTestId('requirement-editor-capture-details-toggle'));
+        expect(screen.getByTestId('requirement-editor-capture-lastHovered').textContent).toContain('Last hovered');
+        fireEvent.click(screen.getByTestId('requirement-editor-capture-toggle-lastHovered'));
+        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
+        fireEvent.click(screen.getByTestId('requirement-editor-capture-toggle-lastHovered'));
+        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded')).toBeTruthy());
+        // Closed, the editor shows nothing — and neither does the outline.
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
+        row.remove();
     });
 });

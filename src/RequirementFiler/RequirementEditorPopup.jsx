@@ -301,18 +301,23 @@ function CaptureLine({ capture, dropped, canDropAll, onDropAll, expanded, onExpa
     );
 }
 
+/** The categories listed first, above the dashed rule. */
+const HEAD_CATEGORIES = ['filedFrom', 'lastHovered'];
+
 /** What the capture holds, per category, each droppable until it is sent —
  *  slid open from CaptureLine's Details; with Retry and the saved row's URI. */
 function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
     // Once a save has sent the bundle, the selection is what was sent.
     const editable = stage === 'ready' && !locked;
-    // Filed from always first, a light dashed line, then the rest biggest to
-    // smallest (req #3887). Sizes are fixed at capture time; the sort is stable.
-    const [filedFrom, rest] = useMemo(() => {
+    // Filed from always first — and Last hovered (req #3958) after it — a light
+    // dashed line, then the rest biggest to smallest (req #3887). Sizes are fixed
+    // at capture time; the sort is stable.
+    const [head, rest] = useMemo(() => {
         const cats = capture?.categories ?? [];
-        return [cats.find(c => c.key === 'filedFrom'),
-                cats.filter(c => c.key !== 'filedFrom').sort((a, b) => b.bytes - a.bytes)];
+        return [HEAD_CATEGORIES.map(k => cats.find(c => c.key === k)).filter(Boolean),
+                cats.filter(c => !HEAD_CATEGORIES.includes(c.key)).sort((a, b) => b.bytes - a.bytes)];
     }, [capture]);
+    const filedFrom = head.length > 0;
     return (
         <>
             {capture && (
@@ -323,7 +328,7 @@ function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, on
                         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid',
                                                   gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '0.5em',
                                                   rowGap: '0.1em', alignItems: 'baseline' }}>
-                            {[filedFrom, 'rule', ...rest].filter(Boolean).map((c) => {
+                            {[...head, 'rule', ...rest].filter(Boolean).map((c) => {
                                 if (c === 'rule') {
                                     return filedFrom ? (
                                         <Box component="li" key="rule" aria-hidden="true"

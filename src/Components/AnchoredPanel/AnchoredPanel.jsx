@@ -84,6 +84,17 @@
 // While a drag would dock it on release — over a rack, or the title bar — the
 // panel shimmers in its frame colour (`actionPopupDockCue`), so the reader
 // knows to let go.
+//
+// ── WHAT IT FLIES OVER (req #3958) ─────────────────────────────────────────
+// A host that passes `onMoveTrack` is told, every frame of a head drag, the
+// rect it is drawn at and whether a release would DOCK it (`docking` — over a
+// rack, or the title bar), then once how the drag ended: `drop` (docking: it
+// racked or locked) or `cancel`. The host answers each move frame with whether
+// it is pointing at something; while it is, the panel is drawn translucent so
+// what it points at shows through (the Requirement Filer — filerHover.js).
+// `dockable={false}` (the filer's pushpin picker mode) suspends docking for the
+// drag: no rack and no title bar takes it — dragged out of one it floats — so
+// a bar's own elements are something it can point at.
 
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -101,6 +112,8 @@ import { useTitleBarLock } from './useTitleBarLock';
 
 /** Pointer travel, px, before a head press becomes a move. */
 const MOVE_SLOP = 4;
+/** The panel's opacity while its host points at what it flies over (req #3958). */
+const AIMED_OPACITY = 0.6;
 /** A double-click this soon after a move ended is the move's own release. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
 /** The body's right margin: its scrollbar sits inside the right reshape zone. */
@@ -150,11 +163,16 @@ const viewport = () => ({
  * @param {function} [props.onRackIcon]  the icon's click; default: unfold the bar
  * @param {function} [props.onRackIconPress]  a press on the icon begins, before
  *   focus moves (the Filer notes the field being typed in, req #3829)
+ * @param {function} [props.onMoveTrack]  ({phase: 'move'|'drop'|'cancel', rect,
+ *   docking}) during and at the end of a head drag; a move frame's truthy answer
+ *   draws the panel translucent (req #3958)
+ * @param {boolean} [props.dockable]  false = a drag never racks or title-locks
+ *   it (dragged out of either, it floats) — the filer's picker mode (req #3958)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
     limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, titleLock = null, onTitleLockChange,
-    rackIcon, rackIconLabel, onRackIcon, onRackIconPress,
+    rackIcon, rackIconLabel, onRackIcon, onRackIconPress, onMoveTrack, dockable = true,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -165,6 +183,24 @@ export default function AnchoredPanel({
     const gestureRef = useRef(null);
     const [live, setLive] = useState(null);
     const lastMoveEndRef = useRef(0);
+    // The host points at what the panel flies over (req #3958): drawn translucent.
+    // Set every frame: a gesture followed on the documents runs the press's
+    // closures, whose `aimed` is stale (React skips an unchanged value).
+    const [aimed, setAimed] = useState(false);
+    const aim = setAimed;
+    const onMoveTrackRef = useRef(onMoveTrack);
+    onMoveTrackRef.current = onMoveTrack;
+    // The rect a head drag draws it at — at the height it is drawn: dragged
+    // out of a rack, `last` is only its head's.
+    const drawnRect = (g) => {
+        const h = boxRef.current?.getBoundingClientRect().height;
+        return h ? { ...g.last, height: h } : g.last;
+    };
+    // The drag's end, told once to a host that tracks it.
+    const endTrack = (g, phase, docking = false) => {
+        aim(false);
+        if (g.tracked) onMoveTrack?.({ phase, rect: drawnRect(g), docking });
+    };
     // A fit to content (req #3893) in progress: the rect it was drawn at, for
     // the one measuring render with every cap lifted. Null otherwise.
     const [fitFrom, setFitFrom] = useState(null);
@@ -183,7 +219,13 @@ export default function AnchoredPanel({
         paused: !!live, boxRef, limits });
     const titlePlace = titleBar.place;
     const inTitleBar = !!titlePlace;
-    useEffect(() => () => { gestureRef.current?.unlisten?.(); gestureRef.current = null; }, []);
+    useEffect(() => () => {
+        const g = gestureRef.current;
+        g?.unlisten?.();
+        // Unmounted mid-drag: the host is told it ended, so its outline goes too.
+        if (g?.tracked) onMoveTrackRef.current?.({ phase: 'cancel', rect: g.last, docking: false });
+        gestureRef.current = null;
+    }, []);
     // The body's scroll position, kept across a remount (a lift out of a rack in
     // another document and back) — not written while a gesture reshapes it.
     const scrollRef = useRef(0);
@@ -255,10 +297,16 @@ export default function AnchoredPanel({
             ? moveRect(g.r0, dx, dy, vw, vh)
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         // Lifted only off its own rack: a reorder inside it is drawn where it is.
-        setLive({ ...g.last, edge: g.edge, lifted: !!g.slotDoc && !rackApi.isOverOwn(x, y, g.fromRack) });
+        // Not dockable, it never stays in the rack it came from: lifted at once.
+        setLive({ ...g.last, edge: g.edge,
+            lifted: !!g.slotDoc && (!dockable || !rackApi.isOverOwn(x, y, g.fromRack)) });
         if (g.kind === 'move') {
-            rackApi.track(x, y, g.fromRack, colors.frame);
-            titleBar.track(x, y, colors.frame);
+            const overRackNow = rackApi.track(x, y, g.fromRack, colors.frame, dockable);
+            const overBarNow = dockable && titleBar.track(x, y, colors.frame);
+            if (onMoveTrack) {
+                g.tracked = true;
+                aim(!!onMoveTrack({ phase: 'move', rect: drawnRect(g), docking: !!(overRackNow || overBarNow) }));
+            }
         }
     };
     const onUp = (e) => {
@@ -275,27 +323,29 @@ export default function AnchoredPanel({
         // Only a release places it: a cancelled pointer (or capture lost
         // without one) puts the panel back where it was.
         if (!g.last || e.type !== 'pointerup') {
-            if (g.kind === 'move') { rackApi.cancel(); titleBar.cancel(); }
+            if (g.kind === 'move') { rackApi.cancel(); titleBar.cancel(); endTrack(g, 'cancel'); }
             return;
         }
         lastMoveEndRef.current = Date.now();
         if (g.kind === 'move') {
             const { x, y } = at(g, e);
-            const placed = rackApi.release(x, y, g.fromRack);
+            const placed = rackApi.release(x, y, g.fromRack, dockable);
             // Dropped on the navbar: into the stack where the pointer is.
             // Its floating dock is kept for the day it is dragged back out.
             if (placed === 'racked') {
                 titleBar.cancel();
                 if (titleLock) onTitleLockChange(null);
+                endTrack(g, 'drop', true);
                 return;
             }
             // Dropped on the title bar: locked where it landed (req #3857).
             // Dragged off it, it floats where it was dropped, as below.
             if (onTitleLockChange) {
-                const lock = titleBar.release(x, y, g.last);
-                if (lock) { onTitleLockChange(lock); return; }
+                const lock = dockable ? titleBar.release(x, y, g.last) : (titleBar.cancel(), null);
+                if (lock) { onTitleLockChange(lock); endTrack(g, 'drop', true); return; }
                 if (titleLock) onTitleLockChange(null);
             }
+            endTrack(g, 'drop');
             // Dragged off the navbar: floats where it was dropped. Its floating
             // size is not the navbar's, so — like a toggle — pin its left and
             // top, and re-dock once that size has drawn (the effect below).
@@ -438,6 +488,8 @@ export default function AnchoredPanel({
                     overflow: 'hidden', boxSizing: 'border-box', ...sx,
                     // Over the navbar, see the drop zone through it.
                     ...(overRack && { opacity: 0.75 }),
+                    // Pointing at what it flies over: see that through it.
+                    ...(aimed && moving && { opacity: AIMED_OPACITY }),
                     ...(dockCue && actionPopupDockCue(colors.frame)),
                     // In the stack: square, flat. The rack's row sizes it: open,
                     // the height its rows need and no more (req #3747), giving
