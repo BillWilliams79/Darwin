@@ -101,6 +101,10 @@ let requirements;
 let orchestrationClaims;
 let loading;
 let initiativeDeps = [];
+// req #3978 — the All Active box's reads.
+let requirementSessions;
+let sessionTerminals;
+let requirementsError = false;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -112,10 +116,14 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllPipelineEpicRequirements: () => ({
             data: epicRequirements, isLoading: loading.links }),
-        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements }),
+        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements,
+            isError: requirementsError }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
         // req #3823 — initiative-to-initiative edges (none unless a test seeds them).
         useAllInitiativeDeps: () => ({ data: initiativeDeps }),
+        useAllRequirementSessions: () => ({ data: requirementSessions }),
+        useAllSessionTerminals: () => ({ data: sessionTerminals }),
+        useDevServers: () => ({ data: [] }),
     };
 });
 
@@ -134,6 +142,21 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
 vi.mock('../PipelinePlanThumbnail', () => ({
     default: ({ pipelineId }) => (
         <div data-testid={`pipelines-card-thumb-${pipelineId}`} />
+    ),
+}));
+
+// req #3972 — the Pipeline group view is STUBBED here for the thumbnail's
+// reason: it draws with WebGL, which jsdom does not have. The stub exposes
+// what the PAGE hands it (the plans, the focus) and its two callbacks, so the
+// page's wiring — `?view=group`, `?focus=` — is what these tests pin.
+vi.mock('../PipelineGroupView', () => ({
+    default: ({ pipelines: shown, focusId, onFocusChange, onOpen }) => (
+        <div data-testid="pipelines-group-view" data-focus={focusId ?? ''}
+             data-ids={shown.map((p) => p.id).join(',')}>
+            <button data-testid="group-stub-focus-8" onClick={() => onFocusChange(8)} />
+            <button data-testid="group-stub-clear" onClick={() => onFocusChange(null)} />
+            <button data-testid="group-stub-open-7" onClick={() => onOpen(7)} />
+        </div>
     ),
 }));
 
@@ -249,6 +272,9 @@ beforeEach(() => {
         { id: 901, requirement_status: 'development' },
     ];
     orchestrationClaims = [];
+    requirementsError = false;
+    requirementSessions = [{ requirement_fk: 901, session_fk: 3001 }];
+    sessionTerminals = [{ id: 3001, swarm_status: 'active' }];
     useSnackBarStore.setState({ open: false, message: '' });
 });
 
@@ -256,6 +282,38 @@ afterEach(() => {
     act(() => { mountedRoots.forEach(r => r.unmount()); });
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+});
+
+// req #3978 — every plan's Active box in one, on this page.
+describe('PipelinesPage2 — All Active', () => {
+    it('lists the active requirements of every plan in the Active box', () => {
+        requirements = [
+            { id: 900, title: 'Done thing', requirement_status: 'met' },
+            { id: 901, title: 'Running thing', requirement_status: 'development' },
+        ];
+        mount();
+        expect(node('pipelines-all-active-title').textContent).toBe('All Active');
+        expect(node('pipelines-all-active-count').textContent).toBe('1');
+        expect(node('pipelines-all-active-item-title-901').textContent).toBe('Running thing');
+        expect(node('pipelines-all-active-item-900')).toBeNull();
+        click(node('pipelines-all-active-item-901'));
+        expect(navigations).toEqual(['/swarm/requirement/901']);
+    });
+
+    it('reads loading, not None running, until the session reads have data', () => {
+        sessionTerminals = undefined;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
+
+    it('reads loading, not None running, when the requirement read failed', () => {
+        requirements = [];
+        requirementsError = true;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
 });
 
 describe('PipelinesPage2 — Cards view (default)', () => {
@@ -459,6 +517,63 @@ describe('PipelinesPage2 — view toggle', () => {
         click(node('view-toggle-cards'));
         expect(node('pipelines-cards-view')).not.toBeNull();
         expect(node('location-probe').textContent).toBe('?view=cards');
+    });
+});
+
+describe('PipelinesPage2 — Pipeline group view (req #3972)', () => {
+    const groupView = async (entry) => {
+        mount(entry);
+        await flush();
+        return node('pipelines-group-view');
+    };
+
+    it('is a third view in the toggle and renders every shown plan', async () => {
+        mount();
+        expect(node('view-toggle-group')).not.toBeNull();
+        click(node('view-toggle-group'));
+        await flush();
+        const view = node('pipelines-group-view');
+        expect(view).not.toBeNull();
+        expect(view.dataset.ids).toBe('7,8');
+        expect(node('pipelines-cards-view')).toBeNull();
+        expect(localStorage.getItem('darwin-swarm-pipelines-view')
+            ?? sessionStorage.getItem('darwin-swarm-pipelines-view')).toContain('group');
+    });
+
+    it('opens from a ?view=group link and honours the page filters', async () => {
+        sessionStorage.setItem('darwin-swarm-pipelines-status-filter', JSON.stringify(['active']));
+        const view = await groupView('/swarm/pipelines?view=group');
+        expect(view.dataset.ids).toBe('7');
+    });
+
+    it('reads the focused pipeline from ?focus= and writes it back on a focus change', async () => {
+        const view = await groupView('/swarm/pipelines?view=group&focus=7');
+        expect(view.dataset.focus).toBe('7');
+        click(node('group-stub-focus-8'));
+        expect(node('pipelines-group-view').dataset.focus).toBe('8');
+        expect(node('location-probe').textContent).toBe('?view=group&focus=8');
+        click(node('group-stub-clear'));
+        expect(node('pipelines-group-view').dataset.focus).toBe('');
+        expect(node('location-probe').textContent).toBe('?view=group');
+    });
+
+    it('ignores a ?focus= that is not a pipeline id', async () => {
+        const view = await groupView('/swarm/pipelines?view=group&focus=abc');
+        expect(view.dataset.focus).toBe('');
+    });
+
+    it('leaving the view drops ?focus=', async () => {
+        await groupView('/swarm/pipelines?view=group&focus=7&keep=1');
+        click(node('view-toggle-cards'));
+        expect(node('pipelines-cards-view')).not.toBeNull();
+        expect(node('location-probe').textContent).toBe('?keep=1');
+    });
+
+    it('opens a plan\'s visualizer from the focus panel', async () => {
+        await groupView('/swarm/pipelines?view=group');
+        click(node('group-stub-open-7'));
+        expect(navigations).toHaveLength(1);
+        expect(String(navigations[0])).toContain('7');
     });
 });
 

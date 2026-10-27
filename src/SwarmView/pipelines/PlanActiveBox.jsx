@@ -29,6 +29,11 @@
 // Shaped narrower than ACTIVE_TINY_W, every title goes: each row is its id
 // and pills (the Dev Servers dashboard's rule). Where it sits, its shape and
 // whether it is open are remembered per browser (usePlanActiveBoxStore).
+//
+// ── ALL ACTIVE (req #3978) ─────────────────────────────────────────────────
+// The Pipelines page draws this same box as "All Active", fed every plan's
+// active requirements: only its name, test ids, rack id and remembered place
+// (its own store) differ, all passed in — the rows are this file's.
 
 import { memo } from 'react';
 
@@ -109,23 +114,28 @@ function Pill({ kind, label, title, onActivate, testid }) {
  * @param {boolean} [props.isLoading] the session reads have not settled
  * @param {function} [props.onOpen]   (id) — open the requirement
  * @param {boolean} [props.maximized] the page is maximized (no navbar)
+ * @param {string} [props.name]       the head's title
+ * @param {string} [props.testid]     the test-id prefix of every element
+ * @param {string} [props.rackId]     its id in the navbar rack
+ * @param {function} [props.store]    its open/dock store (createActiveBoxStore)
  */
-function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, onOpen, maximized = false }) {
-    const open = usePlanActiveBoxStore(s => s.open);
-    const storedDock = usePlanActiveBoxStore(s => s.dock);
-    const { toggleOpen, setDock } = usePlanActiveBoxStore.getState();
+function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, onOpen, maximized = false,
+    name = 'Active', testid: t = 'pipeline-viz-active', rackId = 'active', store = usePlanActiveBoxStore }) {
+    const open = store(s => s.open);
+    const storedDock = store(s => s.dock);
+    const { toggleOpen, setDock } = store.getState();
     const dock = validDock(storedDock, ACTIVE_MIN_W, ACTIVE_MIN_H) || (maximized ? ACTIVE_HOME_MAXIMIZED : ACTIVE_HOME);
     const count = items.length;
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
-                       name="Active" testid="pipeline-viz-active" rackId="active"
-                       rackIcon={PlayCircleOutlineIcon} rackIconLabel={`Active — ${isLoading ? 'loading' : count}\nClick to expand`}
+                       name={name} testid={t} rackId={rackId}
+                       rackIcon={PlayCircleOutlineIcon} rackIconLabel={`${name} — ${isLoading ? 'loading' : count}\nClick to expand`}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={
-                           <ActionPopupBadge testid="pipeline-viz-active-count">
+                           <ActionPopupBadge testid={`${t}-count`}>
                                {isLoading ? '…' : count}
                            </ActionPopupBadge>
                        }>
@@ -133,9 +143,9 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                 // Content-sized (null) is never cut.
                 const tiny = shapedWidth != null && shapedWidth < ACTIVE_TINY_W;
                 return (
-                    <Box data-testid="pipeline-viz-active-list" data-small={tiny ? '1' : '0'}>
+                    <Box data-testid={`${t}-list`} data-small={tiny ? '1' : '0'}>
                         {!isLoading && count === 0 && (
-                            <Box data-testid="pipeline-viz-active-empty"
+                            <Box data-testid={`${t}-empty`}
                                  sx={{ px: '0.7em', py: '0.3em', color: P.dim }}>
                                 None running
                             </Box>
@@ -149,7 +159,7 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                             const session = SESSION_LABEL[r.sessionStatus] || r.sessionStatus;
                             return (
                                 <Box key={id}
-                                     data-testid={`pipeline-viz-active-item-${id}`}
+                                     data-testid={`${t}-item-${id}`}
                                      data-session={r.sessionStatus}
                                      title={`${id} — ${r.title}${session ? ` · ${session}` : ''}`}
                                      onClick={() => onOpen?.(id)}
@@ -165,19 +175,19 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                                             fontFamily: MONO, color: rs.fill,
                                             fontWeight: rs.bold ? 700 : 400,
                                             '&:hover': { background: '#16233a' } }}>
-                                    <Box component="span" data-testid={`pipeline-viz-active-item-id-${id}`}
+                                    <Box component="span" data-testid={`${t}-item-id-${id}`}
                                          sx={{ flexShrink: 0, minWidth: '4ch', lineHeight: `${REQ_PILL_H_EM}em` }}>
                                         {id}
                                     </Box>
                                     {term && (
                                         <Pill kind="terminal" label={term.label} title={term.title}
-                                              testid={`pipeline-viz-active-term-${id}`}
+                                              testid={`${t}-term-${id}`}
                                               onActivate={term.href
                                                   ? () => { window.location.href = term.href; } : null} />
                                     )}
                                     {ds && (
                                         <Pill kind="devserver" label={ds.port} title={ds.title}
-                                              testid={`pipeline-viz-active-port-${id}`}
+                                              testid={`${t}-port-${id}`}
                                               onActivate={ds.local ? () => {
                                                   try { window.open(ds.url, '_blank', 'noopener,noreferrer'); }
                                                   catch (e) { /* popup blocked — no-op */ }
@@ -185,7 +195,7 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                                     )}
                                     {!tiny && (
                                         // One line, then "…" (req #3729).
-                                        <Box component="span" data-testid={`pipeline-viz-active-item-title-${id}`}
+                                        <Box component="span" data-testid={`${t}-item-title-${id}`}
                                              sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
                                                     lineHeight: `${REQ_PILL_H_EM}em`,
                                                     whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
