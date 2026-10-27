@@ -132,6 +132,32 @@ export async function deleteEpicFreeingDependents(darwinUri, idToken, epicId, de
 }
 
 /**
+ * HARD-delete requirements — the editors' "also delete its requirements"
+ * (req #3967). ONE bulk DELETE, which the gateway runs as ONE statement, so
+ * the set goes whole or not at all. Each requirement's seat, session links,
+ * test-case links and debug capture CASCADE with it. A 404 means none of them
+ * exists any more, which is the goal.
+ *
+ * Called AFTER the epic or initiative delete, never before: that delete can be
+ * refused (and rolled back), and a requirement cannot be brought back.
+ *
+ * @param {number[]} ids
+ */
+export async function deleteRequirements(darwinUri, idToken, ids = []) {
+    const unique = [...new Set(ids)].filter((id) => id != null);
+    if (!unique.length) return null;
+    let r;
+    try {
+        r = await call_rest_api(`${darwinUri}/requirements`, 'DELETE',
+            unique.map((id) => ({ id })), idToken);
+    } catch (error) {
+        if (error?.httpStatus?.httpStatus === 404) return null;
+        throw error;
+    }
+    return assertOk(r, 'deleteRequirements');
+}
+
+/**
  * Move a requirement's seat from one epic to another — the ONE implementation
  * of a seat edit in the browser (req #3435 wrote it inline in RequirementDetail;
  * req #3581's plan-visualizer drag-and-drop is its second caller, so it lives

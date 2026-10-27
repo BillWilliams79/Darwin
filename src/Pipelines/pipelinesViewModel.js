@@ -40,6 +40,7 @@
 // a component, a mutation function, or a state-derivation guard is not.
 
 import { initiativeDepCounts } from '../SwarmView/pipelines/pipelineInitiativeDeps';
+import { isActiveRequirement } from '../SwarmView/pipelines/planActiveReqs';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -178,6 +179,17 @@ export function frontSortOrder(pipelines) {
 }
 
 /**
+ * `pipelines` with the `sort_order` of every plan `positions` (a Map of id →
+ * sort_order) names replaced — a drop's new order laid over the live rows
+ * (req #3966). No positions returns `pipelines` itself.
+ */
+export function withPositions(pipelines, positions) {
+    if (!positions?.size) return pipelines;
+    return (pipelines || []).map((p) => (positions.has(p.id)
+        ? { ...p, sort_order: positions.get(p.id) } : p));
+}
+
+/**
  * Move `fromId` to where `toId` stands in `ordered` (arrayMove semantics: the
  * dragged plan takes the target's index, the rest close up behind it), then
  * renumber 0..n-1. Returns the reordered rows and the `{id, sort_order}`
@@ -197,4 +209,68 @@ export function reorderPipelines(ordered, fromId, toId) {
         .filter((p, index) => position(rows[index]) !== index)
         .map((p) => ({ id: p.id, sort_order: p.sort_order }));
     return { rows: renumbered, writes };
+}
+
+// ── All Active (req #3978) ──────────────────────────────────────────────────
+/**
+ * Every requirement seated on ANY plan whose latest session is under way — the
+ * plan visualizer's Active box rule (`isActiveRequirement`, planActiveReqs.js),
+ * applied across all plans, closed ones included: a session still running on a
+ * parked plan is still running. No sort and no source column (user directive):
+ * listed in this page's own plan order (`orderPipelines`), each plan's
+ * requirements in seat order, each requirement once.
+ *
+ * @param {Object} args
+ * @param {Object[]} args.pipelines         pipelines rows
+ * @param {Object[]} args.initiatives       ALL initiatives rows (epic -> plan)
+ * @param {Object[]} args.epics             ALL epics rows
+ * @param {Object[]} args.epicRequirements  ALL epic_requirements rows
+ * @param {Object[]} args.requirements      any superset (`id`, `title`, `requirement_status`)
+ * @param {?Map} args.sessionStatus         requirement id -> latest session status
+ *                                          (buildSessionStatusIndex); null = not read yet
+ * @returns {Array<{id: number, title: string, sessionStatus: string,
+ *                  status: string, machineFk: ?number}>}
+ */
+export function allActiveRequirements({ pipelines, initiatives, epics, epicRequirements,
+    requirements, sessionStatus } = {}) {
+    if (!sessionStatus) return [];
+    const pipelineByInitiative = new Map();
+    for (const e of asArray(initiatives)) {
+        if (e && e.id != null) pipelineByInitiative.set(Number(e.id), Number(e.pipeline_fk));
+    }
+    const pipelineByEpic = new Map();
+    for (const s of asArray(epics)) {
+        if (!s || s.id == null) continue;
+        const pipelineId = pipelineByInitiative.get(Number(s.initiative_fk));
+        if (pipelineId != null) pipelineByEpic.set(Number(s.id), pipelineId);
+    }
+    const seatsByPipeline = new Map();
+    for (const link of asArray(epicRequirements)) {
+        if (!link) continue;
+        const pipelineId = pipelineByEpic.get(Number(link.epic_fk));
+        if (pipelineId == null) continue;
+        if (!seatsByPipeline.has(pipelineId)) seatsByPipeline.set(pipelineId, []);
+        seatsByPipeline.get(pipelineId).push(Number(link.requirement_fk));
+    }
+    const byId = new Map();
+    for (const r of asArray(requirements)) {
+        if (r && r.id != null) byId.set(Number(r.id), r);
+    }
+
+    const out = [];
+    const seen = new Set();
+    for (const p of orderPipelines(asArray(pipelines))) {
+        for (const id of seatsByPipeline.get(Number(p?.id)) || []) {
+            if (seen.has(id)) continue;
+            const r = byId.get(id);
+            const session = sessionStatus.get(id);
+            if (!r || !isActiveRequirement({ ...r, session_status: session })) continue;
+            seen.add(id);
+            out.push({
+                id, title: r.title ?? '', sessionStatus: session,
+                status: r.requirement_status, machineFk: r.machine_fk ?? null,
+            });
+        }
+    }
+    return out;
 }

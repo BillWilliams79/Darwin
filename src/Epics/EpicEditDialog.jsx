@@ -11,6 +11,8 @@
 // req #3867 — a caller that passes `deletion` also gets a Delete button: every
 // epic waiting on this one is freed of that dependency, then the epic goes
 // (`deleteEpicFreeingDependents`, the same delete the Epics table makes, req #3877).
+// req #3967 — the confirmation offers to delete the epic's requirements too,
+// unticked by default, with the count either way.
 
 import { useContext, useState } from 'react';
 
@@ -28,6 +30,8 @@ import InputLabel from '@mui/material/InputLabel';
 import FormControl from '@mui/material/FormControl';
 import Alert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -37,6 +41,7 @@ import {
     VALID_RUN2_MODES,
     createEpic,
     deleteEpicFreeingDependents,
+    deleteRequirements,
     isRestNullLiteral,
     updateEpic,
 } from './epicsApi';
@@ -86,13 +91,21 @@ const deleteBlockedReason = (epic, inheritedLock, deletion) => {
     return null;
 };
 
+// The requirements seated in the epic: `reqIds` when the caller has them
+// (needed to delete them), else just the count.
+const reqIdsOf = (deletion) => deletion?.reqIds || [];
+const reqCountOf = (deletion) => (deletion?.reqIds ? deletion.reqIds.length : deletion?.reqCount || 0);
+
 // What the delete does, in the confirmation's words.
-export const deleteConsequence = (epic, deletion) => {
-    const parts = [`Delete epic ${epic.id} "${epic.title || ''}"? This cannot be undone.`];
-    const reqCount = deletion.reqCount || 0;
-    if (reqCount) {
-        parts.push(`Its ${plural(reqCount, 'requirement')} become${reqCount === 1 ? 's' : ''} `
-            + 'un-orchestrated — the requirements themselves are not deleted.');
+export const deleteConsequence = (epic, deletion, alsoRequirements = false) => {
+    const parts = [`Delete epic ${epic.id} "${epic.title || ''}"? This is permanent — there is no undo.`];
+    const reqCount = reqCountOf(deletion);
+    if (reqCount && alsoRequirements) {
+        parts.push(`Its ${plural(reqCount, 'requirement')} `
+            + `(${reqIdsOf(deletion).join(', ')}) ${reqCount === 1 ? 'is' : 'are'} deleted too.`);
+    } else if (reqCount) {
+        parts.push(`Its ${plural(reqCount, 'requirement')} ${reqCount === 1 ? 'is' : 'are'} `
+            + 'kept — un-orchestrated, not deleted.');
     }
     const dependents = (deletion.dependents || []).map((d) => d.id);
     if (dependents.length) {
@@ -114,8 +127,11 @@ export const deleteConsequence = (epic, deletion) => {
  * @param {function} props.onClose
  * @param {function} props.onSaved      after a successful write, before onClose
  * @param {?Object} [props.deletion]      req #3867 — enables Delete on an existing
- *                                 epic: `{ reqCount, dependents: [{ id, locked }] }`
- *                                 — the epics waiting on it — from rows the caller holds
+ *                                 epic: `{ reqIds, dependents: [{ id, locked }] }`
+ *                                 — the requirements seated in it and the epics
+ *                                 waiting on it — from rows the caller holds.
+ *                                 `reqCount` in place of `reqIds` shows the count
+ *                                 but cannot offer to delete them (req #3967).
  */
 export default function EpicEditDialog({
     open, epic, initiativeOptions, defaultInitiativeFk = '', onClose, onSaved, deletion = null,
@@ -133,6 +149,8 @@ export default function EpicEditDialog({
     const [formLocked, setFormLocked] = useState(!!epic?.locked);
     const [submitting, setSubmitting] = useState(false);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
+    // req #3967 — unticked by default: an epic's delete keeps its requirements.
+    const [alsoDeleteReqs, setAlsoDeleteReqs] = useState(false);
     const initiativeName = epic
         ? (initiativeOptions.find((o) => String(o.id) === String(epic.initiative_fk))?.title
             || (epic.initiative_fk == null ? '(none)' : `Initiative ${epic.initiative_fk}`))
@@ -164,15 +182,23 @@ export default function EpicEditDialog({
             await deleteEpicFreeingDependents(darwinUri, idToken, epic.id,
                 (deletion.dependents || []).map((d) => d.id));
             deleted = true;
+            // Only after the epic is gone: its delete can be refused and rolled
+            // back, a requirement's cannot.
+            if (alsoDeleteReqs && reqIdsOf(deletion).length) {
+                await deleteRequirements(darwinUri, idToken, reqIdsOf(deletion));
+            }
         } catch (err) {
             setConfirmingDelete(false);
-            showError(err, 'Could not delete epic');
+            showError(err, deleted
+                ? `Epic ${epic.id} was deleted, but its requirements could not be`
+                : 'Could not delete epic');
         } finally {
             setSubmitting(false);
         }
         // Re-read either way: after a failure, whatever landed (or its
-        // rollback) is the plan now.
-        await onSaved?.();
+        // rollback) is the plan now. A deleted epic changes its requirements
+        // too (deleted, or un-seated — `pipelined` is derived).
+        await onSaved?.({ deleted, requirementsDeleted: deleted && alsoDeleteReqs });
         if (deleted) onClose();
     };
 
@@ -353,12 +379,22 @@ export default function EpicEditDialog({
             </DialogContent>
             {confirmingDelete && (
                 <Alert severity="warning" sx={{ mx: 3 }} data-testid="epic-delete-consequence">
-                    {deleteConsequence(epic, deletion)}
+                    {deleteConsequence(epic, deletion, alsoDeleteReqs)}
                 </Alert>
+            )}
+            {confirmingDelete && reqIdsOf(deletion).length > 0 && (
+                <FormControlLabel sx={{ mx: 3, mt: 1 }}
+                    control={<Checkbox checked={alsoDeleteReqs} disabled={submitting}
+                                       onChange={(e) => setAlsoDeleteReqs(e.target.checked)}
+                                       slotProps={{ input: {
+                                           'data-testid': 'epic-delete-requirements' } }} />}
+                    label={`Also delete its ${plural(reqIdsOf(deletion).length, 'requirement')} `
+                        + '— permanently'} />
             )}
             {confirmingDelete ? (
                 <DialogActions>
-                    <Button onClick={() => setConfirmingDelete(false)} disabled={submitting}
+                    <Button onClick={() => { setConfirmingDelete(false); setAlsoDeleteReqs(false); }}
+                            disabled={submitting}
                             data-testid="epic-delete-keep">Keep epic</Button>
                     <Button variant="contained" color="error" onClick={handleDelete}
                             disabled={submitting} autoFocus

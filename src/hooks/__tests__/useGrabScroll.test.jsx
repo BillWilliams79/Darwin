@@ -28,6 +28,8 @@ function Surface({ onClick }) {
             <div data-testid="body">card</div>
             <input data-testid="field" />
             <span data-drag-handle="true" data-testid="grip">⋮</span>
+            <a href="/x" data-testid="link">link</a>
+            <a href="/y" data-grab-through="true" data-testid="through">picture</a>
         </div>
     );
 }
@@ -89,6 +91,23 @@ describe('useGrabScroll', () => {
             pointer('pointerup', window);
         }
         expect(writes).toEqual([]);
+        delete scroller.scrollTop;
+    });
+
+    // req #4027 — the pipeline card's preview is a link AND a place to pan from.
+    it('never grabs from a link, unless it is marked data-grab-through', () => {
+        act(() => root.render(<Surface />));
+        const writes = [];
+        Object.defineProperty(scroller, 'scrollTop', {
+            configurable: true, get: () => 0, set: (v) => writes.push(v) });
+        pointer('pointerdown', q('link'), { x: 0, y: 100 });
+        pointer('pointermove', window, { x: 0, y: 20 });
+        pointer('pointerup', window);
+        expect(writes).toEqual([]);
+        pointer('pointerdown', q('through'), { x: 0, y: 100 });
+        pointer('pointermove', window, { x: 0, y: 20 });
+        pointer('pointerup', window);
+        expect(writes.at(-1)).toBe(80);
         delete scroller.scrollTop;
     });
 

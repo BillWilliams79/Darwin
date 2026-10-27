@@ -12,7 +12,7 @@
 //
 // Touch and pen are left alone — a finger already scrolls the page natively.
 // A press on a text field, a button, a link, a menu or a drag grip is that
-// control's, never a grab.
+// control's, never a grab — unless the control opts in with `data-grab-through`.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -143,7 +143,10 @@ export default function useGrabScroll({ enabled = true } = {}) {
             if (e.pointerType !== 'mouse' || e.button !== 0) return;
             const target = e.target;
             if (!(target instanceof win.Element) || !node.contains(target)) return;
-            if (target.closest(GRAB_EXCLUDE)) return;
+            // A control marked `data-grab-through` (a link that is also a picture to
+            // pan from — the pipeline card's preview, req #4027) still grabs.
+            const control = target.closest(GRAB_EXCLUDE);
+            if (control && !control.hasAttribute('data-grab-through')) return;
             press = {
                 x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
                 t: win.performance.now(), vx: 0, vy: 0, panning: false,

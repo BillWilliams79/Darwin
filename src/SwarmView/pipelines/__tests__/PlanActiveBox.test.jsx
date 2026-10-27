@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import PlanActiveBox from '../PlanActiveBox';
-import { usePlanActiveBoxStore } from '../../../stores/usePlanActiveBoxStore';
+import { usePlanActiveBoxStore, useAllActiveBoxStore } from '../../../stores/usePlanActiveBoxStore';
 import { usePanelRackStore } from '../../../stores/usePanelRackStore';
 import { REQ_PILL_FONT_EM, REQ_PILL_H_EM, REQ_PILL_STYLE } from '../planReqPills';
 
@@ -139,5 +139,24 @@ describe('PlanActiveBox (req #3721)', () => {
         rerender(<PlanActiveBox items={[]} idStyleOf={idStyleOf} isLoading />);
         expect(screen.queryByTestId('pipeline-viz-active-empty')).toBeNull();
         expect(screen.getByTestId('pipeline-viz-active-count').textContent).toBe('…');
+    });
+
+    // req #3978 — the Pipelines page's All Active box is this component with
+    // its own name, test ids, rack id and remembered place.
+    it('takes a name, test ids, rack id and store of its own (All Active)', () => {
+        useAllActiveBoxStore.setState({ open: true, dock: null });
+        render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf}
+                              name="All Active" testid="pipelines-all-active"
+                              rackId="all-active" store={useAllActiveBoxStore} />);
+        expect(screen.getByTestId('pipelines-all-active-title').textContent).toBe('All Active');
+        expect(screen.getByTestId('pipelines-all-active-count').textContent).toBe('2');
+        expect(screen.getByTestId('pipelines-all-active-term-3721').textContent).toBe('Terminal 2');
+        expect(screen.getByTestId('pipelines-all-active-item-title-3720').textContent)
+            .toBe('Make Dev Server rackable');
+        expect(screen.getByTestId('pipelines-all-active').getAttribute('data-rack-id')).toBe('all-active');
+        expect(screen.queryByTestId('pipeline-viz-active')).toBeNull();
+        fireEvent.click(screen.getByTestId('pipelines-all-active-toggle'));
+        expect(useAllActiveBoxStore.getState().open).toBe(false);
+        expect(usePlanActiveBoxStore.getState().open).toBe(true);
     });
 });

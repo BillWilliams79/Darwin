@@ -25,11 +25,13 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //     popup moved into it, and folding it moved them all back). A popup racked
 //     in the toolbar on a page with no toolbar is drawn at the bottom of the
 //     navbar's stack meanwhile, still the toolbar's (`rackPlacement`).
-//   • `drag` — `{ id, over, rack, index, fromRack, from, color }` while a
+//   • `drag` — `{ id, over, rack, index, fromRack, from, color, z }` while a
 //     rackable panel is being moved: `over` = the pointer is on a rack, `rack`
 //     = which ('nav' | 'page'), `index` = where in that stack it would land,
 //     `from` = the rack it is drawn in now (null = floating), `color` = the
 //     panel's frame. The rack under it glows in that colour (req #3728).
+//     `z` = the panel's own z-index when it has one (null = the default),
+//     which the navbar lifts to while carrying it out (req #4044).
 //   • `seeded` — the ids of panels that are racked BY DEFAULT (req #3727 — the
 //     navbar's Dev Server panel) and have been racked once already. `seed(id)`
 //     racks such a panel the first time it mounts in this browser, at the

@@ -55,15 +55,18 @@ vi.mock('../debugBundle', async (importOriginal) => {
 });
 
 import RequirementFiler, { CREATE_WAIT_MS, FILER_RACK_ID, createSettled } from '../RequirementFiler';
-import RequirementEditorPopup from '../RequirementEditorPopup';
+import RequirementEditorPopup, { EDITOR_HOME, descriptionSizePx } from '../RequirementEditorPopup';
 import FilerDataScope from '../filerScope';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
-import { migrateFilerState, useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
+import { EDITOR_DEFAULT_HT, migrateFilerState, useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
+import { FILER_Z } from '../filerHover';
+import { PANEL_Z } from '../../Components/AnchoredPanel/AnchoredPanel';
 import { draftDirty } from '../requirementFilerModel';
 import { registerEpicAim } from '../filerEpicAim';
+import { categoryAimAt, filerPinned, placeProblem } from '../filerCategoryAim';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
@@ -130,6 +133,7 @@ describe('Requirement Filer (req #3811)', () => {
             show: false, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: null, lastCategoryId: null,
             draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
+            descriptionCollapsed: false,
         });
     });
     afterEach(cleanup);
@@ -142,6 +146,8 @@ describe('Requirement Filer (req #3811)', () => {
         fireEvent.click(control);
         const panel = screen.getByTestId('requirement-filer');
         expect(panel.getAttribute('data-rack-id')).toBe(FILER_RACK_ID);
+        // Floating, it stacks over every other Action Popup (req #4044).
+        expect(getComputedStyle(panel).zIndex).toBe(String(FILER_Z));
         expect(screen.getByTestId('requirement-filer-title').textContent).toBe('Requirement');
         expect(screen.getByTestId('requirement-filer-toggle')).toBeTruthy();
         // The + creates (req #3830); the body lists what it filed — nothing yet, and says nothing.
@@ -164,6 +170,8 @@ describe('Requirement Filer (req #3811)', () => {
         const panel = screen.getByTestId('requirement-filer');
         expect(panel.getAttribute('data-racked')).toBe('1');
         expect(screen.getByTestId('navbar-rack-slot').contains(panel)).toBe(true);
+        // In the rack it is one of the stack, raised over none of them (req #4044).
+        expect(getComputedStyle(panel).zIndex).toBe(String(PANEL_Z));
         fireEvent.click(screen.getByTestId('requirement-filer-toggle'));
         expect(screen.getByTestId('requirement-filer-body').getAttribute('data-folded')).toBe('1');
         expect(useRequirementFilerStore.getState().open).toBe(false);
@@ -273,6 +281,22 @@ describe('Requirement Filer (req #3811)', () => {
         await waitFor(() => expect(screen.getByTestId('requirement-filer-note').textContent).toContain('#3998 no longer exists'));
         expect(screen.queryByTestId('requirement-filer-item-3998')).toBe(null);
         expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('3999');
+    });
+
+    it('Clear empties the filed list, and is drawn only while there is one (req #3975)', async () => {
+        useRequirementFilerStore.setState({ show: true, filed: [{ id: 3999, title: 'A' }, { id: 3998, title: 'B' }] });
+        renderAll();
+        rest.mockRejectedValueOnce({ data: [], httpStatus: { httpStatus: 404 } });
+        fireEvent.click(screen.getByTestId('requirement-filer-item-3998'));
+        await waitFor(() => expect(screen.getByTestId('requirement-filer-note')).toBeTruthy());
+        fireEvent.click(screen.getByTestId('requirement-filer-clear'));
+        expect(useRequirementFilerStore.getState().filed).toEqual([]);
+        expect(screen.queryByTestId('requirement-filer-item-3999')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-note')).toBe(null);
+        expect(screen.queryByTestId('requirement-filer-clear')).toBe(null);
+        expect(screen.getByTestId('requirement-filer-list').textContent).toBe('');
+        // The list only: nothing was sent for the requirements themselves.
+        expect(rest).toHaveBeenCalledTimes(1);
     });
 
     it('a new requirement joins the list when it is filed, newest first (req #3830)', async () => {
@@ -390,7 +414,8 @@ describe('Requirement Filer (req #3811)', () => {
         fill('machine', '2');
         setDraft({ affected_repos: 'Darwin' });
         expect(screen.queryByTestId('requirement-editor-field-repos')).toBe(null);
-        fireEvent.click(screen.getByTestId('requirement-editor-field-tracking'));
+        // No tracking (container) flag (req #3982).
+        expect(screen.queryByTestId('requirement-editor-field-tracking')).toBe(null);
 
         rest.mockResolvedValueOnce(ok([{ id: 3999, title: 'File from anywhere' }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
@@ -401,8 +426,9 @@ describe('Requirement Filer (req #3811)', () => {
         expect(body).toMatchObject({
             title: 'File from anywhere', description: 'The body', category_fk: 862,
             requirement_status: 'swarm_ready', coordination_type: 'deployed', ai_model: 'sonnet',
-            effort: 'medium', machine_fk: 2, affected_repos: 'Darwin', tracking: 1,
+            effort: 'medium', machine_fk: 2, affected_repos: 'Darwin',
         });
+        expect(body).not.toHaveProperty('tracking');
         const link = screen.getByTestId('requirement-editor-id-link');
         expect(link.textContent).toBe('3999');
         expect(link.getAttribute('href')).toBe('/swarm/requirement/3999');
@@ -566,11 +592,55 @@ describe('Requirement Filer (req #3811)', () => {
         expect(document.activeElement).not.toBe(screen.getByTestId('requirement-editor-field-title'));
     });
 
-    it('is addressable: ?filer=new opens the filer and a new requirement', () => {
-        renderAll({ at: '/swarm?filer=new' });
+    // ── Req #3974 — the editor opens on a press of the +, never on its own ──
+    it.each(['1', 'new', 'bug'])('is addressable: ?filer=%s opens the filer and never the editor', (param) => {
+        useRequirementFilerStore.setState({ show: false });
+        renderAll({ at: `/swarm?filer=${param}` });
         expect(screen.getByTestId('requirement-filer')).toBeTruthy();
-        expect(screen.getByTestId('requirement-editor')).toBeTruthy();
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        expect(useRequirementFilerStore.getState().draftKey).toBe(0);
+        // The + is what opens it.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+    });
+
+    it('an editor left open does not come back on the next load; its draft does', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        const stored = JSON.parse(localStorage.getItem('darwin_requirement_filer'));
+        expect(stored.state).not.toHaveProperty('editorShow');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().draft.title).toBe('half written');
+    });
+
+    it('a draft a reload hid is asked about at the next +, and shown if kept', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'half written');
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(screen.queryByTestId('requirement-editor')).toBeNull();
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('half written');
+        // Closed by the reader with ×, it is theirs to drop: the next + does not ask.
+        act(() => { useRequirementFilerStore.getState().setEditorShow(false); });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
+        confirm.mockRestore();
+    });
+
+    it('a store written before req #3974 with the editor shown loads it closed', async () => {
+        localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 3,
+            state: { show: true, editorShow: true, filedInto: 'darwin', draft: null } }));
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().show).toBe(true);
     });
 
     it('asks before discarding unsaved changes', () => {
@@ -775,6 +845,97 @@ describe('Requirement Filer (req #3811)', () => {
         await new Promise(r => setTimeout(r, 900));
         expect(rest).toHaveBeenCalledTimes(1);
     });
+
+    it('every open gives the editor its content-fitted size, where it was left (req #3982)', async () => {
+        const moved = { h: 'l', x: 400, v: 't', y: 150, w: 700, ht: 900 };
+        useRequirementFilerStore.setState({ show: true, editorDock: moved });
+        renderAll();
+        const atDefault = { ...moved, w: null, ht: null };
+        // A new requirement.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Reshaped, then closed and shown again (a create failure, a reopen of the same row).
+        act(() => useRequirementFilerStore.getState().setEditorDock({ ...moved, w: 300 }));
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        act(() => useRequirementFilerStore.getState().setEditorShow(true));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Reshaping while it is shown is the reader's, until the next open.
+        act(() => useRequirementFilerStore.getState().setEditorDock({ ...moved, w: 300 }));
+        act(() => useRequirementFilerStore.getState().setEditorShow(true));
+        expect(useRequirementFilerStore.getState().editorDock.w).toBe(300);
+        // A filed requirement reopened from the list.
+        act(() => useRequirementFilerStore.getState().openFiled(ROW(3999), 4));
+        expect(useRequirementFilerStore.getState().editorDock).toEqual(atDefault);
+        // Never placed: home, content-fitted too.
+        act(() => useRequirementFilerStore.getState().setEditorDock(null));
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(useRequirementFilerStore.getState().editorDock).toBe(null);
+        expect(EDITOR_HOME).toMatchObject({ w: null, ht: null });
+    });
+
+    it('the description folds to two lines and back, and the choice is kept (req #3982)', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        const desc = () => screen.getByTestId('requirement-editor-field-description');
+        const toggle = () => screen.getByTestId('requirement-editor-description-toggle');
+        // Open by default: it grows (to the screen's edge, then scrolls).
+        expect(desc().getAttribute('data-collapsed')).toBe('0');
+        expect(toggle().getAttribute('aria-expanded')).toBe('true');
+        expect(toggle().getAttribute('aria-label')).toBe('Collapse the description');
+        fireEvent.click(toggle());
+        expect(desc().getAttribute('data-collapsed')).toBe('1');
+        expect(toggle().getAttribute('aria-expanded')).toBe('false');
+        expect(useRequirementFilerStore.getState().descriptionCollapsed).toBe(true);
+        // The reader's choice, not the draft's: the next requirement opens folded too.
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(desc().getAttribute('data-collapsed')).toBe('1');
+        fireEvent.click(toggle());
+        expect(desc().getAttribute('data-collapsed')).toBe('0');
+        expect(useRequirementFilerStore.getState().descriptionCollapsed).toBe(false);
+    });
+});
+
+// Req #3982 — open, the description fills the panel to its default size and
+// may grow until the panel meets the screen's edge.
+describe('descriptionSizePx (req #3982)', () => {
+    const build = ({ racked = '0', top = 100, bottom = 400, height = 300, clientH = 270, scrollH = 270, ownH = 40 } = {}) => {
+        const panel = document.createElement('div');
+        panel.setAttribute('data-testid', 'requirement-editor');
+        panel.setAttribute('data-racked', racked);
+        const body = document.createElement('div');
+        body.setAttribute('data-testid', 'requirement-editor-body');
+        const el = document.createElement('textarea');
+        body.appendChild(el); panel.appendChild(body); document.body.appendChild(panel);
+        panel.getBoundingClientRect = () => ({ top, bottom, height });
+        Object.defineProperty(body, 'clientHeight', { value: clientH });
+        Object.defineProperty(body, 'scrollHeight', { value: scrollH });
+        Object.defineProperty(el, 'offsetHeight', { value: ownH });
+        return el;
+    };
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    it('defaults to as wide as its form and at least 431 tall', () => {
+        expect(EDITOR_HOME.w).toBe(null);
+        expect(EDITOR_DEFAULT_HT).toBe(431);
+    });
+
+    it('max is the screen below the panel\'s top less the rest; min brings the panel to its default height', () => {
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        // max: reach 900 − head 30 − rest 230 − gap 4; min: 431 − 30 − 230.
+        expect(descriptionSizePx(build(), 't')).toEqual({ max: 636, min: 171 });
+        // Already scrolling (capped): measured from scroll sizes, the same answer.
+        expect(descriptionSizePx(build({ height: 300, clientH: 270, scrollH: 500, ownH: 270 }), 't'))
+            .toEqual({ max: 636, min: 171 });
+        // Docked to the bottom it grows upward: the room above its foot.
+        expect(descriptionSizePx(build({ bottom: 700 }), 'b')).toEqual({ max: 436, min: 171 });
+        // Never negative, and the default height never pushes past the screen.
+        expect(descriptionSizePx(build({ top: 990 }), 't')).toEqual({ max: 0, min: 0 });
+        expect(descriptionSizePx(build({ top: 700 }), 't')).toEqual({ max: 36, min: 36 });
+        // Nothing to measure when racked or detached.
+        expect(descriptionSizePx(build({ racked: '1' }), 't')).toBe(null);
+        expect(descriptionSizePx(document.createElement('textarea'), 't')).toBe(null);
+    });
 });
 
 // Where it was filed from, as FILE recorded it: the capture's `filedFrom` category.
@@ -866,8 +1027,9 @@ describe('FILE records where it was filed (req #3813), in its debug capture (req
         expect(ctx.state.actionPopups.map(p => p.id)).toContain('requirement-editor');
     });
 
-    it('?filer=new records the page it landed on', async () => {
+    it('a press on a page landed on with ?filer=new records the page, not the parameter', async () => {
         renderAll({ at: '/swarm?filer=new' });
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         const ctx = await filedFromOf();
         expect(ctx.surface).toBe('/swarm');
         // The filer's own parameter is gone: opening the URL must not file again.
@@ -1009,5 +1171,131 @@ describe('the + aimed at a plan epic files the requirement into it (req #3854)',
         press();
         expect(screen.queryByTestId('requirement-editor-epic')).toBe(null);
         expect(useRequirementFilerStore.getState().draft.seat).toBe(null);
+    });
+});
+
+describe('the + of a floating filer aimed at a category card files into that category (req #4026)', () => {
+    let card = null;
+    const realHit = document.elementsFromPoint;
+    // A Cards-view category card (CategoryCard.jsx's attributes) beneath the + —
+    // jsdom has no layout, so the hit test answers the card for the press point.
+    const cardAt = ({ db = 'https://api/darwin_dev', id = 862, project = 4, closed = false } = {}) => {
+        card = document.createElement('div');
+        card.setAttribute('data-filer-closed', closed ? '1' : '0');
+        card.setAttribute('data-filer-category', String(id));
+        card.setAttribute('data-filer-project', String(project));
+        card.setAttribute('data-filer-db', db);
+        const inner = document.createElement('span');
+        card.appendChild(inner);
+        document.body.appendChild(card);
+        document.elementsFromPoint = (x, y) => (x === 400 && y === 300 ? [inner, card, document.body] : [document.body]);
+    };
+    beforeEach(() => {
+        captureOn = false;
+        desktop = true;
+        projectsQ = PROJECTS;
+        localStorage.clear();
+        rest.mockReset();
+        usePanelRackStore.setState({ racked: [], seeded: [], slot: null, navSlot: null, pageSlot: null, drag: null, covered: false });
+        useRequirementFilerStore.setState({
+            show: true, open: true, dock: null, titleLock: null, editorShow: false, editorOpen: true, editorDock: null,
+            draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: null,
+            draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
+        });
+    });
+    afterEach(() => { card?.remove(); card = null; document.elementsFromPoint = realHit; cleanup(); });
+
+    const press = (detail = 1) => {
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerDown(add, { clientX: 400, clientY: 300 });
+        fireEvent.click(add, { detail });
+    };
+    const place = () => {
+        const { draft } = useRequirementFilerStore.getState();
+        return { projectId: draft.projectId, category_fk: draft.category_fk };
+    };
+
+    it('hovering outlines the card; a click starts the draft in its project and category', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('ok');
+        press();
+        expect(card.hasAttribute('data-filer-aim')).toBe(false);
+        expect(place()).toEqual({ projectId: 4, category_fk: 862 });
+        // The editor shows that category, checked against live data like any carried place.
+        expect(screen.getByTestId('requirement-editor-field-category').value).toBe('862');
+    });
+
+    it('leaving the + clears the outline', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerMove(add, { clientX: 400, clientY: 300 });
+        fireEvent.pointerLeave(add);
+        expect(card.hasAttribute('data-filer-aim')).toBe(false);
+    });
+
+    it('with no card beneath it the + files to the last place, as before', () => {
+        renderAll({ at: '/swarm' });
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('a keyboard press aims at nothing', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        press(0);
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('pinned — racked or locked into the title bar — the filer aims at nothing', () => {
+        cardAt();
+        renderAll({ at: '/swarm' });
+        const panel = screen.getByTestId('requirement-filer');
+        panel.setAttribute('data-racked', '1');
+        expect(filerPinned(screen.getByTestId('requirement-filer-add'))).toBe(true);
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add'))).toBe(null);
+        panel.setAttribute('data-racked', '0');
+        panel.setAttribute('data-title-locked', '1');
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add'))).toBe(null);
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+        panel.setAttribute('data-title-locked', '0');
+        expect(categoryAimAt(400, 300, screen.getByTestId('requirement-filer-add')))
+            .toEqual({ categoryId: 862, projectId: 4, darwinUri: 'https://api/darwin_dev', closed: false });
+    });
+
+    it('on a dev server a darwin_dev card is outlined as a refusal and never names a production category', () => {
+        cardAt();
+        renderAll({ at: '/swarm', scoped: true });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('refused');
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+        expect(placeProblem({ darwinUri: 'https://api/darwin' }, 'https://api/darwin')).toBe(null);
+    });
+
+    it('a closed category card is outlined as a refusal and not filed into', () => {
+        cardAt({ closed: true });
+        renderAll({ at: '/swarm' });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(card.getAttribute('data-filer-aim')).toBe('refused');
+        press();
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('an aimed category the editor cannot vouch for is named as the card\'s, not the last requirement\'s', async () => {
+        cardAt({ id: 777 });
+        renderAll({ at: '/swarm' });
+        press();
+        await waitFor(() => expect(useRequirementFilerStore.getState().draft.notice)
+            .toBe("The aimed card's category is closed or deleted — choose one."));
+        expect(place()).toEqual({ projectId: 4, category_fk: null });
+    });
+
+    it('a card with no id (the new-category template) is no target', () => {
+        cardAt({ id: '' });
+        expect(categoryAimAt(400, 300)).toBe(null);
     });
 });

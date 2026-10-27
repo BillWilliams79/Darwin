@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, isClosedPipeline,
+    reorderPipelines, withPositions, isClosedPipeline, allActiveRequirements,
 } from '../pipelinesViewModel';
 
 const pipelines = [{ id: 7 }, { id: 8 }];
@@ -105,6 +105,26 @@ describe('frontSortOrder', () => {
     });
 });
 
+describe('withPositions (req #3966)', () => {
+    const rows = [{ id: 1, sort_order: 0, title: 'a' }, { id: 2, sort_order: 1, title: 'b' }];
+
+    it('lays a drop\'s positions over the live rows, keeping every other field', () => {
+        const out = withPositions(rows, new Map([[2, 0], [1, 1]]));
+        expect(out).toEqual([{ id: 1, sort_order: 1, title: 'a' }, { id: 2, sort_order: 0, title: 'b' }]);
+        expect(orderPipelines(out).map((p) => p.id)).toEqual([2, 1]);
+    });
+
+    it('leaves a plan the positions do not name alone', () => {
+        const out = withPositions(rows, new Map([[2, 5]]));
+        expect(out[0]).toBe(rows[0]);
+    });
+
+    it('returns the rows themselves when nothing is held', () => {
+        expect(withPositions(rows, null)).toBe(rows);
+        expect(withPositions(rows, new Map())).toBe(rows);
+    });
+});
+
 describe('reorderPipelines', () => {
     const ordered = [{ id: 10, sort_order: 0 }, { id: 11, sort_order: 1 },
         { id: 12, sort_order: 2 }, { id: 13, sort_order: 3 }];
@@ -133,5 +153,56 @@ describe('isClosedPipeline', () => {
     it('reads the flag, not its spelling', () => {
         expect([0, '0', null, undefined, 1, '1', true].map((closed) => isClosedPipeline({ closed })))
             .toEqual([false, false, false, false, true, true, true]);
+    });
+});
+
+// req #3978 — the Pipelines page's All Active box: the plan's Active box rule
+// applied to every plan's seated requirements.
+describe('allActiveRequirements', () => {
+    const plans = [{ id: 7, sort_order: 1 }, { id: 8, sort_order: 0 }, { id: 9, sort_order: 2, closed: 1 }];
+    const inits = [{ id: 40, pipeline_fk: 7 }, { id: 41, pipeline_fk: 8 }, { id: 42, pipeline_fk: 9 }];
+    const eps = [{ id: 500, initiative_fk: 40 }, { id: 502, initiative_fk: 41 }, { id: 503, initiative_fk: 42 }];
+    const seats = [
+        { epic_fk: 500, requirement_fk: 905 }, { epic_fk: 500, requirement_fk: 901 },
+        { epic_fk: 502, requirement_fk: 902 }, { epic_fk: 502, requirement_fk: 901 },
+        { epic_fk: 503, requirement_fk: 903 }, { epic_fk: 503, requirement_fk: 904 },
+        { epic_fk: 999, requirement_fk: 906 },
+    ];
+    const reqs = [
+        { id: 901, title: 'one', requirement_status: 'development', machine_fk: 4 },
+        { id: 902, title: 'two', requirement_status: 'development' },
+        { id: 903, title: 'three', requirement_status: 'met' },
+        { id: 904, title: 'four', requirement_status: 'wontfix' },
+        { id: 905, title: 'five', requirement_status: 'development' },
+        { id: 906, title: 'unseated', requirement_status: 'development' },
+    ];
+    const sessions = new Map([
+        [901, 'active'], [902, 'review'], [903, 'completing'], [904, 'active'],
+        [905, 'paused'], [906, 'active'],
+    ]);
+    const run = (over = {}) => allActiveRequirements({
+        pipelines: plans, initiatives: inits, epics: eps, epicRequirements: seats,
+        requirements: reqs, sessionStatus: sessions, ...over,
+    });
+
+    it('lists every plan\'s active requirements once, in the page\'s plan order', () => {
+        expect(run().map((r) => r.id)).toEqual([902, 901, 903]);
+    });
+
+    it('carries the row the Active box draws', () => {
+        expect(run().find((r) => r.id === 901)).toEqual({
+            id: 901, title: 'one', sessionStatus: 'active', status: 'development', machineFk: 4,
+        });
+    });
+
+    it('keeps the box rule: no paused session, no wontfix, nothing off a plan', () => {
+        const ids = run().map((r) => r.id);
+        expect(ids).not.toContain(905);
+        expect(ids).not.toContain(904);
+        expect(ids).not.toContain(906);
+    });
+
+    it('is empty until the session reads have settled', () => {
+        expect(run({ sessionStatus: null })).toEqual([]);
     });
 });
