@@ -169,8 +169,9 @@ const VIEWS = [
     { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
     { value: 'table', label: 'Table view', icon: TableChartIcon },
     // req #3972 — every pipeline in one 3D scene ("pipeline group" until it
-    // has a name), the Data Center to a plan's SuperPod.
-    { value: 'group', label: 'Pipeline group', icon: ViewInArIcon },
+    // has a name), the Data Center to a plan's SuperPod. A calendar since
+    // req #4042: time left to right, sort order within a column.
+    { value: 'group', label: 'Pipeline calendar', icon: ViewInArIcon },
 ];
 
 const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
@@ -714,16 +715,6 @@ export default function PipelinesPage() {
                     }
                     actions={<NewPipelineDialog machines={machines}
                                                 sortOrder={frontSortOrder(pipelines)} />}
-                    accounting={<>
-                        {filtered.length} of {pipelines.length} pipeline
-                        {pipelines.length === 1 ? '' : 's'}
-                        {!showClosed && closedCount > 0 && ` (${closedCount} closed hidden)`}
-                        {activeView === 'table' && ' — click a row for the plan'}
-                        {activeView === 'cards'
-                            && ' — edit a card in place, drag to reorder, click its picture for the plan'}
-                        {activeView === 'group'
-                            && ' — every plan in one scene: click a pipeline to focus it, then open its plan'}
-                    </>}
                 />
             </Box>
 

@@ -18,6 +18,8 @@
 //   * Rotate turns the view about the pivot
 //   * every platform carries its title, its initiative names and its epic
 //     names (req #4040), decluttered each frame so none prints over another
+//   * the floor is a CALENDAR (req #4042): a tile per time column, its date
+//     in a header behind it, and a skipped stretch named in its wider aisle
 //   * hover names what is under the pointer; a click FOCUSES a pipeline — the
 //     others lowlight, the camera flies to frame it and its labels take
 //     priority over every other platform's (the Data Center's focus); a click
@@ -375,6 +377,36 @@ export function createPipelineGroupScene(container, handlers = {}) {
         const epicRefs = [];
         const allReqs = [];
         const allEpics = [];
+
+        // The calendar (req #4042): a tile under every time column, alternate
+        // columns a shade apart so the eye can follow one down; its date in
+        // the header strip behind it; a skipped stretch named in its aisle.
+        const calendar = new THREE.Group();
+        const half = G.aisle / 2;
+        (model.columns || []).forEach((c, i) => {
+            const tileD = c.d + G.header;
+            const mat = new THREE.MeshBasicMaterial({
+                color: P.accent, transparent: true, opacity: i % 2 ? 0.05 : 0.09, depthWrite: false,
+            });
+            const tile = new THREE.Mesh(new THREE.PlaneGeometry(c.w + 2 * half - 1, tileD + half), mat);
+            tile.rotation.x = -Math.PI / 2;
+            tile.position.set(c.x + c.w / 2, 0.005, c.z - G.header + (tileD + half) / 2);
+            calendar.add(tile);
+            const head = new CSS2DObject(labelEl(c.label, 'pg-label pg-label-column'));
+            head.position.set(c.x + c.w / 2, 0.05, c.headerZ);
+            head.center.set(0.5, 0.5);
+            calendar.add(head);
+            labelRefs.push({ obj: head, tier: LABEL_TIER.column, pipelineId: null, w: 0, h: 0 });
+            if (c.gapBefore && i > 0) {
+                const prev = model.columns[i - 1];
+                const gap = new CSS2DObject(labelEl(`· ${c.gapBefore.label} ·`, 'pg-label pg-label-gap'));
+                gap.position.set((prev.x + prev.w + c.x) / 2, 0.05, c.headerZ);
+                gap.center.set(0.5, 0.5);
+                calendar.add(gap);
+                labelRefs.push({ obj: gap, tier: LABEL_TIER.gap, pipelineId: null, w: 0, h: 0 });
+            }
+        });
+        root.add(calendar);
 
         for (const p of model.pipelines) {
             const g = new THREE.Group();
