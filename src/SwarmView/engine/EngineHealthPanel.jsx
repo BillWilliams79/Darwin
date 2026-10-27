@@ -10,9 +10,9 @@ import Box from '@mui/material/Box';
 
 import {
     ACTUAL_STATE_WORDS, CODE_VERDICT_WORDS, HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS,
-    MISSING_AFTER_SECONDS, desiredReasonText,
+    desiredReasonText,
 } from './engineVocabulary';
-import { agoText, humanDuration, restartsText, stampText } from './engineModel';
+import { agoText, humanDuration, intervalText, missingAfter, restartsText, stampText } from './engineModel';
 import { Field, PanelTitle, ToneChip } from './enginePanelParts';
 
 const ms = (v) => (v == null ? '—' : `${Math.round(v)} ms`);
@@ -31,7 +31,7 @@ export default function EngineHealthPanel({ engine, timezone }) {
                 {beat ? `last beat ${agoText(engine.beatAgeSeconds)}` : 'never beat'}
                 {engine.health === HEALTH_MISSING && (
                     <Box component="span" sx={{ color: 'text.secondary' }}>
-                        {` (missing after ${humanDuration(MISSING_AFTER_SECONDS)})`}
+                        {` (missing after ${humanDuration(missingAfter(h))})`}
                     </Box>
                 )}
             </Field>
@@ -41,6 +41,9 @@ export default function EngineHealthPanel({ engine, timezone }) {
                     : `ok · ${ms(h.read_ms)}`}
             </Field>
             <Field label="Cycle time">{ms(h.cycle_ms)}</Field>
+            <Field label="Next cycle" testid={`engine-interval-${engine.id}`}>
+                {intervalText(h)}
+            </Field>
             <Field label="Code" testid={`engine-code-${engine.id}`}>
                 {h.code_verdict ? `${h.code_verdict} — ${CODE_VERDICT_WORDS[h.code_verdict]
                     || 'unrecognised verdict'}` : '—'}

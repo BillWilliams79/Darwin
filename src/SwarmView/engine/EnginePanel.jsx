@@ -28,10 +28,10 @@ import EngineHistoryStrip from './EngineHistoryStrip';
 import EngineLimitsPanel from './EngineLimitsPanel';
 import EngineLocationPanel, { machineName } from './EngineLocationPanel';
 import {
-    historyCells, outcomesByRequirement, parseUtc, recordChanges, recordView, scopeText,
+    historyCells, missingAfter, outcomesByRequirement, parseUtc, recordChanges, recordView, scopeText,
     stampText,
 } from './engineModel';
-import { HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS, MISSING_AFTER_SECONDS } from './engineVocabulary';
+import { HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS } from './engineVocabulary';
 import { ToneChip } from './enginePanelParts';
 import { useEngineRecord, useRequirementTitles } from './useEngineView';
 
@@ -132,7 +132,7 @@ export default function EnginePanel({ engine, names, timezone, now = new Date() 
                     {engine.beatAgeSeconds != null
                         ? `No heartbeat for ${humanDuration(engine.beatAgeSeconds)}`
                         : 'No readable heartbeat from this engine'}
-                    {` — it is wanted on, and an engine silent for more than ${humanDuration(MISSING_AFTER_SECONDS)} `}
+                    {` — it is wanted on, and an engine silent for more than ${humanDuration(missingAfter(engine.healthJson))} `}
                     is missing. The decision below is its last, not a current one.
                 </Alert>
             )}
