@@ -53,8 +53,6 @@ export const BUNDLE_CAPS = Object.freeze({
 /** The categories, in bundle order. `label` is what the editor shows. */
 export const DEBUG_CATEGORIES = Object.freeze([
     { key: 'filedFrom', label: 'Filed from' },
-    // The element the PINNED filer last hovered (req #3958) — present only then.
-    { key: 'lastHovered', label: 'Last hovered' },
     { key: 'environment', label: 'Environment' },
     { key: 'identity', label: 'Identity' },
     { key: 'console', label: 'Console' },
@@ -173,9 +171,6 @@ const BUILDERS = {
     // Where it was filed from (filedFromContext.js), snapshotted by the caller at
     // the same press and already held under its own size cap.
     filedFrom: ({ filedFrom }) => filedFrom ?? null,
-    // The element a pinned filer was last released over (req #3958,
-    // filerHover.js) — the filedFromContext `pointedAt` record, as at the press.
-    lastHovered: ({ lastHovered }) => lastHovered ?? null,
     environment: () => ({
         url: cleanUrl(location.href),
         referrer: document.referrer ? cleanUrl(document.referrer) : null,
@@ -274,7 +269,6 @@ function countNote(key, v) {
         const at = pointedAtLabel(v);
         return [v.surface && String(v.surface), at && `over ${at.path.split(' > ').pop()}`].filter(Boolean).join(' · ');
     }
-    case 'lastHovered': return pointedAtLabel({ pointedAt: [v] })?.path.split(' > ').pop() ?? '';
     case 'console': return `${of(n(v.entries), 'line')}${plus(v.dropped)}`;
     case 'errors': return `${of(n(v.entries), 'error')}${plus(v.dropped)}`;
     case 'network': {
@@ -320,14 +314,12 @@ const settle = (ms) => new Promise((r) => setTimeout(r, ms));
  * @returns {Promise<{version, capturedAt, categories: Array<{key, label, text,
  *   bytes, note}>, jwtHits, buildMs}>}
  */
-export async function buildDebugCapture({ profile = null, state = debugCaptureState(), filedFrom = null, lastHovered = null } = {}) {
+export async function buildDebugCapture({ profile = null, state = debugCaptureState(), filedFrom = null } = {}) {
     const t0 = performance.now();
     const capturedAt = new Date().toISOString();
     const values = {};
-    // Last hovered only when there is one: an unpinned filer hovers nothing.
-    const cats = DEBUG_CATEGORIES.filter(({ key }) => key !== 'lastHovered' || lastHovered);
-    for (const { key } of cats) {
-        try { values[key] = BUILDERS[key]({ profile, state, filedFrom, lastHovered }); } catch (e) { values[key] = { captureError: String(e?.message || e) }; }
+    for (const { key } of DEBUG_CATEGORIES) {
+        try { values[key] = BUILDERS[key]({ profile, state, filedFrom }); } catch (e) { values[key] = { captureError: String(e?.message || e) }; }
     }
     const syncMs = performance.now() - t0;
     if (state?.pendingBodies?.size) {
@@ -335,7 +327,7 @@ export async function buildDebugCapture({ profile = null, state = debugCaptureSt
     }
     const t1 = performance.now();
     let jwtHits = 0;
-    const categories = cats.map(({ key, label }) => {
+    const categories = DEBUG_CATEGORIES.map(({ key, label }) => {
         let raw;
         try { raw = JSON.stringify(values[key] ?? null); } catch (e) { raw = JSON.stringify({ captureError: String(e?.message || e) }); }
         const { text, hits } = scrubJwt(raw);
@@ -436,9 +428,8 @@ export const keepsNothing = (capture, dropped) =>
  * The description's `Debug capture` block for `capture` saved as requirement
  * `requirementId` with `dropped` left out. It always says WHERE it was filed —
  * `Surface:` (a /devops-devserver-start deep link) and `URL:`, from the kept
- * `filedFrom` category, plus `Last hovered:` when the pinned filer was released
- * over an element (req #3958) and `Pointed at:` when it floated over one
- * (req #3829) — and where the bundle is. When something went wrong
+ * `filedFrom` category, plus `Pointed at:` when the filer floated over an
+ * element (req #3829) — and where the bundle is. When something went wrong
  * (uncaught errors, failed or pending requests, console errors and warnings) it
  * adds the counts and sizes per category and those lines verbatim (≤ 5 of each,
  * ≤ 2 KB together); otherwise it stops there, so a plain requirement reads as
@@ -456,9 +447,6 @@ export function formatDebugBlock(capture, dropped, requirementId) {
     const lines = [DEBUG_BLOCK_BEGIN];
     if (where?.surface) lines.push(`Surface: ${where.surface}`);
     if (where?.url?.full) lines.push(`URL: ${where.url.full}`);
-    // The element the pinned filer last hovered (req #3958): what the requirement is about.
-    const hovered = cats.lastHovered && pointedAtLabel({ pointedAt: [cats.lastHovered] });
-    if (hovered) lines.push(clip(`Last hovered: ${hovered.path}${hovered.text ? ` "${hovered.text}"` : ''}`));
     const at = pointedAtLabel(where);
     if (at) {
         lines.push(clip(`Pointed at: ${at.path}${at.text ? ` "${at.text}"` : ''}`)

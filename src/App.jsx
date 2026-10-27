@@ -8,7 +8,6 @@ import DevServerDashboard from './DevServers/DevServerDashboard';
 import DevServerActionPopup from './NavBar/DevServerActionPopup';
 import RequirementFiler from './RequirementFiler/RequirementFiler';
 import RequirementEditorPopup from './RequirementFiler/RequirementEditorPopup';
-import LastHoveredHighlight from './RequirementFiler/LastHoveredHighlight';
 import FilerDataScope from './RequirementFiler/filerScope';
 import { SnackBar } from './Components/SnackBar/SnackBar';
 import { useSnackBarStore } from './stores/useSnackBarStore';
@@ -56,7 +55,6 @@ const App = () => {
             <FilerDataScope>
                 <RequirementFiler />
                 <RequirementEditorPopup />
-                <LastHoveredHighlight />
             </FilerDataScope>
             <SnackBar snackBarOpen={snackBarOpen}
                       setSnackBarOpen={setSnackBarOpen}

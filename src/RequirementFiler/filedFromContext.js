@@ -350,10 +350,10 @@ function frameUnder(hit, x, y) {
 
 /**
  * The page element at (x, y) of `doc`, as a popup over it points at it:
- * `{ hit, off, frame, frameEl, typing }` — `hit` the topmost element (Action Popups,
+ * `{ hit, off, frame, typing }` — `hit` the topmost element (Action Popups,
  * html and body skipped), one level into a same-origin iframe (`off` — that
  * document's origin in Darwin's viewport; `frame` — the iframe's testid path
- * and label; `frameEl` — the iframe itself); `typing` — `typingIn`, or the frame's focused element when focus
+ * and label); `typing` — `typingIn`, or the frame's focused element when focus
  * was in the frame. Null over nothing.
  */
 export function probeAt(doc, x, y, typingIn = null) {
@@ -361,7 +361,6 @@ export function probeAt(doc, x, y, typingIn = null) {
     if (!hit) return null;
     let off = { left: 0, top: 0 };
     let frame = null;
-    let frameEl = null;
     let typing = typingIn;
     // A same-origin frame (Topology, AI Architecture): what is under the point inside it.
     const iframe = frameUnder(hit, x, y);
@@ -375,7 +374,6 @@ export function probeAt(doc, x, y, typingIn = null) {
                 // Focus held inside the frame as the press began.
                 if (typingIn === iframe) typing = iframe.contentDocument.activeElement;
                 frame = { testidPath: testidPath(iframe), label: (iframe.getAttribute('data-testid') || iframe.getAttribute('src') || 'iframe').slice(0, POINTED_TESTID_MAX) };
-                frameEl = iframe;
                 hit = inner;
             } else if (hit !== iframe) {
                 hit = iframe;
@@ -385,7 +383,7 @@ export function probeAt(doc, x, y, typingIn = null) {
             hit = iframe;
         }
     }
-    return { hit, off, frame, frameEl, typing };
+    return { hit, off, frame, typing };
 }
 
 /** The element a probe names — the nearest carrying a data-testid. */

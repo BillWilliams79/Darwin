@@ -23,10 +23,6 @@ import {
 //     2026-10-26, req #3958): pressed, a head drag outlines the element it flies
 //     over (filerHover.js) and the + records the place (`filedFrom.pointedAt`);
 //     not pressed, neither. Off by default, remembered per browser.
-//   • `hoverTarget` — `{ key, target }`: the element the pinned filer was last
-//     released over when draft `key` was started (req #3958, filerHover.js) —
-//     outlined while the editor shows that draft (LastHoveredHighlight.jsx).
-//     Live only: it holds a DOM element.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here.
 //   • `filedInto` — the database every id here names: production, from every
@@ -130,8 +126,6 @@ export const useRequirementFilerStore = create(
             setTitleLock: (titleLock) => set({ titleLock }),
             pinned: false,
             setPinned: (pinned) => set({ pinned }),
-            hoverTarget: null,
-            setHoverTarget: (key, target) => { if (get().draftKey === key) set({ hoverTarget: target ? { key, target } : null }); },
             filed: [],
             filedInto: FILED_INTO,
             reopened: false,
@@ -169,7 +163,7 @@ export const useRequirementFilerStore = create(
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
-                    captureStage: withCapture ? 'capturing' : null, hoverTarget: null,
+                    captureStage: withCapture ? 'capturing' : null,
                 });
                 return draftKey;
             },
@@ -183,7 +177,7 @@ export const useRequirementFilerStore = create(
                     draft, savedId: row.id, saved: savedValues(draft), editorShow: true, editorOpen: true,
                     draftKey, orphaned: false, focusPending: false, reopened: true,
                     capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
-                    hoverTarget: null, filed: withFiled(get().filed, row.id, draft.title),
+                    filed: withFiled(get().filed, row.id, draft.title),
                 });
                 return draftKey;
             },
@@ -248,7 +242,7 @@ export const useRequirementFilerStore = create(
             // row is saved says so ('lost') rather than waiting on it forever.
             // A reload mid-create (req #3860) brings its draft back into view —
             // whether it was filed is then for the reader to see.
-            partialize: ({ focusPending, creating, capture, hoverTarget, ...persisted }) => ({
+            partialize: ({ focusPending, creating, capture, ...persisted }) => ({
                 ...persisted,
                 editorShow: persisted.editorShow || creating != null,
                 captureStage: ['capturing', 'ready'].includes(persisted.captureStage) ? 'lost' : persisted.captureStage,

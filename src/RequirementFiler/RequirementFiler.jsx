@@ -88,10 +88,10 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
-import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, aimAt, clearAim, remeasure, showAim } from './filerHover';
+import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, aimAt, clearAim, showAim } from './filerHover';
 import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
 import { useFilerFilesElsewhere } from './filerScope';
-import { elementRecord, filedFromNow } from './filedFromContext';
+import { filedFromNow } from './filedFromContext';
 import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
 
 /** The debug capture's accent — the editor's invalid-field red. */
@@ -111,10 +111,6 @@ let focusAtPress = null;
 const PRESS_MS = 2000;
 // The plan epic beneath the + as that press began (req #3854, filerEpicAim.js).
 let aimAtPress = null;
-// The element the PINNED filer was last released over (or sat over as its pin
-// was pressed) — what its + records as Last hovered (req #3958). A DOM element:
-// live only, forgotten when the pin is.
-let lastHover = null;
 /** How long pressing the pushpin outlines where the filer sits, ms. */
 const PIN_FLASH_MS = 1500;
 
@@ -231,17 +227,14 @@ export async function reopenFiledRequirement(id, darwinUri, idToken) {
  *  still being written (req #3860) is waited for first (createSettled), and
  *  then null is returned; otherwise the new draft's key, or null when the
  *  reader kept the draft in the editor. `seat` — the plan epic the + was
- *  aimed at (req #3854): Create seats the requirement in it. `hovered` — the
- *  element the pinned filer last hovered, `{ target, record }` (req #3958): the
- *  capture's Last hovered, outlined while the editor shows the draft. */
-export function fileRequirementNow(filedFrom, profile, seat = null, hovered = null) {
-    const pending = buildDebugCapture({ profile, filedFrom, lastHovered: hovered?.record ?? null });
+ *  aimed at (req #3854): Create seats the requirement in it. */
+export function fileRequirementNow(filedFrom, profile, seat = null) {
+    const pending = buildDebugCapture({ profile, filedFrom });
     const start = () => {
         const key = startNewRequirement(true, seat);
         // Kept the draft in the editor: this capture is for no one — settle it quietly.
         if (key == null) { pending.catch(() => {}); return null; }
-        const { setCapture, setHoverTarget } = useRequirementFilerStore.getState();
-        if (hovered) setHoverTarget(key, hovered.target);
+        const { setCapture } = useRequirementFilerStore.getState();
         pending.then((capture) => setCapture(key, capture), () => setCapture(key, null));
         return key;
     };
@@ -275,13 +268,9 @@ export default function RequirementFiler() {
     const signedIn = !!profile?.userName;
     // Where a requirement started now is filed from — read at the press, so it
     // is the page as it is then (req #3813).
-    // The field focused as the press began — read once per press (req #3829).
-    const pressTyping = () => {
+    const filedFrom = () => {
         const typingIn = focusAtPress && performance.now() - focusAtPress.t < PRESS_MS ? focusAtPress.el : null;
         focusAtPress = null;
-        return typingIn;
-    };
-    const filedFrom = (typingIn = pressTyping()) => {
         return filedFromNow({
             location, profile, database, theme, popupId: FILER_RACK_ID,
             popupStore: { open: useRequirementFilerStore.getState().open, dock,
@@ -298,15 +287,7 @@ export default function RequirementFiler() {
         const seat = pointed ? aimAtPress.seat : null;
         aimAtPress = null;
         highlightEpicAim(null);
-        const typingIn = pressTyping();
-        return fileRequirementNow(filedFrom(typingIn), profile, seat, hoveredNow(typingIn));
-    };
-    // What the pinned filer last hovered (req #3958), as it is drawn now; null
-    // unpinned, or once that element is gone. The field being typed in is never copied.
-    const hoveredNow = (typingIn) => {
-        if (!useRequirementFilerStore.getState().pinned) return null;
-        const target = remeasure(lastHover);
-        return target ? { target, record: elementRecord(target.hit, target.off, target.frame, typingIn) } : null;
+        return fileRequirementNow(filedFrom(), profile, seat);
     };
     // What held focus as a press on the + began (req #3829) — the head's + and,
     // in a minimized bar, the icon's (req #3886) — and the plan epic beneath it.
@@ -337,8 +318,6 @@ export default function RequirementFiler() {
     const onMoveTrack = ({ phase, rect, docking }) => {
         clearTimeout(flashRef.current);
         const h = hoverRef.current;
-        // Released pinned: what it is over now is remembered (req #3958).
-        if (phase === 'drop' && useRequirementFilerStore.getState().pinned) lastHover = docking ? null : aimAt(rect);
         // Unpinned, docking, or the drag over: nothing, at once.
         if (!useRequirementFilerStore.getState().pinned || phase !== 'move' || docking) {
             h.t = -Infinity;
@@ -369,13 +348,11 @@ export default function RequirementFiler() {
         clearAim();
         const next = !useRequirementFilerStore.getState().pinned;
         setPinned(next);
-        lastHover = null;
         if (!next) return;
         const el = document.querySelector(`[data-rack-id="${FILER_RACK_ID}"]`);
         if (!el || el.getAttribute('data-racked') === '1' || el.getAttribute('data-title-locked') === '1') return;
         const r = el.getBoundingClientRect();
         const target = aimAt({ left: r.left, top: r.top, width: r.width, height: r.height });
-        lastHover = target;
         if (!target) return;
         showAim(target);
         flashRef.current = setTimeout(clearAim, PIN_FLASH_MS);

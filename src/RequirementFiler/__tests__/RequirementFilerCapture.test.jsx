@@ -51,7 +51,6 @@ vi.mock('../../RestApi/RestApi', () => ({ default: (...a) => rest(...a) }));
 
 import RequirementFiler, { FILER_RACK_ID } from '../RequirementFiler';
 import RequirementEditorPopup from '../RequirementEditorPopup';
-import LastHoveredHighlight from '../LastHoveredHighlight';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
 import { useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
@@ -83,7 +82,6 @@ const renderAll = ({ nav = false, at = '/maps' } = {}) => render(
                         {nav && <NavBarSidebar />}
                         <RequirementFiler />
                         <RequirementEditorPopup />
-                        <LastHoveredHighlight />
                     </MemoryRouter>
                 </ThemeContext.Provider>
             </AppContext.Provider>
@@ -503,59 +501,5 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         expect(seen.has('category-card-862')).toBe(false);
         expect([...seen]).toEqual(['requirement-1', 'requirement-2']);
         tile.remove();
-    });
-
-    it('Last hovered (req #3958): released pinned, + records it, outlined while the editor is open; dropped, the outline goes', async () => {
-        useRequirementFilerStore.setState({ pinned: true });
-        renderAll({ at: '/swarm' });
-        const row = document.createElement('div');
-        row.setAttribute('data-testid', 'requirement-55');
-        row.textContent = 'Row 55';
-        document.body.appendChild(row);
-        const box = (el, left, top, width, height) => {
-            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
-        };
-        box(row, 100, 300, 800, 40);
-        const filer = screen.getByTestId('requirement-filer');
-        box(filer, 200, 100, 200, 100);
-        document.elementsFromPoint = (x, y) => [filer, row].filter((el) => {
-            const r = el.getBoundingClientRect();
-            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
-        });
-        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
-        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
-        const head = screen.getByTestId('requirement-filer-header');
-        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 250, clientY: 110 });
-        fireEvent.pointerMove(head, { pointerId: 1, clientX: 250, clientY: 280 });   // centre (300, 320): the row
-        fireEvent.pointerUp(head, { pointerId: 1, clientX: 250, clientY: 280 });
-        box(filer, 200, 270, 200, 100);
-        await pressFile();
-        const cats = useRequirementFilerStore.getState().capture.categories;
-        expect(cats[1].key).toBe('lastHovered');
-        expect(JSON.parse(cats[1].text).testidPath).toEqual(['requirement-55']);
-        // While the editor shows it: the one highlight on the row, at 30%, labelled.
-        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded').getAttribute('data-aim')).toBe('requirement-55'));
-        const rec = screen.getByTestId('requirement-aim-recorded');
-        expect(rec.style.opacity).toBe('0.3');
-        expect(rec.style.border).toContain('solid');
-        // A pinned drag draws its own: the recorded one steps aside — one highlight.
-        fireEvent.pointerDown(head, { button: 0, pointerId: 4, clientX: 250, clientY: 280 });
-        fireEvent.pointerMove(head, { pointerId: 4, clientX: 250, clientY: 290 });
-        await waitFor(() => expect(screen.getByTestId('requirement-aim')).toBeTruthy());
-        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
-        fireEvent.pointerUp(head, { pointerId: 4, clientX: 250, clientY: 290 });
-        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded')).toBeTruthy());
-        expect(screen.getByTestId('requirement-aim-recorded-name').textContent).toBe('requirement-55 · last hovered');
-        // Listed right after Filed from; dropping it takes the outline with it.
-        fireEvent.click(screen.getByTestId('requirement-editor-capture-details-toggle'));
-        expect(screen.getByTestId('requirement-editor-capture-lastHovered').textContent).toContain('Last hovered');
-        fireEvent.click(screen.getByTestId('requirement-editor-capture-toggle-lastHovered'));
-        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
-        fireEvent.click(screen.getByTestId('requirement-editor-capture-toggle-lastHovered'));
-        await waitFor(() => expect(screen.getByTestId('requirement-aim-recorded')).toBeTruthy());
-        // Closed, the editor shows nothing — and neither does the outline.
-        act(() => useRequirementFilerStore.getState().setEditorShow(false));
-        await waitFor(() => expect(screen.queryByTestId('requirement-aim-recorded')).toBe(null));
-        row.remove();
     });
 });

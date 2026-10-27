@@ -26,17 +26,9 @@
 // elements like any others and floats where it is dropped. Unpinned, it docks
 // in them as always and outlines nothing.
 //
-// THE DATA (user, 2026-10-27: "you finish your move and unclick the mouse. you
-// then press the + … the last hovered html element is remembered and it's going
-// to be in the data as labeled as such … while your requirements editor is open
-// the last hovered html element will now have a highlight. if you delete the
-// location data the highlight also goes away"). The element under the filer
-// when a pinned drag is released (or the pin pressed) is REMEMBERED
-// (RequirementFiler.jsx); the + press records it as the capture's own `Last
-// hovered` category (debugBundle.js `lastHovered`), and while the editor shows
-// that draft it is outlined (LastHoveredHighlight.jsx, the `recorded` overlay).
-// Dropping that category drops the outline with it. The + press's `pointedAt`
-// (filedFromContext.js) is recorded beside it as before; unpinned, neither.
+// THE DATA is the + press's own `pointedAt` (filedFromContext.js): where the
+// filer IS at the press, never a spot it has left — and nothing, with its
+// reason, when the pin is not pressed.
 
 import { namedElement, probeAt } from './filedFromContext';
 
@@ -72,67 +64,35 @@ export function aimAt(rect, doc = document) {
     const el = namedElement(probe.hit);
     const r = el.getBoundingClientRect();
     return {
-        el, hit: probe.hit, off: probe.off, frame: probe.frame, frameEl: probe.frameEl,
+        el, hit: probe.hit, off: probe.off, frame: probe.frame,
         point: { x, y },
         rect: { left: r.left + probe.off.left, top: r.top + probe.off.top, width: r.width, height: r.height },
         name: (el.getAttribute?.('data-testid') || el.tagName?.toLowerCase() || '?').slice(0, 100),
     };
 }
 
-/** `target` where it is drawn NOW — its element re-measured (through its iframe
- *  when it is in one), the aim point dropped — or null once it is gone. */
-export function remeasure(target) {
-    const el = target?.el;
-    if (!el?.isConnected) return null;
-    let off = { left: 0, top: 0 };
-    if (target.frameEl) {
-        if (!target.frameEl.isConnected) return null;
-        const fr = target.frameEl.getBoundingClientRect();
-        off = { left: fr.left + target.frameEl.clientLeft, top: fr.top + target.frameEl.clientTop };
-    }
-    const r = el.getBoundingClientRect();
-    return { ...target, off, point: null,
-        rect: { left: r.left + off.left, top: r.top + off.top, width: r.width, height: r.height } };
-}
-
-/** While the editor is open the recorded outline is drawn at 30% — reduced by
- *  70% "so we can focus" on the editor (user, 2026-10-27). */
-export const RECORDED_OPACITY = 0.3;
-/** The two outlines, ONE look (user, 2026-10-27: "drop the dashed line and
- *  keep the one highlight"): `drag` — what a pinned drag is over; `recorded` —
- *  the last hovered element a draft carries, while the editor shows it, dimmed. */
-const KINDS = Object.freeze({
-    drag: { id: OVERLAY_ID, testid: 'requirement-aim', opacity: 1 },
-    recorded: { id: `${OVERLAY_ID}-recorded`, testid: 'requirement-aim-recorded', opacity: RECORDED_OPACITY },
-});
-
-/** Whether outline `kind` is drawn now. */
-export const aimShown = (kind = 'drag', doc = document) => !!doc.getElementById((KINDS[kind] || KINDS.drag).id);
-
-function overlay(doc, kind) {
-    const k = KINDS[kind] || KINDS.drag;
-    let o = doc.getElementById(k.id);
+function overlay(doc) {
+    let o = doc.getElementById(OVERLAY_ID);
     if (o) return o;
     o = doc.createElement('div');
-    o.id = k.id;
-    o.setAttribute('data-testid', k.testid);
+    o.id = OVERLAY_ID;
+    o.setAttribute('data-testid', 'requirement-aim');
     o.setAttribute('aria-hidden', 'true');
     Object.assign(o.style, {
         position: 'fixed', zIndex: String(AIM_Z), pointerEvents: 'none', boxSizing: 'border-box',
         border: `2px solid ${AIM_COLOR}`, borderRadius: '3px', background: 'rgba(79, 195, 247, 0.12)',
-        opacity: String(k.opacity),
         boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 12px rgba(79, 195, 247, 0.55)',
         transition: ['left', 'top', 'width', 'height'].map(p => `${p} ${AIM_GLIDE_MS}ms`).join(', '),
     });
     const chip = doc.createElement('div');
-    chip.setAttribute('data-testid', `${k.testid}-name`);
+    chip.setAttribute('data-testid', 'requirement-aim-name');
     Object.assign(chip.style, {
         position: 'absolute', left: '-2px', bottom: '100%', maxWidth: '360px', overflow: 'hidden',
         textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '1px 6px', borderRadius: '3px 3px 0 0',
         background: AIM_COLOR, color: '#000', font: '600 11px/16px "SF Mono", Menlo, monospace',
     });
     const reticle = doc.createElement('div');
-    reticle.setAttribute('data-testid', `${k.testid}-point`);
+    reticle.setAttribute('data-testid', 'requirement-aim-point');
     Object.assign(reticle.style, {
         position: 'fixed', width: '10px', height: '10px', marginLeft: '-5px', marginTop: '-5px',
         borderRadius: '50%', border: `2px solid ${AIM_COLOR}`, boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.6)',
@@ -144,10 +104,10 @@ function overlay(doc, kind) {
 }
 
 /** Outlines `target` (aimAt), or clears the outline when null. `note` — said
- *  after the name on the chip; `kind` — which outline (KINDS). */
-export function showAim(target, note = '', doc = document, kind = 'drag') {
-    if (!target) { clearAim(doc, kind); return; }
-    const o = overlay(doc, kind);
+ *  after the name on the chip. */
+export function showAim(target, note = '', doc = document) {
+    if (!target) { clearAim(doc); return; }
+    const o = overlay(doc);
     const { left, top, width, height } = target.rect;
     Object.assign(o.style, { display: 'block', left: `${left}px`, top: `${top}px`,
         width: `${Math.max(width, 4)}px`, height: `${Math.max(height, 4)}px` });
@@ -158,11 +118,10 @@ export function showAim(target, note = '', doc = document, kind = 'drag') {
     // An element at the very top: its chip sits inside the outline instead.
     chip.style.bottom = top < 18 ? 'auto' : '100%';
     chip.style.top = top < 18 ? '0' : 'auto';
-    if (target.point) Object.assign(reticle.style, { display: 'block', left: `${target.point.x}px`, top: `${target.point.y}px` });
-    else reticle.style.display = 'none';
+    Object.assign(reticle.style, { left: `${target.point.x}px`, top: `${target.point.y}px` });
 }
 
-/** Clears an outline (`kind`, KINDS). */
-export function clearAim(doc = document, kind = 'drag') {
-    doc.getElementById((KINDS[kind] || KINDS.drag).id)?.remove();
+/** Clears the outline. */
+export function clearAim(doc = document) {
+    doc.getElementById(OVERLAY_ID)?.remove();
 }

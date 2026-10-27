@@ -49,8 +49,7 @@ describe('debug bundle (req #3815)', () => {
         });
 
         const capture = await buildDebugCapture({ profile });
-        // Last hovered only when the pinned filer hovered something (req #3958).
-        expect(capture.categories.map(c => c.key)).toEqual(DEBUG_CATEGORIES.map(c => c.key).filter(k => k !== 'lastHovered'));
+        expect(capture.categories.map(c => c.key)).toEqual(DEBUG_CATEGORIES.map(c => c.key));
         for (const c of capture.categories) expect(c.bytes).toBeGreaterThan(0);
 
         // The console line and the failing request, as a worker reads them.
@@ -220,18 +219,5 @@ describe('debug bundle (req #3815)', () => {
         expect(withDebugBlock(withDebugBlock('Body', nested), nested)).toBe(`Body\n\n${nested}`);
         // A token in the element's text never reaches the block.
         expect(formatDebugBlock(at({ pointedAt: [{ ...card, text: `see ${ID_TOKEN}` }] }), [], 12)).not.toContain('eyJ');
-    });
-
-    it('Last hovered (req #3958): its own category, labelled, and the block line a worker reads', async () => {
-        const lastHovered = { tag: 'div', testidPath: ['requirement-3958', 'category-card-862'], text: 'The row', rect: { x: 1, y: 2, w: 3, h: 4 } };
-        const capture = await buildDebugCapture({ profile, filedFrom: { surface: '/swarm', url: { full: '/swarm' } }, lastHovered });
-        expect(capture.categories.map(c => c.key).slice(0, 2)).toEqual(['filedFrom', 'lastHovered']);
-        const cat = capture.categories[1];
-        expect(cat.label).toBe('Last hovered');
-        expect(cat.note).toBe('requirement-3958');
-        expect(JSON.parse(cat.text)).toEqual(lastHovered);
-        const block = formatDebugBlock(capture, [], 50);
-        expect(block).toContain('\nURL: /swarm\nLast hovered: category-card-862 > requirement-3958 "The row"\n');
-        expect(formatDebugBlock(capture, ['lastHovered'], 50)).not.toContain('Last hovered');
     });
 });
