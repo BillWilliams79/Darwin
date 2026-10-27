@@ -169,8 +169,9 @@ const VIEWS = [
     { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
     { value: 'table', label: 'Table view', icon: TableChartIcon },
     // req #3972 — every pipeline in one 3D scene ("pipeline group" until it
-    // has a name), the Data Center to a plan's SuperPod.
-    { value: 'group', label: 'Pipeline group', icon: ViewInArIcon },
+    // has a name), the Data Center to a plan's SuperPod. A calendar since
+    // req #4042: time left to right, sort order within a column.
+    { value: 'group', label: 'Pipeline calendar', icon: ViewInArIcon },
 ];
 
 const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
