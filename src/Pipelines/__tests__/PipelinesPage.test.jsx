@@ -244,7 +244,8 @@ beforeEach(() => {
           sort_order: 1, locked: 1, machine_fk: null, started_at: null,
           completed_at: null },
     ];
-    machines = [{ id: 4, title: 'Mac mini' }];
+    machines = [{ id: 4, title: 'Mac mini', platform: 'darwin' },
+                { id: 5, title: 'Gaming PC', platform: 'wsl' }];
     initiatives = [
         { id: 40, pipeline_fk: 7, title: 'Initiative Seven' },
         { id: 41, pipeline_fk: 8, title: 'Initiative Eight' },
@@ -340,9 +341,45 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         }];
         mount();
         expect(node('pipelines-card-holder-7')).not.toBeNull();
-        expect(node('pipelines-card-holder-7').textContent).toContain('Mac mini');
         // Scoped — plan 8 carries no claim.
         expect(node('pipelines-card-holder-8')).toBeNull();
+    });
+
+    // req #3973 — the holder is a round badge between the grip and the title,
+    // carrying only the machine's letter; the bottom chip is gone.
+    it('draws the holder as an M / W badge between the grip and the title', () => {
+        const fresh = new Date().toISOString().slice(0, 19);
+        orchestrationClaims = [
+            { id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 4,
+              claimed_at: '2026-08-10T10:00:00', update_ts: fresh },
+            { id: 2, pipeline_fk: 7, initiative_fk: null, machine_fk: 5,
+              claimed_at: '2026-08-10T10:00:00', update_ts: fresh },
+        ];
+        mount();
+        const lead = node('pipelines-card-holder-7-lead');
+        expect(lead.textContent).toBe('M');
+        expect(lead.getAttribute('data-tone')).toBe('lead');
+        expect(lead.getAttribute('aria-label')).toContain('Mac mini');
+        const sub = node('pipelines-card-holder-7-claim-2');
+        expect(sub.textContent).toBe('W');
+        expect(sub.getAttribute('data-tone')).toBe('subscriber');
+        // Row one, in order: grip, badge, title.
+        const row = node('pipelines-card-grip-7').parentElement;
+        const order = [...row.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid);
+        const at = (id) => order.indexOf(id);
+        expect(at('pipelines-card-grip-7')).toBeLessThan(at('pipelines-card-holder-7'));
+        expect(at('pipelines-card-holder-7')).toBeLessThan(at('pipelines-card-title-7'));
+    });
+
+    it('draws a stale holder as an outline badge', () => {
+        orchestrationClaims = [{
+            id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 5,
+            claimed_at: '2026-08-10T10:00:00', update_ts: '2026-08-10T10:00:00',
+        }];
+        mount();
+        const lead = node('pipelines-card-holder-7-lead');
+        expect(lead.textContent).toBe('W');
+        expect(lead.getAttribute('data-tone')).toBe('stale');
     });
 
     // req #3804 — a click on the card body is an EDIT now, so the plan opens
