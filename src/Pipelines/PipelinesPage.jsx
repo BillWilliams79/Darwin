@@ -694,17 +694,6 @@ export default function PipelinesPage() {
                     }
                     actions={<NewPipelineDialog machines={machines}
                                                 sortOrder={frontSortOrder(pipelines)} />}
-                    accounting={<>
-                        {filtered.length} of {pipelines.length} pipeline
-                        {pipelines.length === 1 ? '' : 's'}
-                        {!showClosed && closedCount > 0 && ` (${closedCount} closed hidden)`}
-                        {activeView === 'table' && ' — click a row for the plan'}
-                        {activeView === 'cards'
-                            && ' — edit a card in place, drag to reorder, click its picture for the plan'}
-                        {activeView === 'group'
-                            && ' — every plan on one calendar, time left to right and sort order within a column:'
-                            + ' click a pipeline to focus it, then open its plan'}
-                    </>}
                 />
             </Box>
 
