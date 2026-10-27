@@ -154,3 +154,19 @@ describe('Swarm visualizer — the full screen switch (req #3793)', () => {
         expect(getByTestId('swarm-view-page').getAttribute('data-maximized')).toBe('false');
     });
 });
+
+// req #3961 — the header row is the TITLE BAR of all four requirements views:
+// the Action Popups lock into it (titleBarLock.js), whichever view is showing.
+describe('Requirements views — the header row is the title bar (req #3961)', () => {
+    beforeEach(() => { localStorage.clear(); });
+    afterEach(() => { cleanup(); localStorage.clear(); });
+
+    it.each(['cards', 'table', 'visualizer', 'trends'])('%s view: the one title bar is its header row', (view) => {
+        const { getByTestId, container } = mount(`/swarm?view=${view}`);
+        const row = getByTestId('swarm-view-toggle-row');
+        expect(row.hasAttribute('data-title-bar')).toBe(true);
+        // One per page: a second would never be a drop zone.
+        expect(container.querySelectorAll('[data-title-bar]')).toHaveLength(1);
+        expect(getByTestId(`view-toggle-${view}`).getAttribute('aria-pressed')).toBe('true');
+    });
+});
