@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
     buildPipelineGroupModel, pipelineBox, groupStatusColor, GROUP, GROUP_STATUS_LEGEND,
     UNKNOWN_STATUS_COLOR, LABEL_TIER, placeLabels,
+    pipelineWhen, calendarBucket, calendarLabel, gapLabel,
 } from '../pipelineGroupModel';
 import { DEFAULT_PLAN_PALETTE, planPalette } from '../../SwarmView/pipelines/pipelinePlanLayout';
 
@@ -116,13 +117,6 @@ describe('buildPipelineGroupModel — the floor', () => {
             expect(p.z).toBeGreaterThanOrEqual(b.minZ - 1e-9);
             expect(p.z + p.d).toBeLessThanOrEqual(b.maxZ + 1e-9);
         }
-        // more than one row: the field is a floor, not a corridor
-        expect(new Set(ps.map((p) => p.z)).size).toBeGreaterThan(1);
-    });
-
-    it('keeps the page order, left to right then row by row', () => {
-        const model = buildPipelineGroupModel([3, 1, 2].map((id) => drawnPlan(id)));
-        expect(model.pipelines.map((p) => p.id)).toEqual([3, 1, 2]);
     });
 
     it('gives a loading, failed or empty plan a placeholder platform', () => {
@@ -141,6 +135,137 @@ describe('buildPipelineGroupModel — the floor', () => {
         const model = buildPipelineGroupModel([]);
         expect(model.pipelines).toEqual([]);
         expect(model.counts.pipelines).toBe(0);
+    });
+});
+
+// req #4042 — the floor is a calendar: a column per occupied bucket, left to
+// right in time; within a column, back to front by sort order.
+describe('buildPipelineGroupModel — the calendar', () => {
+    // Stamps are UTC without a zone; noon UTC is the same local day from
+    // UTC−11 to UTC+11, so these fixtures bucket alike wherever the suite runs.
+    const dated = (id, started, extra = {}) => drawnPlan(id, {
+        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'active', started_at: started, ...extra },
+    });
+
+    it('a pipeline sits on when it started, else when it was created', () => {
+        expect(pipelineWhen({ started_at: '2026-10-23T12:00:00', create_ts: '2026-10-01T12:00:00' }))
+            .toMatchObject({ source: 'started', day: '2026-10-23' });
+        expect(pipelineWhen({ started_at: null, create_ts: '2026-10-01T12:00:00' }))
+            .toMatchObject({ source: 'created', day: '2026-10-01' });
+        expect(pipelineWhen({})).toBeNull();
+    });
+
+    it('buckets a day by day, by Sunday-started week, or by month', () => {
+        // 2026-10-27 is a Tuesday; its week starts Sunday the 25th.
+        expect(calendarBucket('2026-10-27', 'week').key).toBe('2026-10-25');
+        expect(calendarBucket('2026-10-25', 'week').key).toBe('2026-10-25');
+        expect(calendarBucket('2026-10-24', 'week').key).toBe('2026-10-18');
+        expect(calendarBucket('2026-10-27', 'month').key).toBe('2026-10');
+        expect(calendarBucket('2026-10-27', 'day').key).toBe('2026-10-27');
+        // consecutive buckets are one index apart, across a month and a year
+        expect(calendarBucket('2026-11-01', 'week').index - calendarBucket('2026-10-31', 'week').index).toBe(1);
+        expect(calendarBucket('2027-01-15', 'month').index - calendarBucket('2026-12-01', 'month').index).toBe(1);
+        expect(calendarBucket('2026-03-09', 'day').index - calendarBucket('2026-03-08', 'day').index).toBe(1);
+    });
+
+    it('labels columns and gaps as a calendar does', () => {
+        expect(calendarLabel('2026-10-25', 'week')).toBe('Week of Oct 25');
+        expect(calendarLabel('2026-10-27', 'day', { withYear: true })).toBe('Oct 27, 2026');
+        expect(calendarLabel('2026-10-01', 'month')).toBe('October 2026');
+        expect(calendarLabel(null, 'week')).toBe('Undated');
+        expect(gapLabel(1, 'week')).toBe('1 week');
+        expect(gapLabel(9, 'week')).toBe('9 weeks');
+    });
+
+    it('orders columns left to right in time, whatever the page order', () => {
+        const model = buildPipelineGroupModel([
+            dated(1, '2026-10-26T12:00:00'),
+            dated(2, '2026-07-28T12:00:00'),
+            dated(3, '2026-10-20T12:00:00'),
+        ]);
+        expect(model.columns.map((c) => c.key)).toEqual(['2026-07-26', '2026-10-18', '2026-10-25']);
+        expect(model.columns.map((c) => c.pipelineIds)).toEqual([[2], [3], [1]]);
+        const x = new Map(model.pipelines.map((p) => [p.id, p.x]));
+        expect(x.get(2)).toBeLessThan(x.get(3));
+        expect(x.get(3)).toBeLessThan(x.get(1));
+        expect(model.pipelines.map((p) => p.id)).toEqual([2, 3, 1]);
+    });
+
+    it('within a column, pipelines stand back to front by sort order', () => {
+        const model = buildPipelineGroupModel([
+            dated(1, '2026-10-25T12:00:00', { sort_order: 3 }),
+            dated(2, '2026-10-27T12:00:00', { sort_order: 1 }),
+            dated(3, '2026-10-26T12:00:00', { sort_order: null }),
+            dated(4, '2026-10-26T12:00:00', { sort_order: 2 }),
+        ]);
+        expect(model.columns).toHaveLength(1);
+        expect(model.columns[0].pipelineIds).toEqual([2, 4, 1, 3]);   // unset sort order last
+        const byId = new Map(model.pipelines.map((p) => [p.id, p]));
+        expect([2, 4, 1, 3].map((id) => byId.get(id).rank)).toEqual([1, 2, 3, 4]);
+        const zs = [2, 4, 1, 3].map((id) => byId.get(id).z);
+        expect([...zs].sort((a, b) => a - b)).toEqual(zs);
+        for (let i = 1; i < zs.length; i += 1) {
+            const prev = byId.get([2, 4, 1, 3][i - 1]);
+            expect(zs[i]).toBeGreaterThanOrEqual(prev.z + prev.d);
+        }
+    });
+
+    it('the bucket decides what counts as worked closely', () => {
+        const plans = [dated(1, '2026-10-20T12:00:00'), dated(2, '2026-10-26T12:00:00')];
+        expect(buildPipelineGroupModel(plans, { bucket: 'week' }).columns).toHaveLength(2);
+        expect(buildPipelineGroupModel(plans, { bucket: 'month' }).columns).toHaveLength(1);
+        expect(buildPipelineGroupModel(plans, { bucket: 'day' }).columns).toHaveLength(2);
+        expect(buildPipelineGroupModel(plans, { bucket: 'bogus' }).bucket).toBe('week');
+    });
+
+    it('names a skipped stretch and widens its aisle', () => {
+        const model = buildPipelineGroupModel([
+            dated(1, '2026-08-05T12:00:00'),     // week of Aug 2
+            dated(2, '2026-10-14T12:00:00'),     // week of Oct 11 — 9 weeks skipped
+            dated(3, '2026-10-20T12:00:00'),     // week of Oct 18 — adjacent
+        ]);
+        const [a, b, c] = model.columns;
+        expect(b.gapBefore).toEqual({ count: 9, label: '9 weeks' });
+        expect(c.gapBefore).toBeNull();
+        expect(b.x - (a.x + a.w)).toBeCloseTo(GROUP.aisle + GROUP.gapAisle);
+        expect(c.x - (b.x + b.w)).toBeCloseTo(GROUP.aisle);
+    });
+
+    it('an undated pipeline stands in a last column of its own', () => {
+        const model = buildPipelineGroupModel([
+            drawnPlan(9), dated(1, '2026-10-20T12:00:00'),
+        ]);
+        expect(model.columns.map((c) => c.label)).toEqual(['Week of Oct 18', 'Undated']);
+        expect(model.columns[1].gapBefore).toBeNull();
+    });
+
+    it('a calendar spanning two years dates its columns with the year', () => {
+        const model = buildPipelineGroupModel([
+            dated(1, '2025-12-30T12:00:00'), dated(2, '2026-01-06T12:00:00'),
+        ]);
+        expect(model.columns.map((c) => c.label)).toEqual(['Week of Dec 28, 2025', 'Week of Jan 4, 2026']);
+    });
+
+    it('orders unset sort orders by parsed time, whatever the stamp\'s spelling', () => {
+        const model = buildPipelineGroupModel([
+            dated(1, '2026-10-26T12:00:00'),
+            dated(2, '2026-10-26 09:00:00'),
+        ]);
+        expect(model.columns[0].pipelineIds).toEqual([2, 1]);
+    });
+
+    it('a column\'s date outranks the note of a skipped stretch', () => {
+        expect(LABEL_TIER.column).toBeLessThan(LABEL_TIER.gap);
+        expect(LABEL_TIER.epic).toBeLessThan(LABEL_TIER.gap);
+    });
+
+    it('the header strip sits behind every platform and inside the bounds', () => {
+        const model = buildPipelineGroupModel([dated(1, '2026-10-20T12:00:00'), dated(2, '2026-10-27T12:00:00')]);
+        for (const col of model.columns) {
+            expect(col.headerZ).toBeLessThan(col.z);
+            expect(col.headerZ).toBeGreaterThan(model.bounds.minZ);
+        }
+        for (const p of model.pipelines) expect(p.z).toBeGreaterThanOrEqual(model.columns[0].z);
     });
 });
 
