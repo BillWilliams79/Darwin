@@ -20,7 +20,8 @@ import {
 //     floats at `dock`. A page with no title bar floats it at `dock`, the lock
 //     kept for the next page that has one.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
-//     (FILED_LIMIT), the title as last saved here.
+//     (FILED_LIMIT), the title as last saved here. Its Clear empties it
+//     (req #3975); the requirements themselves are untouched.
 //   • `filedInto` — the database every id here names: production, from every
 //     build since req #3888 (FilerDataScope); see migrateFilerState.
 //   • `reopened` — the editor holds one of them again (`openFiled`), not a new
@@ -124,6 +125,7 @@ export const useRequirementFilerStore = create(
             filedInto: FILED_INTO,
             reopened: false,
             forgetFiled: (id) => set({ filed: get().filed.filter(f => f.id !== id) }),
+            clearFiled: () => set({ filed: [] }),
 
             editorShow: false,
             editorOpen: true,

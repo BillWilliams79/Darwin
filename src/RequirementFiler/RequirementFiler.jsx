@@ -7,7 +7,8 @@
 // filed, newest first; a click brings one back into the editor, read fresh
 // from its row (user ruling 2026-10-23, req #3830 — the + replaced the body's
 // "Create"). Create in the editor closes it at the press (req #3860): the
-// requirement joins this list as it is filed.
+// requirement joins this list as it is filed. Below the list, CLEAR empties it
+// (req #3975) — the list only, never a requirement; drawn while there is one.
 //
 // CREATE RECORDS EVERYTHING, AT THE PRESS — before the editor opens, so the
 // editor is never the subject: where it was filed from (req #3813 — URL, view
@@ -56,12 +57,13 @@
 // a new requirement from that page, as the + does (`?filer=bug`, the
 // two-button era's link, does the same) — a link (or a dev server) can land on it.
 
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupAdd, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
@@ -228,7 +230,10 @@ export default function RequirementFiler() {
     const editingId = useRequirementFilerStore(s => (s.editorShow ? s.savedId : null));
     // Why the last pick could not be opened — this session's, cleared by the next.
     const [reopenNote, setReopenNote] = useState(null);
-    const { setShow, toggleOpen, setDock, setTitleLock } = useRequirementFilerStore.getState();
+    // Bumped by Clear (req #3975): a pick still being read when the list was
+    // cleared says nothing about a list that no longer holds it.
+    const clears = useRef(0);
+    const { setShow, toggleOpen, setDock, setTitleLock, clearFiled } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(location.search).get('filer');
     const signedIn = !!profile?.userName;
@@ -279,7 +284,9 @@ export default function RequirementFiler() {
 
     const reopen = async (id) => {
         setReopenNote(null);
+        const cleared = clears.current;
         const outcome = await reopenFiledRequirement(id, darwinUri, idToken);
+        if (clears.current !== cleared) return;
         if (outcome === 'gone') setReopenNote(`#${id} no longer exists — taken off the list`);
         else if (outcome === 'failed') setReopenNote(`#${id} could not be read — try again`);
     };
@@ -331,6 +338,21 @@ export default function RequirementFiler() {
                             <Box component="span" sx={{ color: P.dim }}>#{f.id}</Box> {f.title || '(untitled)'}
                         </Box>
                     ))}
+                    {filed.length > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: '0.5em', pt: '0.2em' }}>
+                            <Box component="button" type="button"
+                                 onClick={() => { clears.current += 1; setReopenNote(null); clearFiled(); }}
+                                 aria-label="Clear the list of filed requirements" title="Clear this list (the requirements stay)"
+                                 data-testid="requirement-filer-clear"
+                                 sx={{ display: 'inline-flex', alignItems: 'center', gap: '0.25em', px: '0.3em', py: '0.1em',
+                                        border: 'none', borderRadius: '0.4em', background: 'transparent', color: P.dim,
+                                        fontFamily: ACTION_POPUP_MONO, fontSize: '0.9em', cursor: 'pointer',
+                                        '&:hover, &:focus-visible': { color: BUG_COLOR } }}>
+                                <DeleteOutlineIcon sx={{ fontSize: '1.2em' }} />
+                                Clear
+                            </Box>
+                        </Box>
+                    )}
                 </Box>
             )}
         </AnchoredPanel>
