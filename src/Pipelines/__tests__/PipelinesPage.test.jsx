@@ -165,6 +165,20 @@ vi.mock('../../SwarmView/pipelines/pipelinePlace', async (importOriginal) => {
     return { ...actual, readPipelinePlace: () => null };
 });
 
+// req #3966 — the grid's drop handler, captured from the real ReorderList so
+// a test can drop without simulating a pointer gesture under jsdom.
+const dnd = vi.hoisted(() => ({ onReorder: null }));
+vi.mock('../../dnd', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        ReorderList: (props) => {
+            dnd.onReorder = props.onReorder;
+            return <actual.ReorderList {...props} />;
+        },
+    };
+});
+
 const restCalls = [];
 // A test may answer a call itself (req #3934's delete reads the plan first);
 // `undefined` falls through to the defaults below.
@@ -468,6 +482,42 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         click(node('pipelines-card-info-7'));
         click(node('pipelines-card-title-7'));
         expect(navigations).toEqual([]);
+    });
+});
+
+describe('PipelinesPage2 — dropping a card (req #3966)', () => {
+    const cardOrder = () => [...document.body.querySelectorAll('[data-testid^="pipelines-card-"]')]
+        .map((el) => el.getAttribute('data-testid'))
+        .filter((id) => /^pipelines-card-\d+$/.test(id));
+
+    // The drop handler runs inside dnd-kit's drop; anything the page awaits
+    // first lands a render late, and the card flies back to its old slot.
+    it('draws the new order in the render that ends the drag, while the write is in flight', () => {
+        let settle;
+        restRespond = (uri, method) => (method === 'PUT'
+            ? new Promise((resolve) => { settle = resolve; }) : undefined);
+        mount();
+        expect(cardOrder()).toEqual(['pipelines-card-7', 'pipelines-card-8']);
+        act(() => { dnd.onReorder(1, 0); });
+        expect(cardOrder()).toEqual(['pipelines-card-8', 'pipelines-card-7']);
+        const put = restCalls.find((c) => c.method === 'PUT');
+        expect(put.body).toEqual([{ id: 8, sort_order: 0 }, { id: 7, sort_order: 1 }]);
+        return act(async () => { settle({ httpStatus: { httpStatus: 200 }, data: [] }); });
+    });
+
+    it('holds the order until the write and its re-read settle, then draws what the read says', async () => {
+        let settle;
+        restRespond = (uri, method) => (method === 'PUT'
+            ? new Promise((resolve) => { settle = resolve; }) : undefined);
+        mount();
+        act(() => { dnd.onReorder(1, 0); });
+        // The stubbed read keeps returning the OLD positions — only the hold
+        // can be drawing the new order here.
+        await flush();
+        expect(cardOrder()).toEqual(['pipelines-card-8', 'pipelines-card-7']);
+        await act(async () => { settle({ httpStatus: { httpStatus: 200 }, data: [] }); });
+        await flush();
+        expect(cardOrder()).toEqual(['pipelines-card-7', 'pipelines-card-8']);
     });
 });
 

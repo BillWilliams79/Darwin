@@ -42,7 +42,7 @@
 // card counts CLOSED requirements (met, deferred, wontfix — req #3804) — a
 // join, not a derivation.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
@@ -564,6 +564,10 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     );
     const tile = <NewPipelineTile onAdd={add} disabled={drafting} />;
 
+    // Stable between renders: a fresh array tells dnd-kit the items changed,
+    // and a card stepping aside in that frame would jump, not slide.
+    const ids = useMemo(() => pipelines.map(cardItemId), [pipelines]);
+
     if (!pipelines.length) {
         return (
             <>
@@ -578,7 +582,6 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
         );
     }
 
-    const ids = pipelines.map(cardItemId);
 
     return (
         <Box ref={surfaceRef} sx={surfaceSx} data-testid="pipelines-cards-surface">

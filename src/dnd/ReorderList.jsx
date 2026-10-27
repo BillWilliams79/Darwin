@@ -41,6 +41,10 @@ const anyRow = () => true;
 // down), never a draggable.
 const FIXED = { draggable: true, droppable: false };
 
+// The transition useSortable hands back for the frame it clears a transform
+// without animating it (its `disabledTransition`).
+export const NO_SLIDE = CSS.Transition.toString({ property: 'transform', duration: 0, easing: 'linear' });
+
 /**
  * The drop resolved: which index moved where, or null when nothing did.
  * Exported for its unit test.
@@ -150,9 +154,14 @@ export function useReorderItem(id, row) {
         slideRef.current = { x, y, ms: next };
         return next;
     }, [transform, motion]);
+    // dnd-kit's own 0ms transition is not a slide: it is the one frame in
+    // which a dropped list's new order replaces the transforms that were
+    // previewing it (req #3966). Stretched to a slide, every card flew from
+    // its old offset across its new slot — so it passes through untouched.
     const style = useMemo(() => ({
         transform: CSS.Translate.toString(transform),
-        transition: transition && ms != null ? `transform ${ms}ms ${motion.easing}` : transition,
+        transition: transition && transition !== NO_SLIDE && ms != null
+            ? `transform ${ms}ms ${motion.easing}` : transition,
     }), [transform, transition, ms, motion]);
     // With a grip (req #3804) the grip carries the press and the keyboard, and
     // the ROW carries `data-darwin-drag` — the preview copies the nearest
