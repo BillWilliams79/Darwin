@@ -78,6 +78,7 @@ import {
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
 import { useVisualizerMaximize } from '../../hooks/useVisualizerMaximize';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 // req #3793 — the shared full screen switch, and the plan's words for it.
 import FullscreenSwitch from '../../Components/FullscreenSwitch';
 import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
@@ -708,6 +709,11 @@ export default function PipelineDetail() {
         // reader that has not been collapsed yet.
         writePipelinePlace({ at: 'plan', pipelineId: placePipelineId });
     }, [placePipelineId]);
+
+    // req #3970 — the browser tab carries the plan's name while it is shown,
+    // and "Darwin" again once this page unmounts. Called above the loading and
+    // not-found returns, so neither of those states renames the tab.
+    useDocumentTitle(pipeline?.title);
 
     if (isLoading) {
         return (
