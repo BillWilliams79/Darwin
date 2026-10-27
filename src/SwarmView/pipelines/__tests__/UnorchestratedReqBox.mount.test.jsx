@@ -56,7 +56,7 @@ describe('UnorchestratedReqBox', () => {
     it('lists each row with its id and title and counts them', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
-        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrable');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
         // A dnd-kit draggable (req #3665), not a native one — announced as a
         // plain button, since the keys open it rather than lift it.
@@ -78,7 +78,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef}
                                                     dropArmed="ok" />));
         expect(box.getAttribute('data-drop-armed')).toBe('ok');
-        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrable');
         act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef}
                                                     dropArmed="ok" dropOver />));
         expect(box.getAttribute('data-drop-over')).toBe('1');
@@ -186,7 +186,7 @@ describe('UnorchestratedReqBox', () => {
             const toggle = q('pipeline-viz-unseated-toggle');
             expect(header.firstElementChild).toBe(toggle);
             expect(toggle.textContent).toBe('▾');
-            expect(toggle.getAttribute('aria-label')).toBe('Orchestrables');
+            expect(toggle.getAttribute('aria-label')).toBe('Orchestrable');
             expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-badge'));
             expect(q('pipeline-viz-unseated-badge').firstChild).toBe(q('pipeline-viz-unseated-count'));
             expect(header.lastElementChild).toBe(q('pipeline-viz-unseated-title'));
@@ -210,7 +210,7 @@ describe('UnorchestratedReqBox', () => {
             expect(getComputedStyle(box).transition || 'none').not.toContain('width');
 
             act(() => q('pipeline-viz-unseated-toggle').click());
-            expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+            expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrable');
             expect(box.style.width).toBe('612px');
         } finally {
             vi.useRealTimers();
