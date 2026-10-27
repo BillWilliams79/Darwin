@@ -179,6 +179,17 @@ export function frontSortOrder(pipelines) {
 }
 
 /**
+ * `pipelines` with the `sort_order` of every plan `positions` (a Map of id →
+ * sort_order) names replaced — a drop's new order laid over the live rows
+ * (req #3966). No positions returns `pipelines` itself.
+ */
+export function withPositions(pipelines, positions) {
+    if (!positions?.size) return pipelines;
+    return (pipelines || []).map((p) => (positions.has(p.id)
+        ? { ...p, sort_order: positions.get(p.id) } : p));
+}
+
+/**
  * Move `fromId` to where `toId` stands in `ordered` (arrayMove semantics: the
  * dragged plan takes the target's index, the rest close up behind it), then
  * renumber 0..n-1. Returns the reordered rows and the `{id, sort_order}`
