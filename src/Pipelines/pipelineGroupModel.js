@@ -306,3 +306,43 @@ export function pipelineBox(p) {
     for (const a of p.arcs) maxY = Math.max(maxY, G.slabH + a.apex);
     return { minX: p.x, maxX: p.x + p.w, minZ: p.z, maxZ: p.z + p.d, maxY };
 }
+
+// ── LABELS (req #4040) ─────────────────────────────────────────────────────
+// Every platform carries its title, its initiative names and its epic names,
+// focused or not — a few hundred labels on the production field. Labels a
+// view lays on top of one another cannot be read, so each frame they are
+// PLACED in priority order and a label that would overlap one already placed
+// hides until the view separates them again (a map's declutter).
+
+/** Label tiers, most important first. */
+export const LABEL_TIER = Object.freeze({ pipeline: 0, initiative: 1, epic: 2 });
+
+const LABEL_GAP_PX = 2;
+
+/**
+ * Which labels show. Priority: the focused pipeline's labels (`lit`) before
+ * the rest, then by tier (pipeline title › initiative › epic), then nearest
+ * to the camera (`d`).
+ *
+ * @param {Array<{left, top, right, bottom, tier: number, d: number, lit?: boolean}>} items
+ *        screen rects, in pixels
+ * @returns {boolean[]}  shown, index-aligned with `items`
+ */
+export function placeLabels(items) {
+    const order = items.map((_, i) => i).sort((a, b) => {
+        const A = items[a];
+        const B = items[b];
+        return (B.lit ? 1 : 0) - (A.lit ? 1 : 0) || A.tier - B.tier || A.d - B.d;
+    });
+    const shown = new Array(items.length).fill(false);
+    const placed = [];
+    for (const i of order) {
+        const r = items[i];
+        const hit = placed.some((q) => r.left < q.right + LABEL_GAP_PX && r.right + LABEL_GAP_PX > q.left
+            && r.top < q.bottom + LABEL_GAP_PX && r.bottom + LABEL_GAP_PX > q.top);
+        if (hit) continue;
+        shown[i] = true;
+        placed.push(r);
+    }
+    return shown;
+}
