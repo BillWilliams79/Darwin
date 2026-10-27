@@ -580,10 +580,10 @@ export default function PipelinePlanVisualizer({
     keyHover = null,
     // req #3762 — the engine overlay (`usePlanEngineOverlay`, run by the page,
     // which owns the machine, claim and session reads it needs): `{ctl,
-    // machines, thisMachineId, onPickMachine, timezone}`.
+    // machines, thisMachineId, timezone}`.
     // Its badges ride the badge layer on each epic card; its box — the
-    // switch, the limits and the launch queue with its cut — is an Action
-    // Popup over the page (req #3935). Null draws neither.
+    // switch, its role and the slots (req #3981) — is an Action Popup over
+    // the page (req #3935). Null draws neither.
     engineOverlay = null,
 }) {
     const navigate = useNavigate();
@@ -2285,7 +2285,7 @@ export default function PipelinePlanVisualizer({
             const status = move.req?.requirement_status;
             if (move.toEpicId == null && status && status !== 'swarm_ready') {
                 showMessage(`Requirement ${move.reqId} is no longer orchestrated. `
-                    + `It is ${status}, and Orchestrables lists swarm-ready work only.`);
+                    + `It is ${status}, and Orchestrable lists swarm-ready work only.`);
             }
         }
         if (pipeline?.id != null) {
@@ -3243,6 +3243,13 @@ export default function PipelinePlanVisualizer({
                 queryKey: initiativeDepKeys.all(creatorFk) }),
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
+    // req #3967 — an epic delete deletes or un-seats its requirements, which
+    // leaves every requirement list stale too, not only the plan's.
+    const refreshAfterEpicEditor = useCallback((result) => Promise.all([
+        refreshPlan(),
+        result?.deleted && profile?.userName
+            && queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) }),
+    ]), [refreshPlan, queryClient, profile?.userName]);
 
     // ── THE SINGLE EDITOR, OVER THE CANVAS (req #3742) ─────────────────────
     // User directives: "single click of initiative and epic to take you to the single
@@ -3281,7 +3288,8 @@ export default function PipelinePlanVisualizer({
                 // is the backstop for a dependent the composed read did not
                 // carry (a 409, the plan untouched).
                 deletion = {
-                    reqCount: (row.reqIds || []).length,
+                    // req #3967 — the ids, so the Delete can offer to take them too.
+                    reqIds: row.reqIds || [],
                     dependents: rows
                         .filter((r) => r.id !== row.id && (r.depIds || []).includes(row.id))
                         .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
@@ -5685,14 +5693,11 @@ export default function PipelinePlanVisualizer({
                            maximized={maximized}
                            onOpen={openActiveReq} />
 
-            {/* req #3762 — the engine switch, the limits and the launch queue
-                with its cut line: an Action Popup since req #3935, mounted
-                beside the Active box for the same reason. */}
+            {/* req #3762 — the engine switch, its role and the slots (req
+                #3981): an Action Popup since req #3935, mounted beside the
+                Active box for the same reason. */}
             {engineOverlay && (
-                <PlanEngineBox ctl={engineOverlay.ctl}
-                               machines={engineOverlay.machines}
-                               onPickMachine={engineOverlay.onPickMachine}
-                               timezone={engineOverlay.timezone} />
+                <PlanEngineBox ctl={engineOverlay.ctl} />
             )}
 
             {/* Req #3235 — the `?initiative=` deep link named an initiative no band on THIS
@@ -7026,7 +7031,7 @@ export default function PipelinePlanVisualizer({
                     deletion={planEditor.deletion}
                     initiativeOptions={insertInitiativeOptions}
                     onClose={closePlanEditor}
-                    onSaved={refreshPlan}
+                    onSaved={refreshAfterEpicEditor}
                 />
             )}
             {planEditor.kind === 'initiative' && (

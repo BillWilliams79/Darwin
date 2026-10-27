@@ -311,7 +311,7 @@ in-memory tables, so no E2E data is touched. The machine is named in the link
 
 | Test | Proves | Engine coverage row |
 |---|---|---|
-| OVL-01 | switch ON from the plan view: `desired_state` written by the user, a draft plan activated, the engine comes up, badges + cut + limits become its record exactly | A1, A21 |
+| OVL-01 | switch ON from the plan view: `desired_state` written by the user, a draft plan activated, the engine comes up, badges + cut + slots become its record exactly, role reads Primary (req #3981) | A1, A21 |
 | OVL-02 | switch OFF: written, the plan untouched, the overlay returns to the prediction | A2 |
 | OVL-03 | hovering a held epic gives its hold in the engine view's plain words | I7 |
 | OVL-A8…A18, A21 | every state of each action's scenario drawn from the engine's record, then the same plan predicted with the engine off | A8–A18, A21 |

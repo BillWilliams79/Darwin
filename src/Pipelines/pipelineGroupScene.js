@@ -16,10 +16,15 @@
 //     flies the perspective camera onto the axis and lands by swapping to the
 //     orthographic one at the identical scale
 //   * Rotate turns the view about the pivot
+//   * every platform carries its title, its initiative names and its epic
+//     names (req #4040), decluttered each frame so none prints over another
+//   * the floor is a CALENDAR (req #4042): a tile per time column, its date
+//     in a header behind it, and a skipped stretch named in its wider aisle
 //   * hover names what is under the pointer; a click FOCUSES a pipeline — the
-//     others lowlight, the camera flies to frame it and its initiative and
-//     epic names appear (the Data Center's focus); a click on empty floor or
-//     Esc clears it; a double-click zooms toward the point under the pointer
+//     others lowlight, the camera flies to frame it and its labels take
+//     priority over every other platform's (the Data Center's focus); a click
+//     on empty floor or Esc clears it; a double-click zooms toward the point
+//     under the pointer
 //
 // There is no 3D single-pipeline view to hand a focus to (the user: "honoring
 // the fact that there is no 3-D visualizer" for the detail level yet), so the
@@ -29,7 +34,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
-import { GROUP, pipelineBox } from './pipelineGroupModel';
+import { GROUP, LABEL_TIER, pipelineBox, placeLabels } from './pipelineGroupModel';
 import { PLAN_VIZ_PALETTE } from '../SwarmView/pipelines/pipelinePlanLayout';
 
 const P = PLAN_VIZ_PALETTE;
@@ -362,15 +367,51 @@ export function createPipelineGroupScene(container, handlers = {}) {
 
         const platforms = [];
         const byPipeline = new Map();
+        const labelRefs = [];            // every label in the field, for the declutter
+        const addLabel = (entry, obj, tier) => {
+            entry.group.add(obj);
+            entry.labels.push(obj);
+            labelRefs.push({ obj, tier, pipelineId: entry.p.id, w: 0, h: 0 });
+        };
         const reqRefs = [];
         const epicRefs = [];
         const allReqs = [];
         const allEpics = [];
 
+        // The calendar (req #4042): a tile under every time column, alternate
+        // columns a shade apart so the eye can follow one down; its date in
+        // the header strip behind it; a skipped stretch named in its aisle.
+        const calendar = new THREE.Group();
+        const half = G.aisle / 2;
+        (model.columns || []).forEach((c, i) => {
+            const tileD = c.d + G.header;
+            const mat = new THREE.MeshBasicMaterial({
+                color: P.accent, transparent: true, opacity: i % 2 ? 0.05 : 0.09, depthWrite: false,
+            });
+            const tile = new THREE.Mesh(new THREE.PlaneGeometry(c.w + 2 * half - 1, tileD + half), mat);
+            tile.rotation.x = -Math.PI / 2;
+            tile.position.set(c.x + c.w / 2, 0.005, c.z - G.header + (tileD + half) / 2);
+            calendar.add(tile);
+            const head = new CSS2DObject(labelEl(c.label, 'pg-label pg-label-column'));
+            head.position.set(c.x + c.w / 2, 0.05, c.headerZ);
+            head.center.set(0.5, 0.5);
+            calendar.add(head);
+            labelRefs.push({ obj: head, tier: LABEL_TIER.column, pipelineId: null, w: 0, h: 0 });
+            if (c.gapBefore && i > 0) {
+                const prev = model.columns[i - 1];
+                const gap = new CSS2DObject(labelEl(`· ${c.gapBefore.label} ·`, 'pg-label pg-label-gap'));
+                gap.position.set((prev.x + prev.w + c.x) / 2, 0.05, c.headerZ);
+                gap.center.set(0.5, 0.5);
+                calendar.add(gap);
+                labelRefs.push({ obj: gap, tier: LABEL_TIER.gap, pipelineId: null, w: 0, h: 0 });
+            }
+        });
+        root.add(calendar);
+
         for (const p of model.pipelines) {
             const g = new THREE.Group();
             g.position.set(p.x, 0, p.z);
-            const entry = { p, group: g, materials: [], labels: [], detailLabels: [] };
+            const entry = { p, group: g, materials: [], labels: [] };
 
             const slabMat = new THREE.MeshStandardMaterial({
                 color: P.panel, roughness: 0.9, metalness: 0.05, transparent: true, opacity: 1,
@@ -402,8 +443,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 lab.element.style.setProperty('--pg-band', band.color);
                 lab.position.set(0.3, G.slabH + 0.05, band.z + band.d / 2);
                 lab.center.set(0, 0.5);
-                g.add(lab);
-                entry.detailLabels.push(lab);
+                addLabel(entry, lab, LABEL_TIER.initiative);
             }
 
             for (const e of p.epics) {
@@ -412,8 +452,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 const lab = new CSS2DObject(labelEl(e.title, 'pg-label pg-label-epic'));
                 lab.position.set(e.x, G.slabH + e.height + 0.35, e.z);
                 lab.center.set(0.5, 1);
-                g.add(lab);
-                entry.detailLabels.push(lab);
+                addLabel(entry, lab, LABEL_TIER.epic);
             }
 
             if (p.arcs.length) {
@@ -438,8 +477,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
             const tl = new CSS2DObject(labelEl(title, 'pg-label pg-label-pipeline'));
             tl.position.set(p.w / 2, G.slabH + 0.2, -0.6);
             tl.center.set(0.5, 1);
-            g.add(tl);
-            entry.labels.push(tl);
+            addLabel(entry, tl, LABEL_TIER.pipeline);
 
             root.add(g);
             byPipeline.set(p.id, entry);
@@ -482,7 +520,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
         }
 
         scene.add(root);
-        world = { root, platforms, byPipeline, pedestals, cubes, epicRefs, reqRefs };
+        world = { root, platforms, byPipeline, pedestals, cubes, epicRefs, reqRefs, labelRefs };
         applyFocus();
     }
 
@@ -497,7 +535,6 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 if (opacity != null) m.opacity = lit ? opacity : opacity * 0.5;
             }
             for (const l of entry.labels) l.element.classList.toggle('pg-label-dim', !lit);
-            for (const l of entry.detailLabels) l.visible = focusId != null && id === focusId;
         }
         const paint = (mesh, refs) => {
             if (!mesh) return;
@@ -687,37 +724,63 @@ export function createPipelineGroupScene(container, handlers = {}) {
         flushHover();
         renderer.render(scene, live());
         labels.render(scene, live());
-        unclash();
+        declutter();
     }
 
-    // Seen square-on from the front or the side, platforms in one line of
-    // sight print their titles on one spot (Topology's stacked labels,
-    // req #3566): the nearest title of any overlapping set shows, the rest
-    // hide until the view separates them again.
-    function unclash() {
+    // Every label in the field is placed in priority order each frame — the
+    // focused plan's first, then titles › initiatives › epics, nearest first —
+    // and one that would print over a placed one hides until the view
+    // separates them (`placeLabels`). Seen square-on from the front or the
+    // side, platforms in one line of sight print their titles on one spot
+    // (Topology's stacked labels, req #3566): the nearest shows.
+    //
+    // Screen boxes are PROJECTED from each label's anchor exactly as
+    // CSS2DRenderer places it, with its size measured once: a few hundred
+    // getBoundingClientRect calls a frame would be a few hundred layouts.
+    const viewProj = new THREE.Matrix4();
+    const ndcPos = new THREE.Vector3();
+    function declutter() {
         if (!world) return;
         const cam = live();
-        const titles = [];
-        for (const entry of world.byPipeline.values()) {
-            for (const l of entry.labels) {
-                l.getWorldPosition(tmp.position);
-                titles.push({ el: l.element, d: tmp.position.distanceToSquared(cam.position) });
+        viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+        const items = [];
+        const refs = [];
+        // Read every size first, then write: one layout per frame at most.
+        // `visibility` keeps a hidden label's box, so a measurement stays true.
+        for (const ref of world.labelRefs) {
+            const { obj } = ref;
+            if (obj.element.style.display === 'none') continue;   // behind the camera
+            if (!ref.w) {
+                ref.w = obj.element.offsetWidth;
+                ref.h = obj.element.offsetHeight;
+                if (!ref.w) continue;
             }
+            // `labels.render` just brought every matrixWorld up to date.
+            ndcPos.setFromMatrixPosition(obj.matrixWorld);
+            const d = ndcPos.distanceToSquared(cam.position);
+            ndcPos.applyMatrix4(viewProj);
+            const x = (ndcPos.x * 0.5 + 0.5) * width - obj.center.x * ref.w;
+            const y = (-ndcPos.y * 0.5 + 0.5) * height - obj.center.y * ref.h;
+            // Off the stage: clipped anyway, and it must not crowd one that is on it.
+            if (x > width || y > height || x + ref.w < 0 || y + ref.h < 0) continue;
+            items.push({
+                left: x, top: y, right: x + ref.w, bottom: y + ref.h,
+                tier: ref.tier, d, lit: focusId != null && ref.pipelineId === focusId,
+            });
+            refs.push(ref);
         }
-        titles.sort((a, b) => a.d - b.d);
-        // Read every box, then write: one layout per frame, not one per title.
-        // `visibility` keeps a hidden title's box, so the reads stay true.
-        const rects = titles.map((t) => t.el.getBoundingClientRect());
-        const placed = [];
-        titles.forEach((t, i) => {
-            const r = rects[i];
-            const hit = placed.some((q) => r.left < q.right && r.right > q.left
-                && r.top < q.bottom && r.bottom > q.top);
-            const want = hit ? 'hidden' : '';
-            if (t.el.style.visibility !== want) t.el.style.visibility = want;
-            if (!hit) placed.push(r);
+        const shown = placeLabels(items);
+        refs.forEach((ref, i) => {
+            const want = shown[i] ? '' : 'hidden';
+            if (ref.obj.element.style.visibility !== want) ref.obj.element.style.visibility = want;
         });
     }
+    // A web font landing after the first measurement changes every label's
+    // width: measure again.
+    const remeasure = () => {
+        if (world) for (const ref of world.labelRefs) ref.w = 0;
+    };
+    document.fonts?.addEventListener?.('loadingdone', remeasure);
     raf = requestAnimationFrame(loop);
 
     let framed = false;
@@ -770,6 +833,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
             el.removeEventListener('keydown', onKey);
             el.removeEventListener('pointerdown', takeOver);
             el.removeEventListener('wheel', takeOver);
+            document.fonts?.removeEventListener?.('loadingdone', remeasure);
             controls.dispose();
             disposeWorld();
             renderer.dispose();

@@ -5,8 +5,11 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 
+import { createTheme } from '@mui/material/styles';
+
+import { PANEL_Z } from '../../Components/AnchoredPanel/AnchoredPanel';
 import { POINTED_AT_REASONS, captureFiledFrom, pointedAtNow, probeAt } from '../filedFromContext';
-import { aimAt, clearAim, showAim } from '../filerHover';
+import { AIM_POINT_Z, AIM_Z, EDITOR_Z, FILER_Z, aimAt, clearAim, showAim } from '../filerHover';
 
 // jsdom lays nothing out: each element's rect is given, and elementsFromPoint
 // answers from those rects, topmost (last placed) first.
@@ -91,7 +94,7 @@ describe('what the filer flies over (req #3958)', () => {
         expect(aimAt(rect(250, 250, 100, 100)).name).toBe('nav');   // the topology toolbar
     });
 
-    it('outlines it with a chip naming it, above every popup, taking no pointer; null clears it', () => {
+    it('outlines it with a chip naming it, above every other popup, taking no pointer; null clears it', () => {
         place($('[data-rack-id]'), 300, 120, 400, 100);
         showAim(aimAt(rect(300, 120, 400, 100)), 'not recorded');
         const o = $('[data-testid="requirement-aim"]');
@@ -101,6 +104,63 @@ describe('what the filer flies over (req #3958)', () => {
         expect($('[data-testid="requirement-aim-name"]').textContent).toBe('requirement-3958 · not recorded');
         showAim(null);
         expect($('[data-testid="requirement-aim"]')).toBeNull();
+    });
+});
+
+describe('the filer is on top, and the other Action Popups are pickable (req #4044)', () => {
+    beforeEach(() => {
+        rects.clear();
+        clearAim();
+        document.elementsFromPoint = (px, py) => [...rects.entries()]
+            .filter(([, r]) => px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h)
+            .map(([el]) => el).reverse();
+        // The plan canvas, its Active box over it, then the filer and its editor.
+        document.body.innerHTML = `
+            <div data-testid="pipeline-plan-visualizer"></div>
+            <div data-rack-id="active" data-testid="pipeline-viz-active"><span>None running</span></div>
+            <div data-rack-id="requirement-editor" data-testid="requirement-editor"><span>Title</span></div>
+            <div data-rack-id="requirement-filer" data-testid="requirement-filer"><span>Create</span></div>`;
+        place($('[data-testid="pipeline-plan-visualizer"]'), 180, 64, 1740, 828);
+        place($('[data-rack-id="active"]'), 362, 501, 488, 176);
+        place($('[data-rack-id="active"] span'), 370, 530, 100, 20);
+    });
+
+    it('carried over the Active box, it names the Active box — not the canvas beneath it', () => {
+        place($('[data-rack-id="requirement-filer"]'), 615, 596, 171, 33);
+        expect(aimAt(rect(615, 596, 171, 33)).name).toBe('pipeline-viz-active');
+        const { pointedAt } = pointedAtNow({ id: 'requirement-filer', racked: false, rect: { x: 615, y: 596, w: 171, h: 33 } });
+        expect(pointedAt[0].testidPath).toEqual(['pipeline-viz-active']);
+    });
+
+    it('never names its own two windows: over the editor it sees what the editor covers', () => {
+        place($('[data-rack-id="requirement-editor"]'), 300, 500, 600, 300);
+        place($('[data-rack-id="requirement-filer"]'), 615, 596, 171, 33);
+        expect(aimAt(rect(615, 596, 171, 33)).name).toBe('pipeline-viz-active');
+        place($('[data-rack-id="requirement-editor"]'), 1000, 100, 600, 300);
+        expect(aimAt(rect(1200, 200, 171, 33)).name).toBe('pipeline-plan-visualizer');
+    });
+
+    it('stacks: other popups < outline < filer < reticle < editor < MUI modals', () => {
+        expect(PANEL_Z).toBeLessThan(AIM_Z);
+        expect(AIM_Z).toBeLessThan(FILER_Z);
+        expect(FILER_Z).toBeLessThan(AIM_POINT_Z);
+        expect(AIM_POINT_Z).toBeLessThan(EDITOR_Z);
+        expect(EDITOR_Z).toBeLessThan(createTheme().zIndex.modal);
+    });
+
+    it('the reticle is its own node above the filer, cleared with the outline', () => {
+        place($('[data-rack-id="requirement-filer"]'), 615, 596, 171, 33);
+        showAim(aimAt(rect(615, 596, 171, 33)));
+        const o = $('[data-testid="requirement-aim"]');
+        const r = $('[data-testid="requirement-aim-point"]');
+        expect(Number(o.style.zIndex)).toBe(AIM_Z);
+        expect(r.parentElement).toBe(document.body);
+        expect(Number(r.style.zIndex)).toBe(AIM_POINT_Z);
+        expect(r.style.pointerEvents).toBe('none');
+        expect([r.style.left, r.style.top]).toEqual(['700.5px', '612.5px']);
+        showAim(null);
+        expect($('[data-testid="requirement-aim"]')).toBeNull();
+        expect($('[data-testid="requirement-aim-point"]')).toBeNull();
     });
 });
 

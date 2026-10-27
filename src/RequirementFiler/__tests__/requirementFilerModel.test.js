@@ -16,10 +16,12 @@ const NOW = '2026-10-23T10:00:00.000Z';
 const filled = (over = {}) => ({ ...newRequirementDraft(4, 862), title: '  Filer  ', defaultsUnchecked: [], ...over });
 
 describe('requirementFilerModel (req #3811)', () => {
-    it('starts from SRDOH, Any machine, work, where the last one was filed', () => {
+    it('starts from SRDOH, Any machine, where the last one was filed', () => {
         const d = newRequirementDraft(4, 862);
         expect(d).toMatchObject({ ...FILER_DEFAULT_SPEC, projectId: 4, category_fk: 862,
-            machine_fk: null, affected_repos: '', tracking: 0, title: '', description: '' });
+            machine_fk: null, affected_repos: '', title: '', description: '' });
+        // No tracking flag (req #3982): the column's default decides.
+        expect(d).not.toHaveProperty('tracking');
         expect(newRequirementDraft()).toMatchObject({ projectId: null, category_fk: null });
     });
 
@@ -34,12 +36,14 @@ describe('requirementFilerModel (req #3811)', () => {
         const body = buildPostBody(filled({ requirement_status: 'development' }), NOW);
         expect(Array.isArray(body)).toBe(false);
         expect(body).toEqual({
-            title: 'Filer', category_fk: 862, tracking: 0,
+            title: 'Filer', category_fk: 862,
             requirement_status: 'development', coordination_type: 'deployed', ai_model: 'opus', effort: 'high',
             started_at: NOW, completed_at: 'NULL', deferred_at: 'NULL',
         });
         const full = buildPostBody(filled({ description: 'd', machine_fk: 3, affected_repos: ' Darwin ', tracking: 1 }), NOW);
-        expect(full).toMatchObject({ description: 'd', machine_fk: 3, affected_repos: 'Darwin', tracking: 1 });
+        expect(full).toMatchObject({ description: 'd', machine_fk: 3, affected_repos: 'Darwin' });
+        // A stray tracking value (an older build's draft) is never sent (req #3982).
+        expect(full).not.toHaveProperty('tracking');
         expect(full).not.toHaveProperty('projectId');
         // A blank enum is left out, never sent (req #3432).
         expect(buildPostBody(filled({ ai_model: '' }), NOW)).not.toHaveProperty('ai_model');
@@ -67,7 +71,10 @@ describe('requirementFilerModel (req #3811)', () => {
         const d = filled();
         expect(draftDirty(d, null, null)).toBe(true);
         expect(draftDirty(d, 9, savedValues(d))).toBe(false);
-        expect(draftDirty({ ...d, tracking: 1 }, 9, savedValues(d))).toBe(true);
+        expect(draftDirty({ ...d, title: 'Other' }, 9, savedValues(d))).toBe(true);
+        // Tracking is not the editor's (req #3982): it never makes a save.
+        expect(draftDirty({ ...d, tracking: 1 }, 9, savedValues(d))).toBe(false);
+        expect(buildPutBody(9, { ...d, tracking: 1 }, { ...savedValues(d), tracking: 0 }, NOW)).toBe(null);
         expect(draftDirty(null, null, null)).toBe(false);
     });
 
@@ -87,13 +94,15 @@ describe('requirementFilerModel (req #3811)', () => {
 describe('the last settings and the spec code (req #3815)', () => {
     it('a never-set setting is SRDOH on Any machine; a carried one wins; the place is the last filed', () => {
         expect(newRequirementDraft(1, 10, {})).toMatchObject({ ...FILER_DEFAULT_SPEC, coordination_type: 'deployed',
-            machine_fk: null, tracking: 0, projectId: 1, category_fk: 10, defaultsUnchecked: ['category'] });
+            machine_fk: null, projectId: 1, category_fk: 10, defaultsUnchecked: ['category'] });
         expect(newRequirementDraft(null, null, {}).defaultsUnchecked).toEqual([]);
         const d = newRequirementDraft(1, 10, { effort: 'low', ai_model: '', machine_fk: 2, tracking: 1,
             seatEpicId: 300, projectId: 9 });
-        expect(d).toMatchObject({ effort: 'low', ai_model: 'opus', machine_fk: 2, tracking: 1, projectId: 1, category_fk: 10 });
-        // Only what the form shows is carried — never a seat or a place.
+        expect(d).toMatchObject({ effort: 'low', ai_model: 'opus', machine_fk: 2, projectId: 1, category_fk: 10 });
+        // Only what the form shows is carried — never a seat, a place, or a
+        // tracking flag an older build's `defaults` still holds (req #3982).
         expect(d).not.toHaveProperty('seatEpicId');
+        expect(d).not.toHaveProperty('tracking');
         // The carried place and machine are checked against live data first, which holds File.
         expect(d.defaultsUnchecked).toEqual(['category', 'machine']);
         expect(draftProblem({ ...d, title: 'x' })).toBe('Checking the last settings…');
@@ -102,7 +111,7 @@ describe('the last settings and the spec code (req #3815)', () => {
     it('carries the settings the form shows, from what was saved', () => {
         const saved = savedValues(filled({ requirement_status: 'approved', machine_fk: 3, tracking: 1 }));
         expect(carriedSettings(saved)).toEqual({ requirement_status: 'approved', coordination_type: 'deployed',
-            ai_model: 'opus', effort: 'high', machine_fk: 3, tracking: 1 });
+            ai_model: 'opus', effort: 'high', machine_fk: 3 });
         expect(Object.keys(carriedSettings(saved))).toEqual([...CARRIED_FIELDS]);
     });
 
@@ -164,8 +173,10 @@ describe('the filer\'s default project and its list (req #3830)', () => {
             coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null,
             affected_repos: null, tracking: '1' };
         const d = draftFromRow(row, 4);
-        expect(d).toMatchObject({ title: 'T', description: '', projectId: 4, category_fk: 862, tracking: 1,
+        expect(d).toMatchObject({ title: 'T', description: '', projectId: 4, category_fk: 862,
             affected_repos: '', machine_fk: null, defaultsUnchecked: [], notice: null });
+        // A container reopened keeps its flag: the editor never holds or sends it (req #3982).
+        expect(d).not.toHaveProperty('tracking');
         expect(draftDirty(d, 7, savedValues(d))).toBe(false);
         expect(draftProblem(d)).toBe(null);
     });

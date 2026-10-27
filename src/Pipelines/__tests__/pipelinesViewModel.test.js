@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, isClosedPipeline, allActiveRequirements,
+    reorderPipelines, withPositions, isClosedPipeline, allActiveRequirements,
 } from '../pipelinesViewModel';
 
 const pipelines = [{ id: 7 }, { id: 8 }];
@@ -102,6 +102,26 @@ describe('frontSortOrder', () => {
     it('is 0 when nothing is positioned', () => {
         expect(frontSortOrder([])).toBe(0);
         expect(frontSortOrder([{ sort_order: null }])).toBe(0);
+    });
+});
+
+describe('withPositions (req #3966)', () => {
+    const rows = [{ id: 1, sort_order: 0, title: 'a' }, { id: 2, sort_order: 1, title: 'b' }];
+
+    it('lays a drop\'s positions over the live rows, keeping every other field', () => {
+        const out = withPositions(rows, new Map([[2, 0], [1, 1]]));
+        expect(out).toEqual([{ id: 1, sort_order: 1, title: 'a' }, { id: 2, sort_order: 0, title: 'b' }]);
+        expect(orderPipelines(out).map((p) => p.id)).toEqual([2, 1]);
+    });
+
+    it('leaves a plan the positions do not name alone', () => {
+        const out = withPositions(rows, new Map([[2, 5]]));
+        expect(out[0]).toBe(rows[0]);
+    });
+
+    it('returns the rows themselves when nothing is held', () => {
+        expect(withPositions(rows, null)).toBe(rows);
+        expect(withPositions(rows, new Map())).toBe(rows);
     });
 });
 

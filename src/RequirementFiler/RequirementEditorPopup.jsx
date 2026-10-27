@@ -2,7 +2,8 @@
 // second floating window the Requirement Filer opens. A short editor of ONE
 // requirement's directly settable values: title, description, project →
 // category, and — behind its spec-code button — status, autonomy, model,
-// effort, machine (Any = NULL) and the tracking (container) flag.
+// effort and machine (Any = NULL). No tracking (container) flag: req #3982
+// removed it (requirementFilerModel.js says what that means for a save).
 //
 // ── A DELIBERATE RULE VIOLATION, RULED BY THE USER ─────────────────────────
 // This DUPLICATES the requirement editing surfaces (CategoryCard,
@@ -16,13 +17,14 @@
 // right — the four launch fields as their five letters (SRDOH, SRIOH …, plus the
 // machine when one is pinned), derived and never stored (requirementFilerModel.js
 // specCode); then
-// `Category - <category>`, a line each; a two-line description that grows; and
+// `Category - <category>`, a line each; a description that grows to the bottom
+// of the screen and then scrolls, folded to two lines by its own toggle; and
 // one row holding CREATE (greyed until it can create — no reason text — then
 // dark green) and, right-justified, the DEBUG CAPTURE button with the capture's
 // size beside it, whose details slide open below. The spec-code button slides
 // the settings open in place:
-// Status and Autonomy chip rows, an AI Settings box (Model, Effort), Machine,
-// Tracking — the requirement page's chips, drawn here under the ruling above.
+// Status and Autonomy chip rows, an AI Settings box (Model, Effort), Machine —
+// the requirement page's chips, drawn here under the ruling above.
 // A new requirement starts with the last one's settings (SRDOH before any).
 //
 // THE DEBUG CAPTURE (req #3815) — every draft the filer opens carries one
@@ -66,12 +68,14 @@
 // they render the same racked in AI Architecture's toolbar (a shadow root in an
 // iframe), where a portalled MUI menu would open in the wrong document.
 
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
@@ -86,7 +90,7 @@ import { useCategories, useMachines, useProjects } from '../hooks/useDataQueries
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
-import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
+import { EDITOR_DEFAULT_HT, useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { prodRequirementUrl } from '../utils/prodUrl';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
@@ -96,6 +100,7 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import { EDITOR_Z } from './filerHover';
 import { useFilerFilesElsewhere } from './filerScope';
 import { notifyEpicSeated, seatProblem } from './filerEpicAim';
 import { moveEpicRequirement } from '../Epics/epicsApi';
@@ -109,7 +114,8 @@ export const EDITOR_RACK_ID = 'requirement-editor';
 const MIN_W = 180;
 const MIN_H = 64;
 const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 640, headPx: ACTION_POPUP_HEAD_PX };
-/** Floating home: top-left, beside the Requirement Filer's home. */
+/** Floating home: top-left, beside the Requirement Filer's home — as wide as
+ *  its form, the size every open gives it (useRequirementFilerStore). */
 export const EDITOR_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 92, w: null, ht: null });
 /** The form's width while the panel is content-sized — 44em of fields inside
  *  FORM_PAD_EM a side. */
@@ -121,6 +127,13 @@ const SETTINGS_GAP_EM = 0.9;
 export const LIVE_SAVE_MS = 600;
 /** The row labels' column, so every row's first chip starts at the same x. */
 const ROW_LABEL_EM = 6.5;
+/** The description's cap where the screen cannot be measured (racked: the
+ *  rack sets the panel's height) and before the first measure. */
+const DESCRIPTION_FALLBACK_MAX = '14em';
+/** Kept clear between the panel's foot and the screen's edge, px. */
+const DESCRIPTION_SCREEN_GAP_PX = 4;
+/** Folded: two lines, as a new draft's description starts. */
+const DESCRIPTION_TWO_LINES = 'calc(2lh + 0.4em + 2px)';
 
 const FIELD_SX = {
     width: '100%', boxSizing: 'border-box', m: 0,
@@ -268,6 +281,28 @@ export function captureSettled(key, timeoutMs = 3000) {
     });
 }
 
+/** The description's open size, px (req #3982): `max`, the tallest it may grow
+ *  so the panel ends at the screen's edge — what the panel can reach from its
+ *  docked edge, less its head and frame and everything in its body but the
+ *  description; `min`, the height that brings the panel to EDITOR_DEFAULT_HT
+ *  (never above `max`). null when racked: the rack sets the panel's height.
+ *  Measured from scroll sizes, so a body already scrolling answers the same as
+ *  one that is not. */
+export function descriptionSizePx(el, dockV) {
+    const panel = el?.closest('[data-testid="requirement-editor"]');
+    const body = el?.closest('[data-testid="requirement-editor-body"]');
+    if (!panel || !body || panel.dataset.racked === '1') return null;
+    const doc = el.ownerDocument;
+    const vh = doc.documentElement.clientHeight || doc.defaultView?.innerHeight || 0;
+    if (!vh) return null;
+    const p = panel.getBoundingClientRect();
+    const reach = dockV === 'b' ? p.bottom : vh - p.top;
+    const chrome = p.height - body.clientHeight;
+    const rest = body.scrollHeight - el.offsetHeight;
+    const max = Math.max(0, Math.floor(reach - chrome - rest - DESCRIPTION_SCREEN_GAP_PX));
+    return { max, min: Math.min(max, Math.max(0, Math.floor(EDITOR_DEFAULT_HT - chrome - rest))) };
+}
+
 /** The debug capture's place on the File row (req #3815): a DEBUG CAPTURE
  *  button — it slides the categories open below (CaptureDetails) — a trash can
  *  that drops every category (req #3887), and the size of what is kept. No
@@ -394,9 +429,10 @@ export default function RequirementEditorPopup() {
     const captureDropped = useRequirementFilerStore(s => s.captureDropped);
     const captureStage = useRequirementFilerStore(s => s.captureStage);
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
+    const descriptionCollapsed = useRequirementFilerStore(s => s.descriptionCollapsed);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
         clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
-        setCreating, endCreating, clearSeat } = useRequirementFilerStore.getState();
+        setCreating, endCreating, clearSeat, toggleDescriptionCollapsed } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -419,6 +455,11 @@ export default function RequirementEditorPopup() {
     const [captureOpen, setCaptureOpen] = useState(false);
     useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); }, [draftKey]);
     const titleRef = useRef(null);
+    // The description's own element, as state: racking re-mounts it, and the
+    // measure below must follow the new one.
+    const [descEl, setDescEl] = useState(null);
+    const [descCap, setDescCap] = useState(null);
+    const [descMin, setDescMin] = useState(null);
 
     const user = profile?.userName;
     const visible = show && isDesktop && !!user && !!draft;
@@ -483,6 +524,41 @@ export default function RequirementEditorPopup() {
             clearFocusPending();
         }
     });
+
+    // Open, the description fills the panel to its default height, grows past
+    // it until the panel meets the screen's edge, then scrolls (req #3982).
+    // Re-measured whenever the panel or its form changes size (typing, the
+    // settings sliding open, a reshape), moves, or the window resizes. The measure is invariant in the description's own height, so
+    // applying it cannot set off another.
+    const dockV = dock.v;
+    useLayoutEffect(() => {
+        if (!descEl || descriptionCollapsed) return undefined;
+        const win = descEl.ownerDocument.defaultView;
+        const measure = () => {
+            const size = descriptionSizePx(descEl, dockV);
+            setDescCap(size?.max ?? null);
+            setDescMin(size?.min ?? null);
+        };
+        measure();
+        // The next frame, not inside the observer's own callback: a new cap
+        // resizes what it observes, which the browser reports as a loop.
+        let frame = null;
+        const later = () => {
+            if (frame != null || !win?.requestAnimationFrame) return;
+            frame = win.requestAnimationFrame(() => { frame = null; measure(); });
+        };
+        const RO = win?.ResizeObserver ?? (typeof ResizeObserver === 'undefined' ? null : ResizeObserver);
+        const ro = RO ? new RO(later) : null;
+        const form = descEl.closest('form');
+        const panel = descEl.closest('[data-testid="requirement-editor"]');
+        if (ro) { if (form) ro.observe(form); if (panel) ro.observe(panel); }
+        win?.addEventListener('resize', later);
+        return () => {
+            ro?.disconnect();
+            win?.removeEventListener('resize', later);
+            if (frame != null) win.cancelAnimationFrame(frame);
+        };
+    }, [descEl, descriptionCollapsed, dockV, storedDock, open]);
 
     // Live saving once filed: the save itself is defined below the early return,
     // so the effect calls the newest through a ref. Not gated on the editor being
@@ -720,7 +796,7 @@ export default function RequirementEditorPopup() {
         <AnchoredPanel dock={dock} onDockChange={setEditorDock}
                        open={open} onToggle={toggleEditorOpen}
                        name="Requirement Editor" testid="requirement-editor"
-                       rackId={EDITOR_RACK_ID}
+                       rackId={EDITOR_RACK_ID} zIndex={EDITOR_Z}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<ActionPopupClose onClick={() => setEditorShow(false)}
@@ -845,7 +921,7 @@ export default function RequirementEditorPopup() {
                          data-open={settingsOpen ? '1' : '0'} aria-hidden={settingsOpen ? undefined : 'true'}
                          inert={settingsOpen ? undefined : ''} sx={slideSx(settingsOpen)}>
                         <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
-                            {/* Six rows — Status, Autonomy, Model, Effort, Machine, Tracking —
+                            {/* Five rows — Status, Autonomy, Model, Effort, Machine —
                                 spread out (req #3830: "more white space"). */}
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: `${SETTINGS_GAP_EM}em`,
                                        pt: '0.4em', pb: '0.5em' }}>
@@ -862,24 +938,43 @@ export default function RequirementEditorPopup() {
                                 <ChipRow label="Machine" testid="machine" value={draft.machine_fk}
                                          options={[{ value: null, label: 'Any' }, ...machineOpts].map(o => ({ ...o, ...MACHINE_CHIP }))}
                                          onChange={(v) => setFields({ machine_fk: v })} />
-                                <Box component="label" title="A container holds a plan or an initiative rather than being work inside it"
-                                     sx={{ display: 'flex', alignItems: 'center', gap: '0.4em', color: P.text, cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={!!draft.tracking}
-                                           onChange={(e) => setFields({ tracking: e.target.checked ? 1 : 0 })}
-                                           data-testid="requirement-editor-field-tracking" />
-                                    Tracking (container)
-                                </Box>
                             </Box>
                         </Box>
                     </Box>
 
-                    {/* Two lines until there is more to say: it grows with what is typed. */}
-                    <Box component="textarea" rows={2} value={draft.description ?? ''}
-                         placeholder="Description" aria-label="Description"
-                         onChange={(e) => setFields({ description: e.target.value })}
-                         data-testid="requirement-editor-field-description"
-                         sx={{ ...FIELD_SX, py: '0.2em', resize: 'vertical', fieldSizing: 'content',
-                                minHeight: 'calc(2lh + 0.4em + 2px)', maxHeight: '14em', '&::placeholder': { color: P.dim } }} />
+                    {/* Open, it grows with what is typed until the panel meets the bottom of
+                        the screen, then scrolls; its toggle folds it to two lines (req #3982). */}
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.3em', minWidth: 0 }}>
+                        <Box component="textarea" rows={2} value={draft.description ?? ''} ref={setDescEl}
+                             placeholder="Description" aria-label="Description"
+                             onChange={(e) => setFields({ description: e.target.value })}
+                             data-testid="requirement-editor-field-description"
+                             data-collapsed={descriptionCollapsed ? '1' : '0'}
+                             sx={{ ...FIELD_SX, flex: 1, minWidth: 0, py: '0.2em', overflowY: 'auto',
+                                    '&::placeholder': { color: P.dim },
+                                    // No resize grip: its inline height would beat both the
+                                    // fold and the grow-to-the-edge sizing.
+                                    resize: 'none',
+                                    ...(descriptionCollapsed
+                                        ? { fieldSizing: 'fixed', height: DESCRIPTION_TWO_LINES }
+                                        : { fieldSizing: 'content',
+                                            minHeight: descMin != null
+                                                ? `max(${DESCRIPTION_TWO_LINES}, ${descMin}px)` : DESCRIPTION_TWO_LINES,
+                                            maxHeight: descCap != null ? `${descCap}px` : DESCRIPTION_FALLBACK_MAX }) }} />
+                        <Box component="button" type="button" onClick={toggleDescriptionCollapsed}
+                             aria-expanded={descriptionCollapsed ? 'false' : 'true'}
+                             aria-label={descriptionCollapsed ? 'Expand the description' : 'Collapse the description'}
+                             title={descriptionCollapsed ? 'Expand the description' : 'Collapse the description to two lines'}
+                             data-testid="requirement-editor-description-toggle"
+                             sx={{ display: 'inline-flex', flexShrink: 0, p: '0.15em', mt: '0.1em',
+                                    border: `1px solid ${P.line}`, borderRadius: '0.4em', background: 'transparent',
+                                    color: P.dim, cursor: 'pointer',
+                                    '&:hover': { color: P.accent, borderColor: P.accent } }}>
+                            {descriptionCollapsed
+                                ? <UnfoldMoreIcon sx={{ fontSize: '1.2em' }} />
+                                : <UnfoldLessIcon sx={{ fontSize: '1.2em' }} />}
+                        </Box>
+                    </Box>
 
                     {draft.notice && (
                         <Box data-testid="requirement-editor-notice" sx={{ color: P.dim, overflowWrap: 'anywhere' }}>

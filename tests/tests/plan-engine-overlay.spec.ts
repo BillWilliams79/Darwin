@@ -147,7 +147,7 @@ function expectedBadges(answer: any) {
 }
 
 async function expectOverlay(page: Page, answer: any, source: 'engine' | 'predicted') {
-  await expect(page.getByTestId('plan-engine-source')).toHaveAttribute('data-source', source, { timeout: 20000 });
+  await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-source', source, { timeout: 20000 });
   const badges = expectedBadges(answer);
   await expect(page.locator('[data-testid^="plan-engine-badge-"][data-code]')).toHaveCount(badges.size);
   for (const [epicId, b] of badges) {
@@ -156,23 +156,17 @@ async function expectOverlay(page: Page, answer: any, source: 'engine' | 'predic
     await expect(badge).toHaveAttribute('data-positions', b.positions.join(','));
     await expect(badge).toHaveAttribute('data-source', source);
   }
-  const queue = page.locator('[data-testid^="plan-engine-queue-item-"]');
-  await expect(queue).toHaveCount(answer.queue.length);
-  for (let i = 0; i < answer.queue.length; i++) {
-    await expect(queue.nth(i)).toHaveAttribute('data-code', answer.queue[i].code);
-  }
-  if (answer.cut < answer.queue.length) {
-    await expect(page.getByTestId('plan-engine-cut')).toHaveAttribute('data-cut', String(answer.cut));
-  } else {
-    await expect(page.getByTestId('plan-engine-cut')).toHaveCount(0);
-  }
+  // The box itself shows only the slots taken of the capacity — the engine's
+  // own, so switched off (a prediction) it shows none (req #3981).
   const l = answer.limits;
-  if (l.ceiling == null) {
-    await expect(page.getByTestId('plan-engine-limits-unknown')).toBeVisible();
+  const slots = page.getByTestId('plan-engine-slots');
+  if (source === 'predicted') {
+    await expect(slots).toHaveCount(0);
+  } else if (l.ceiling == null) {
+    await expect(slots).toHaveAttribute('data-known', 'false');
   } else {
-    for (const k of ['ceiling', 'live', 'reserved', 'free']) {
-      await expect(page.getByTestId(`plan-engine-limit-${k}`)).toHaveText(`${k} ${l[k]}`);
-    }
+    await expect(slots).toHaveAttribute('data-taken', String(l.live + (l.reserved || 0)));
+    await expect(slots).toHaveAttribute('data-ceiling', String(l.ceiling));
   }
 }
 
@@ -212,13 +206,14 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     const planWrite = w.writes.find((x) => x.table === 'pipelines');
     expect(planWrite?.body[0]).toMatchObject({ id: PLAN, pipeline_status: 'active' });
     // It comes up, and the overlay is now the engine's own record.
-    await expect(page.getByTestId('plan-engine-state')).toContainText('on — running', { timeout: 20000 });
+    await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-actual', 'running', { timeout: 20000 });
     await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-health', 'ok');
     await expectOverlay(page, state.engine, 'engine');
-    await expect(page.getByTestId('plan-engine-source')).toContainText(`Engine cycle ${state.record_row.seq}`);
+    await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-seq', String(state.record_row.seq));
+    // On, it reports the role the record holds (req #3981).
+    await expect(page.getByTestId('plan-engine-role')).toHaveText('Primary');
     // The cut line where the record put it: two admitted, epic 102's launch after it.
     await expect(page.getByTestId('plan-engine-badge-102')).toHaveAttribute('data-cut-before', 'true');
-    await expect(page.getByTestId('plan-engine-cut-text')).toHaveText('the slots run out after #2');
   });
 
   test('OVL-02: switching it off takes it down and returns to the prediction (A2)', async ({ page }) => {
@@ -234,7 +229,8 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     expect(write?.body[0]).toMatchObject({ id: 1, desired_state: 'off', desired_reason: 'user' });
     // Off never touches the plan.
     expect(w.writes.some((x) => x.table === 'pipelines')).toBe(false);
-    await expect(page.getByTestId('plan-engine-state')).toHaveText('off — stopped', { timeout: 20000 });
+    await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-actual', 'stopped', { timeout: 20000 });
+    await expect(page.getByTestId('plan-engine-role')).toHaveCount(0);
     await expectOverlay(page, state.predicted, 'predicted');
   });
 
