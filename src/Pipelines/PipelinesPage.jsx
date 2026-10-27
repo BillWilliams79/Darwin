@@ -63,7 +63,7 @@
 // per-plan storage against the live id set — the record is alive, it simply
 // has no decoration on this surface any more.
 
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -77,6 +77,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
+import ViewInArIcon from '@mui/icons-material/ViewInAr';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -131,6 +132,8 @@ import PipelinesCardsView from './PipelinesCardsView';
 import NewPipelineDialog from './NewPipelineDialog';
 import useCreatePipeline from './useCreatePipeline';
 import { updatePipeline, updatePipelines, deletePipeline, REST_NULL } from './pipelinesApi';
+// req #3972 — three.js rides in this chunk alone; Cards and Table never load it.
+const PipelineGroupView = lazy(() => import('./PipelineGroupView'));
 
 // req #3356 — the `2` is out of both keys now that there is one plan list.
 // Dropping it ORPHANS the two stored preferences rather than migrating them, so
@@ -145,6 +148,9 @@ const STATUS_FILTER_STORAGE_KEY = 'darwin-swarm-pipelines-status-filter';
 const VIEWS = [
     { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
     { value: 'table', label: 'Table view', icon: TableChartIcon },
+    // req #3972 — every pipeline in one 3D scene ("pipeline group" until it
+    // has a name), the Data Center to a plan's SuperPod.
+    { value: 'group', label: 'Pipeline group', icon: ViewInArIcon },
 ];
 
 const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
@@ -239,12 +245,25 @@ export default function PipelinesPage() {
     const activeView = linkView ?? normalizeView(view, VIEWS);
     const changeView = (next) => {
         if (next == null) return;
-        if (searchParams.has('view')) {
+        if (searchParams.has('view') || (next !== 'group' && searchParams.has('focus'))) {
             const rest = new URLSearchParams(searchParams);
             rest.delete('view');
+            if (next !== 'group') rest.delete('focus');
             setSearchParams(rest, { replace: true });
         }
         setView(next);
+    };
+    // req #3972 — the group view's focused pipeline is addressable too
+    // (`?view=group&focus=<id>`), so a link can land on one plan in the field.
+    // Unlike `?view=` it is the LIVE state, written on every focus change.
+    const focusParam = Number(searchParams.get('focus'));
+    const groupFocus = Number.isInteger(focusParam) && focusParam > 0 ? focusParam : null;
+    const setGroupFocus = (id) => {
+        if (id === groupFocus) return;
+        const rest = new URLSearchParams(searchParams);
+        if (id == null) rest.delete('focus');
+        else rest.set('focus', String(id));
+        setSearchParams(rest, { replace: true });
     };
     // The card's requirement figures are its info block (req #3804) — always
     // shown, so the old show-counts preference no longer gates them.
@@ -607,9 +626,11 @@ export default function PipelinesPage() {
                         {filtered.length} of {pipelines.length} pipeline
                         {pipelines.length === 1 ? '' : 's'}
                         {!showClosed && closedCount > 0 && ` (${closedCount} closed hidden)`}
-                        {activeView === 'table'
-                            ? ' — click a row for the plan'
-                            : ' — edit a card in place, drag to reorder, click its picture for the plan'}
+                        {activeView === 'table' && ' — click a row for the plan'}
+                        {activeView === 'cards'
+                            && ' — edit a card in place, drag to reorder, click its picture for the plan'}
+                        {activeView === 'group'
+                            && ' — every plan in one scene: click a pipeline to focus it, then open its plan'}
                     </>}
                 />
             </Box>
@@ -627,7 +648,22 @@ export default function PipelinesPage() {
             )}
 
             <Box className="app-content-tabpanel" sx={{ px: 3, pt: 0 }}>
-                {activeView === 'table' ? (
+                {activeView === 'group' ? (
+                    <Suspense fallback={(
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+                            <CircularProgress />
+                        </Box>
+                    )}>
+                        <PipelineGroupView
+                            pipelines={filtered}
+                            machines={machines}
+                            refetchInterval={THUMBNAIL_REFRESH_MS}
+                            focusId={groupFocus}
+                            onFocusChange={setGroupFocus}
+                            onOpen={open}
+                        />
+                    </Suspense>
+                ) : activeView === 'table' ? (
                     <Box sx={{ width: '100%' }} data-testid="pipelines-datagrid">
                         <DataGrid
                             autoHeight
