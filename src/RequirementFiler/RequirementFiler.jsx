@@ -51,7 +51,12 @@
 // AIMED AT AN EPIC (req #3854): on a plan visualizer, the + hovered over an
 // epic card outlines that epic, and a click files the new requirement into it —
 // the editor names it on its Epic line and Create seats it there
-// (filerEpicAim.js). Anywhere else the + files as it always has.
+// (filerEpicAim.js).
+//
+// AIMED AT A CATEGORY (req #4026): on the requirements page's Cards view, the +
+// of a floating filer — not racked, not locked into the title bar — hovered over
+// a category card outlines that card, and a click files the new requirement in
+// that category (filerCategoryAim.js). Anywhere else the + files as it always has.
 //
 // ADDRESSABLE: any page's `?filer=` (`1`, and the older `new`/`bug` links) opens
 // the filer — a link (or a dev server) can land on it. Only the filer: the
@@ -80,6 +85,7 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
+import { categoryAimAt, highlightCategoryAim, placeProblem } from './filerCategoryAim';
 import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
 import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
@@ -100,7 +106,8 @@ export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't',
 // Timed: a press that never became a click (dragged off) is forgotten.
 let focusAtPress = null;
 const PRESS_MS = 2000;
-// The plan epic beneath the + as that press began (req #3854, filerEpicAim.js).
+// The plan epic beneath the + as that press began (req #3854, filerEpicAim.js),
+// and the category card (req #4026, filerCategoryAim.js).
 let aimAtPress = null;
 
 /** Whether the requirement in the editor stays there: asked when it has
@@ -154,9 +161,9 @@ function keepCreating() {
 /** Starts a new requirement in the editor, unless the reader keeps the one in
  *  it (keepsEditorDraft). `withCapture` — it awaits a debug capture (req #3815).
  *  Returns the new draft's key, or null when the reader kept the one in the editor. */
-export function startNewRequirement(withCapture = false, seat = null) {
+export function startNewRequirement(withCapture = false, seat = null, place = null) {
     if (keepsEditorDraft()) return null;
-    return useRequirementFilerStore.getState().startNew(withCapture, seat);
+    return useRequirementFilerStore.getState().startNew(withCapture, seat, place);
 }
 
 /** Brings filed requirement `id` back into the editor (req #3830), read fresh:
@@ -201,11 +208,12 @@ export async function reopenFiledRequirement(id, darwinUri, idToken) {
  *  still being written (req #3860) is waited for first (createSettled), and
  *  then null is returned; otherwise the new draft's key, or null when the
  *  reader kept the draft in the editor. `seat` — the plan epic the + was
- *  aimed at (req #3854): Create seats the requirement in it. */
-export function fileRequirementNow(filedFrom, profile, seat = null) {
+ *  aimed at (req #3854): Create seats the requirement in it. `place` — the
+ *  category card it was aimed at (req #4026): the draft starts there. */
+export function fileRequirementNow(filedFrom, profile, seat = null, place = null) {
     const pending = buildDebugCapture({ profile, filedFrom });
     const start = () => {
-        const key = startNewRequirement(true, seat);
+        const key = startNewRequirement(true, seat, place);
         // Kept the draft in the editor: this capture is for no one — settle it quietly.
         if (key == null) { pending.catch(() => {}); return null; }
         const { setCapture } = useRequirementFilerStore.getState();
@@ -260,23 +268,32 @@ export default function RequirementFiler() {
     const fileRequirement = (e) => {
         const pointed = e?.detail !== 0 && aimAtPress && performance.now() - aimAtPress.t < PRESS_MS;
         const seat = pointed ? aimAtPress.seat : null;
+        const card = pointed ? aimAtPress.card : null;
+        const place = card && !placeProblem(card, darwinUri)
+            ? { projectId: card.projectId, categoryId: card.categoryId } : null;
         aimAtPress = null;
         highlightEpicAim(null);
-        return fileRequirementNow(filedFrom(), profile, seat);
+        highlightCategoryAim(null);
+        return fileRequirementNow(filedFrom(), profile, seat, place);
     };
     // What held focus as a press on the + began (req #3829) — the head's + and,
     // in a minimized bar, the icon's (req #3886) — and the plan epic beneath it.
     const notePress = (e) => {
         focusAtPress = { el: document.activeElement, t: performance.now() };
-        aimAtPress = { seat: epicAimAt(e?.clientX, e?.clientY), t: performance.now() };
+        aimAtPress = { seat: epicAimAt(e?.clientX, e?.clientY),
+            card: categoryAimAt(e?.clientX, e?.clientY, e?.currentTarget), t: performance.now() };
     };
     // Hovering the + over a plan's epic outlines the epic it would file into.
     // An epic it could not be seated in (locked, or a plan read from another
     // database than the filer files into) is outlined as the refusal it is.
+    // A category card beneath a floating filer's + is outlined the same way (req #4026).
     const aimHover = (e) => {
         const target = epicAimAt(e.clientX, e.clientY);
         highlightEpicAim(target && { ...target, ok: !seatProblem(target, darwinUri) });
+        const card = categoryAimAt(e.clientX, e.clientY, e.currentTarget);
+        highlightCategoryAim(card, !placeProblem(card, darwinUri));
     };
+    const aimLeave = () => { highlightEpicAim(null); highlightCategoryAim(null); };
     useEffect(() => {
         if (!filerParam || !signedIn) return;
         useRequirementFilerStore.setState({ show: true, open: true });
@@ -313,7 +330,7 @@ export default function RequirementFiler() {
                            <Box sx={{ mr: open ? '0.3em' : 0, display: 'flex' }}
                                 onPointerDownCapture={notePress}
                                 onPointerMove={aimHover}
-                                onPointerLeave={() => highlightEpicAim(null)}>
+                                onPointerLeave={aimLeave}>
                                <ActionPopupAdd onClick={fileRequirement}
                                                label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />
