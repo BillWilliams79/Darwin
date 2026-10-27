@@ -146,7 +146,7 @@ import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, isClosedPipeline, allActiveRequirements,
+    reorderPipelines, withPositions, isClosedPipeline, allActiveRequirements,
 } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import NewPipelineDialog from './NewPipelineDialog';
@@ -413,10 +413,17 @@ export default function PipelinesPage() {
         pipelines, epics, initiatives, epicRequirements, requirements });
 
     // req #3804 — the reader's hand-sorted order; closed plans only when lit.
-    const ordered = useMemo(() => orderPipelines(pipelines), [pipelines]);
+    // req #3966 — over it, the order a drop just made, from the drop's own
+    // render until its write settles (`reorder`).
+    const [dropped, setDropped] = useState(null);
+    const ordered = useMemo(() => orderPipelines(withPositions(pipelines, dropped)),
+        [pipelines, dropped]);
     const closedCount = ordered.filter(isClosedPipeline).length;
-    const shown = showClosed ? ordered : ordered.filter((p) => !isClosedPipeline(p));
-    const filtered = shown.filter((p) => statusFilter.includes(p.pipeline_status));
+    const shown = useMemo(() => (showClosed ? ordered : ordered.filter((p) => !isClosedPipeline(p))),
+        [ordered, showClosed]);
+    // Stable between renders — the Cards view keys its drag list on it.
+    const filtered = useMemo(() => shown.filter((p) => statusFilter.includes(p.pipeline_status)),
+        [shown, statusFilter]);
     const hiddenStatusCounts = hiddenPipelineStatusCounts(shown, statusFilter);
 
     const listKey = [...pipelineKeys.all(creatorFk), { fields: PIPELINES_FIELDS }];
@@ -424,9 +431,10 @@ export default function PipelinesPage() {
         queryClient.invalidateQueries({ queryKey: pipelineKeys.all(creatorFk) });
     // Optimistic: the card shows the change at once, a poll in flight is
     // cancelled so it cannot land the old row on top, and every write ends in
-    // a re-read either way.
-    const patchCache = async (patchRows) => {
-        await queryClient.cancelQueries({ queryKey: listKey });
+    // a re-read either way. The cancel (and its revert) happens as it is
+    // called, so the patch follows it in the same tick — nothing to await.
+    const patchCache = (patchRows) => {
+        queryClient.cancelQueries({ queryKey: listKey });
         queryClient.setQueryData(listKey, (old) => (Array.isArray(old) ? patchRows(old) : old));
     };
 
@@ -440,7 +448,7 @@ export default function PipelinesPage() {
         }
         const shownValues = Object.fromEntries(Object.entries(fields)
             .map(([k, v]) => [k, v === REST_NULL ? null : v]));
-        await patchCache((rows) => rows.map((p) => (p.id === row.id ? { ...p, ...shownValues } : p)));
+        patchCache((rows) => rows.map((p) => (p.id === row.id ? { ...p, ...shownValues } : p)));
         try {
             await updatePipeline(darwinUri, idToken, row.id, fields);
             return true;
@@ -487,18 +495,31 @@ export default function PipelinesPage() {
 
     // req #3804 — a card dropped on another's place. Renumbers over the FULL
     // ordered list, so plans the filters hide keep their places.
+    //
+    // req #3966 — "the card flies around … momentarily returning to its
+    // origin". The new order must be on screen IN THE RENDER THAT ENDS THE
+    // DRAG: this runs inside dnd-kit's drop, and the cache only tells the page
+    // a tick later. Drawn one render late, the cards drop their previewing
+    // offsets and slide back, the lifted card settles onto its OLD slot, and
+    // then everything jumps forward. So the order is set here, before
+    // anything is awaited, and held until the write settles — by then the
+    // patched cache (and after it the re-read) carries it.
     const reorder = async (fromId, toId) => {
         const move = reorderPipelines(ordered, fromId, toId);
         if (!move || !move.writes.length) return;
         const position = new Map(move.rows.map((p) => [p.id, p.sort_order]));
-        await patchCache((rows) => rows.map((p) => (position.has(p.id)
-            ? { ...p, sort_order: position.get(p.id) } : p)));
+        setDropped(position);
+        patchCache((rows) => withPositions(rows, position));
         try {
             await updatePipelines(darwinUri, idToken, move.writes);
         } catch (err) {
             showError(err, 'Could not save the pipeline order');
         } finally {
-            invalidatePipelines();
+            // Let go only once the re-read has landed: a cache a poll or an
+            // earlier drop's re-read filled meanwhile may not carry this order.
+            // A later drop holds its own order — leave it.
+            await invalidatePipelines();
+            setDropped((held) => (held === position ? null : held));
         }
     };
 

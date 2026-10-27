@@ -159,7 +159,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         rackIt();
         act(() => { q('pipeline-viz-unseated-toggle').click(); });
         expect(box().getAttribute('data-open')).toBe('0');
-        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrable');
         expect(box().style.width).toBe('100%');
         act(() => { bar().dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
         expect(box().getAttribute('data-racked')).toBe('1');

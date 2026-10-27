@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 
-import AnchoredPanel from '../AnchoredPanel';
+import AnchoredPanel, { PANEL_Z } from '../AnchoredPanel';
 import { usePanelRackStore } from '../../../stores/usePanelRackStore';
 
 const LIMITS = { minW: 120, minH: 64, autoMaxW: 420, headPx: 31 };
@@ -78,11 +78,11 @@ describe('AnchoredPanel rack (req #3720)', () => {
         // Moving, not over: the navbar is not lit. The drag carries the
         // panel's frame colour, which the navbar glows in once over (req #3728).
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, from: null, over: false, rack: null, index: null, color: COLORS.frame });
+            { id: 'a', fromRack: false, from: null, over: false, rack: null, index: null, color: COLORS.frame, z: PANEL_Z });
         expect(panel.getAttribute('data-dock-cue')).toBe('0');
         moveTo('a', [90, 400]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, from: null, over: true, rack: 'nav', index: 0, color: COLORS.frame });
+            { id: 'a', fromRack: false, from: null, over: true, rack: 'nav', index: 0, color: COLORS.frame, z: PANEL_Z });
         // req #3893 — over the navbar, the panel shimmers: let go to rack it.
         expect(panel.getAttribute('data-dock-cue')).toBe('1');
         release('a', [90, 400]);
@@ -157,7 +157,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         // Below the stack (it ends at 400): the bottom.
         moveTo('b', [90, 800]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'b', fromRack: false, from: null, over: true, rack: 'nav', index: 1, color: COLORS.frame });
+            { id: 'b', fromRack: false, from: null, over: true, rack: 'nav', index: 1, color: COLORS.frame, z: PANEL_Z });
         // Above it (the nav buttons): not in the list either, the bottom.
         moveTo('b', [90, 100]);
         expect(usePanelRackStore.getState().drag.index).toBe(1);
@@ -180,7 +180,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         press('a', [60, 310]);
         moveTo('a', [60, 500]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: true, from: 'nav', over: true, rack: 'nav', index: 1, color: COLORS.frame });
+            { id: 'a', fromRack: true, from: 'nav', over: true, rack: 'nav', index: 1, color: COLORS.frame, z: PANEL_Z });
         release('a', [60, 500]);
         expect(usePanelRackStore.getState().racked).toEqual(['b', 'a', 'c']);
         // Reordered, not floated: still in the slot, its dock untouched.
@@ -211,7 +211,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         press('a', [60, 310]);
         moveTo('a', [860, 510]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: true, from: 'nav', over: false, rack: null, index: null, color: COLORS.frame });
+            { id: 'a', fromRack: true, from: 'nav', over: false, rack: null, index: null, color: COLORS.frame, z: PANEL_Z });
         // Mid-drag it is drawn fixed under the pointer, at the navbar's width.
         const live = screen.getByTestId('p-a');
         expect(getComputedStyle(live).position).toBe('fixed');

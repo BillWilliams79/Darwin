@@ -115,6 +115,10 @@ import { useTitleBarLock } from './useTitleBarLock';
 const MOVE_SLOP = 4;
 /** The panel's opacity while its host points at what it flies over (req #3958). */
 const AIMED_OPACITY = 0.6;
+/** Every Action Popup's stacking, and every one's while racked: a panel given
+ *  its own `zIndex` (the Requirement Filer, req #4044) is raised only floating
+ *  and carried — in a rack it neither covers nor passes over its neighbours. */
+export const PANEL_Z = 1250;
 /** A double-click this soon after a move ended is the move's own release. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
 /** The body's right margin: its scrollbar sits inside the right reshape zone. */
@@ -172,7 +176,7 @@ const viewport = () => ({
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, titleLock = null, onTitleLockChange,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = PANEL_Z, rackId, titleLock = null, onTitleLockChange,
     rackIcon, rackIconLabel, onRackIcon, onRackIconPress, onMoveTrack, dockable = true,
 }) {
     const boxRef = useRef(null);
@@ -302,7 +306,7 @@ export default function AnchoredPanel({
         setLive({ ...g.last, edge: g.edge,
             lifted: !!g.slotDoc && (!dockable || !rackApi.isOverOwn(x, y, g.fromRack)) });
         if (g.kind === 'move') {
-            const overRackNow = rackApi.track(x, y, g.fromRack, colors.frame, dockable);
+            const overRackNow = rackApi.track(x, y, g.fromRack, colors.frame, dockable, zIndex);
             const overBarNow = dockable && titleBar.track(x, y, colors.frame);
             if (onMoveTrack) {
                 g.tracked = true;
@@ -482,7 +486,7 @@ export default function AnchoredPanel({
              // bar would make way for it as it passes (req #3961).
              {...(onTitleLockChange ? { 'data-title-locked': inTitleBar && !live ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
-             sx={{ position: racking ? 'relative' : 'fixed', zIndex,
+             sx={{ position: racking ? 'relative' : 'fixed', zIndex: racking ? PANEL_Z : zIndex,
                     minHeight: `${limits.headPx}px`,
                     display: 'flex', flexDirection: 'column',
                     background: colors.background,
@@ -561,7 +565,7 @@ export default function AnchoredPanel({
              data-dock-cue={dockCue ? '1' : '0'}
              {...(onTitleLockChange ? { 'data-title-locked': '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
-             sx={{ position: racking ? 'relative' : 'fixed', zIndex, display: 'flex', justifyContent: 'center',
+             sx={{ position: racking ? 'relative' : 'fixed', zIndex: racking ? PANEL_Z : zIndex, display: 'flex', justifyContent: 'center',
                     py: '2px', boxSizing: 'border-box', userSelect: 'none',
                     ...(overRack && { opacity: 0.75 }),
                     ...(dockCue && { borderRadius: '4px', ...actionPopupDockCue(colors.frame) }),

@@ -222,7 +222,9 @@ export function openActionPopups(doc = document) {
 //
 // THE CONVENTION: drag the filer over the thing the requirement is about, then
 // press Create. A floating filer's rect is probed at its centre and four inset
-// corners with elementsFromPoint, skipping every Action Popup; each distinct
+// corners with elementsFromPoint, skipping the filer's own two windows (the
+// other Action Popups — the plan's Active box, Engine … — are pickable like any
+// element, req #4044: FILER_OWN_POPUPS); each distinct
 // element found is recorded, in probe order (the centre's first when the centre
 // found one) — the nearest one carrying a data-testid (the
 // element the page names), its testid path, role/aria-label, visible text and
@@ -331,10 +333,17 @@ function testidPath(el) {
     return ids.slice(0, POINTED_PATH_MAX);
 }
 
-/** The topmost page element at (x, y) of `doc` — Action Popups, html and body skipped. */
+/** The Action Popups a probe never finds: the filer itself and its editor —
+ *  RequirementFiler.jsx FILER_RACK_ID and RequirementEditorPopup.jsx
+ *  EDITOR_RACK_ID (named here, not imported: both components depend on this module).
+ *  Every other Action Popup is an element like any other (req #4044). */
+export const FILER_OWN_POPUPS = Object.freeze(['requirement-filer', 'requirement-editor']);
+const OWN_POPUP_SELECTOR = FILER_OWN_POPUPS.map(id => `[data-rack-id="${id}"]`).join(',');
+
+/** The topmost page element at (x, y) of `doc` — the filer's own popups, html and body skipped. */
 function pageElementAt(doc, x, y) {
     const els = typeof doc.elementsFromPoint === 'function' ? doc.elementsFromPoint(x, y) : [];
-    return els.find(el => el.tagName !== 'HTML' && el.tagName !== 'BODY' && !el.closest?.('[data-rack-id]')) || null;
+    return els.find(el => el.tagName !== 'HTML' && el.tagName !== 'BODY' && !el.closest?.(OWN_POPUP_SELECTOR)) || null;
 }
 
 /** The one iframe under (x, y) inside `hit` — a frame whose pointer is off
@@ -350,8 +359,8 @@ function frameUnder(hit, x, y) {
 
 /**
  * The page element at (x, y) of `doc`, as a popup over it points at it:
- * `{ hit, off, frame, typing }` — `hit` the topmost element (Action Popups,
- * html and body skipped), one level into a same-origin iframe (`off` — that
+ * `{ hit, off, frame, typing }` — `hit` the topmost element (the filer's own
+ * popups, html and body skipped), one level into a same-origin iframe (`off` — that
  * document's origin in Darwin's viewport; `frame` — the iframe's testid path
  * and label); `typing` — `typingIn`, or the frame's focused element when focus
  * was in the frame. Null over nothing.
