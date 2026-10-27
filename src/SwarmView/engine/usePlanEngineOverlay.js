@@ -86,6 +86,38 @@ export function recordOfThisRun(row, state) {
 }
 
 /**
+ * The other engines' latest records as the prediction reads them (req #3984).
+ * Each new cycle of another engine is a new query, pending for a round trip;
+ * until it lands, that engine's LAST loaded record stands — as this plan's own
+ * engine record does between cycles. Read as unknown, every cycle of every
+ * other engine flashed the whole plan CAPACITY-UNKNOWN red. An engine with no
+ * record read yet, or whose read failed, is still unknown.
+ *
+ * @param {Object[]} queries  `useQueries` results, one per engine in `others`
+ * @param {Object[]} others   the assembled engines they read, each with `key`
+ * @param {Map} last          engine key -> its last loaded row; updated here
+ * @returns {{rows: Array<?Object>, known: boolean}}
+ */
+export function otherRecordReads(queries, others, last) {
+    // Only between consecutive cycles: an engine that left and came back is
+    // read afresh, never from a record it published before it went quiet.
+    const present = new Set(others.map((e) => e.key));
+    for (const key of [...last.keys()]) if (!present.has(key)) last.delete(key);
+    let known = true;
+    const rows = queries.map((q, i) => {
+        const key = others[i] ? others[i].key : null;
+        if (q.isSuccess) {
+            last.set(key, q.data);
+            return q.data;
+        }
+        if (!q.isError && last.has(key)) return last.get(key);
+        known = false;
+        return null;
+    });
+    return { rows, known };
+}
+
+/**
  * The overlay's whole state for plan `pipelineId` on the reader's machine.
  *
  * @param {Object} args
@@ -169,15 +201,17 @@ export function usePlanEngineOverlay({ pipelineId, machines, claims, sessions, m
     // (req #3807). Keyed by value: `useQueries` hands back a new array every render.
     // Only an engine that can use a slot contends (darwin-mcp list_engine_in_flight):
     // a degraded or switched-off one still reserves what it has in flight.
-    const flightKey = JSON.stringify(otherRecords.map((q, i) => {
-        const rec = q.data ? parseJsonColumn(q.data.record) : null;
+    const lastOtherRows = useRef(new Map());
+    const otherReads = otherRecordReads(otherRecords, others, lastOtherRows.current);
+    const flightKey = JSON.stringify(otherReads.rows.map((row, i) => {
+        const rec = row ? parseJsonColumn(row.record) : null;
         const other = others[i];
         return rec ? { location: rec.location, limits: rec.limits,
             contends: !!other && other.health === HEALTH_OK
                 && other.state.desired_state !== DESIRED_OFF } : null;
     }).filter(Boolean));
     const flight = useMemo(() => flightFromRecords(JSON.parse(flightKey)), [flightKey]);
-    const otherRecordsKnown = otherRecords.every((q) => q.isSuccess);
+    const otherRecordsKnown = otherReads.known;
 
     // Claims as the role rule reads them: stale ones carry `stale`. The claim
     // this scope's own engine last beat on is not counted against its
