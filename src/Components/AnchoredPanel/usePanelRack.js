@@ -10,7 +10,7 @@
 // navbar the same way, land in the same stack and reorder by the same rule.
 //
 // A host owns its own move gesture and calls three things from it:
-//   • `track(x, y, fromRack, color)` on every move frame — publishes the drag,
+//   • `track(x, y, fromRack, color, canRack, z)` on every move frame — publishes the drag,
 //     so the rack under it glows in `color` (the window's frame), and answers
 //     whether a release there would rack it — `canRack` false (a host's picker
 //     mode, req #3958) publishes the carry but never over a rack;
@@ -128,7 +128,7 @@ export function rackTarget(rackId, x, y, fromRack) {
 export function publishRackDrag(next) {
     const { drag, setDrag } = usePanelRackStore.getState();
     if (drag === next) return;
-    if (drag && next && ['id', 'over', 'rack', 'index', 'fromRack', 'from', 'color'].every(k => drag[k] === next[k])) return;
+    if (drag && next && ['id', 'over', 'rack', 'index', 'fromRack', 'from', 'color', 'z'].every(k => drag[k] === next[k])) return;
     setDrag(next);
 }
 
@@ -165,14 +165,15 @@ export function usePanelRack(rackId) {
     // Read live: a gesture's release must see the page as it is now.
     const target = (x, y, fromRack) => (rackId && !usePanelRackStore.getState().covered
         ? rackTarget(rackId, x, y, fromRack) : NOWHERE);
-    const track = (x, y, fromRack, color, canRack = true) => {
+    const track = (x, y, fromRack, color, canRack = true, z = null) => {
         if (!rackId) return false;
         const from = fromRack ? rackPlacement(usePanelRackStore.getState(), rackId)?.where ?? null : null;
         // Still published when it cannot rack: a page toolbar's frame gives up
         // the pointer to a carried window (Systems/ToolbarRack.jsx).
         const { over, rack, index } = canRack ? target(x, y, fromRack) : NOWHERE;
-        // `color` — its frame: the rack under it glows in it (req #3728).
-        publishRackDrag({ id: rackId, fromRack, from, color, over, rack, index });
+        // `color` — its frame: the rack under it glows in it (req #3728). `z` —
+        // its own stacking, which the navbar lifts to while carrying it (req #4044).
+        publishRackDrag({ id: rackId, fromRack, from, color, over, rack, index, z });
         // Whether a release here would rack it (req #3958: the host aims at nothing then).
         return over;
     };

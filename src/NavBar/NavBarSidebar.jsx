@@ -395,8 +395,10 @@ const NavBarSidebar = () => {
                     data-rack-drop={rackDrag ? (rackOver ? 'over' : 'armed') : 'off'}
                     sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0,
                           // A racked panel dragged out is drawn fixed from in
-                          // here: lift the navbar so it stays above the page.
-                          ...(rackDrag?.from === 'nav' && { zIndex: RACK_DRAG_Z }) }}
+                          // here: lift the navbar so it stays above the page —
+                          // to the panel's own z when it is raised (the
+                          // Requirement Filer over every popup, req #4044).
+                          ...(rackDrag?.from === 'nav' && { zIndex: Math.max(RACK_DRAG_Z, rackDrag.z ?? 0) }) }}
                 >
                     <Box sx={{
                         display: 'flex',

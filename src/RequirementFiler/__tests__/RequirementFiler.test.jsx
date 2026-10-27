@@ -62,6 +62,8 @@ import { EDITOR_DEFAULT_HT, migrateFilerState, useRequirementFilerStore } from '
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
+import { FILER_Z } from '../filerHover';
+import { PANEL_Z } from '../../Components/AnchoredPanel/AnchoredPanel';
 import { draftDirty } from '../requirementFilerModel';
 import { registerEpicAim } from '../filerEpicAim';
 import { categoryAimAt, filerPinned, placeProblem } from '../filerCategoryAim';
@@ -144,6 +146,8 @@ describe('Requirement Filer (req #3811)', () => {
         fireEvent.click(control);
         const panel = screen.getByTestId('requirement-filer');
         expect(panel.getAttribute('data-rack-id')).toBe(FILER_RACK_ID);
+        // Floating, it stacks over every other Action Popup (req #4044).
+        expect(getComputedStyle(panel).zIndex).toBe(String(FILER_Z));
         expect(screen.getByTestId('requirement-filer-title').textContent).toBe('Requirement');
         expect(screen.getByTestId('requirement-filer-toggle')).toBeTruthy();
         // The + creates (req #3830); the body lists what it filed — nothing yet, and says nothing.
@@ -166,6 +170,8 @@ describe('Requirement Filer (req #3811)', () => {
         const panel = screen.getByTestId('requirement-filer');
         expect(panel.getAttribute('data-racked')).toBe('1');
         expect(screen.getByTestId('navbar-rack-slot').contains(panel)).toBe(true);
+        // In the rack it is one of the stack, raised over none of them (req #4044).
+        expect(getComputedStyle(panel).zIndex).toBe(String(PANEL_Z));
         fireEvent.click(screen.getByTestId('requirement-filer-toggle'));
         expect(screen.getByTestId('requirement-filer-body').getAttribute('data-folded')).toBe('1');
         expect(useRequirementFilerStore.getState().open).toBe(false);
