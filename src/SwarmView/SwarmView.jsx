@@ -589,6 +589,10 @@ const SwarmView = () => {
                                }),
                                ...(vizMaximized && { flexShrink: 0 }) }}
                          data-testid="swarm-view-toggle-row"
+                         // req #3961 — the TITLE BAR of all four requirements
+                         // views (one row, every view): the Action Popups lock
+                         // into its free space (titleBarLock.js).
+                         data-title-bar=""
                     >
                         <ToggleButtonGroup
                             value={view}

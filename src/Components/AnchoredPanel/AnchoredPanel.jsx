@@ -53,7 +53,8 @@
 // page covers the navbar (usePanelRackStore `covered`), the panel floats.
 //
 // ── LOCKED INTO THE TITLE BAR (req #3857) ─────────────────────────────────
-// A host that passes `onTitleLockChange` (the Requirement Filer) can drop its
+// A host that passes `onTitleLockChange` (the Requirement Filer and the Dev
+// Servers popups, req #3961) can drop its
 // panel on the page's TITLE BAR (`[data-title-bar]`): the bar glows as the rack
 // does, and released there the panel is LOCKED — drawn in the bar where it was
 // dropped, its head on the bar's line, staying there as the bar resizes and
@@ -427,7 +428,9 @@ export default function AnchoredPanel({
              data-dock-cue={dockCue ? '1' : '0'}
              {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
                  'data-rack-open': inRack && open ? '1' : '0' } : {})}
-             {...(onTitleLockChange ? { 'data-title-locked': inTitleBar ? '1' : '0' } : {})}
+             // Not while a drag draws it elsewhere: the others locked in the
+             // bar would make way for it as it passes (req #3961).
+             {...(onTitleLockChange ? { 'data-title-locked': inTitleBar && !live ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: racking ? 'relative' : 'fixed', zIndex,
                     minHeight: `${limits.headPx}px`,
