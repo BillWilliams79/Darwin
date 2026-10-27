@@ -28,8 +28,8 @@
 //   · the two-state done/open EPIC progress bar — completeness is measured on
 //     requirements now, because an epic has no status column and the
 //     `completed_at` the bar counted is empty on essentially every epic;
-//   · the requirement tally on the card TITLE — it moved to the accounting
-//     line under the bar that draws it;
+//   · the requirement tally on the card TITLE — it moved to the card's info
+//     block (`pipelines-card-requirements-<id>`);
 //   · the Table view's "Goal" description dialog and its trailing Open icon —
 //     both removed, and their absence is now itself asserted.
 
@@ -101,6 +101,10 @@ let requirements;
 let orchestrationClaims;
 let loading;
 let initiativeDeps = [];
+// req #3978 — the All Active box's reads.
+let requirementSessions;
+let sessionTerminals;
+let requirementsError = false;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -112,10 +116,14 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllPipelineEpicRequirements: () => ({
             data: epicRequirements, isLoading: loading.links }),
-        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements }),
+        useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements,
+            isError: requirementsError }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
         // req #3823 — initiative-to-initiative edges (none unless a test seeds them).
         useAllInitiativeDeps: () => ({ data: initiativeDeps }),
+        useAllRequirementSessions: () => ({ data: requirementSessions }),
+        useAllSessionTerminals: () => ({ data: sessionTerminals }),
+        useDevServers: () => ({ data: [] }),
     };
 });
 
@@ -264,6 +272,9 @@ beforeEach(() => {
         { id: 901, requirement_status: 'development' },
     ];
     orchestrationClaims = [];
+    requirementsError = false;
+    requirementSessions = [{ requirement_fk: 901, session_fk: 3001 }];
+    sessionTerminals = [{ id: 3001, swarm_status: 'active' }];
     useSnackBarStore.setState({ open: false, message: '' });
 });
 
@@ -271,6 +282,38 @@ afterEach(() => {
     act(() => { mountedRoots.forEach(r => r.unmount()); });
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+});
+
+// req #3978 — every plan's Active box in one, on this page.
+describe('PipelinesPage2 — All Active', () => {
+    it('lists the active requirements of every plan in the Active box', () => {
+        requirements = [
+            { id: 900, title: 'Done thing', requirement_status: 'met' },
+            { id: 901, title: 'Running thing', requirement_status: 'development' },
+        ];
+        mount();
+        expect(node('pipelines-all-active-title').textContent).toBe('All Active');
+        expect(node('pipelines-all-active-count').textContent).toBe('1');
+        expect(node('pipelines-all-active-item-title-901').textContent).toBe('Running thing');
+        expect(node('pipelines-all-active-item-900')).toBeNull();
+        click(node('pipelines-all-active-item-901'));
+        expect(navigations).toEqual(['/swarm/requirement/901']);
+    });
+
+    it('reads loading, not None running, until the session reads have data', () => {
+        sessionTerminals = undefined;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
+
+    it('reads loading, not None running, when the requirement read failed', () => {
+        requirements = [];
+        requirementsError = true;
+        mount();
+        expect(node('pipelines-all-active-count').textContent).toBe('…');
+        expect(node('pipelines-all-active-empty')).toBeNull();
+    });
 });
 
 describe('PipelinesPage2 — Cards view (default)', () => {
@@ -285,7 +328,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
     // here: "shows the done/open two-state summary" and "shows the met/total
     // requirement count on the title". Both described behaviour the user
     // directed away on 2026-08-12 — epic state is not shown at all now, and
-    // the requirement tally moved off the title into the accounting line — so
+    // the requirement tally moved off the title into the card's info block — so
     // leaving them passing would have meant pinning a contract nobody holds.
     // req #3804 review — ONE plain info block: initiatives, epics, and
     // requirements closed of total; no badges for them, and no "x of y met"
@@ -304,7 +347,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-7').textContent).not.toContain('requirements met');
     });
 
-    it('keeps the title to the plan NAME, with the tally in the accounting line', () => {
+    it('keeps the title to the plan NAME, with the tally in the card info block', () => {
         mount();
         // req #3804 — the title is an in-place field; its value is the name alone.
         expect(node('pipelines-card-title-7').value).toBe('Plan Seven');
@@ -395,6 +438,31 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(navigations).toEqual(['/swarm/pipeline/8']);
     });
 
+    // req #4027 — the picture is a real link, so the browser's right-click
+    // menu offers "Open link in new tab", and a modified click is the browser's.
+    it('makes the picture a link to the plan, leaving modified clicks to the browser', () => {
+        mount();
+        const link = node('pipelines-card-thumbnail-8');
+        expect(link.tagName).toBe('A');
+        expect(link.getAttribute('href')).toBe('/swarm/pipeline/8');
+        expect(link.getAttribute('draggable')).toBe('false');
+        // Read what the app did, then stop jsdom following the link itself.
+        const seen = [];
+        const record = (e) => { seen.push(e.defaultPrevented); e.preventDefault(); };
+        window.addEventListener('click', record);
+        for (const mod of ['metaKey', 'ctrlKey', 'shiftKey']) {
+            const e = new MouseEvent('click', { bubbles: true, cancelable: true, [mod]: true });
+            act(() => { link.dispatchEvent(e); });
+        }
+        window.removeEventListener('click', record);
+        expect(seen).toEqual([false, false, false]);
+        expect(navigations).toEqual([]);
+        const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
+        act(() => { link.dispatchEvent(plain); });
+        expect(plain.defaultPrevented).toBe(true);
+        expect(navigations).toEqual(['/swarm/pipeline/8']);
+    });
+
     it('does not navigate when the card body is clicked', () => {
         mount();
         click(node('pipelines-card-info-7'));
@@ -408,7 +476,8 @@ describe('PipelinesPage2 — status filter', () => {
         mount();
         expect(node('pipelines-card-7')).not.toBeNull();
         expect(node('pipelines-card-8')).not.toBeNull();
-        expect(node('pipelines-accounting').textContent).toContain('2 of 2');
+        // req #3964 — the page carries no accounting line.
+        expect(node('pipelines-accounting')).toBeNull();
     });
 
     it('hides a pipeline when its status chip is toggled off', () => {
@@ -832,7 +901,6 @@ describe('PipelinesPage2 — closed pipelines (req #3804)', () => {
         mount();
         expect(node('pipelines-card-9')).toBeNull();
         expect(node('pipelines-show-closed').textContent).toBe('Closed (1)');
-        expect(node('pipelines-accounting').textContent).toContain('1 closed hidden');
         click(node('pipelines-show-closed'));
         expect(node('pipelines-card-9')).not.toBeNull();
         expect(node('pipelines-card-closed-9')).not.toBeNull();

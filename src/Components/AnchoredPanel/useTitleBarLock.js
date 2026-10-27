@@ -130,17 +130,19 @@ export function useTitleBarLock({ lock, offered, racked, paused, boxRef, limits 
         setOver(false);
     };
     useEffect(() => unglow, []);
+    // Answers whether a release here would lock it (req #3958).
     const track = (x, y, color) => {
-        if (!offered) return;
+        if (!offered) return false;
         const bar = findTitleBar(boxRef.current?.ownerDocument || document);
         const el = bar && onTitleBar(x, y, bar.rect) ? bar.el : null;
-        if (glowRef.current?.el === el) return;
+        if (glowRef.current?.el === el) return !!el;
         unglow();
-        if (!el) return;
+        if (!el) return false;
         glowRef.current = { el, prev: el.style.boxShadow };
         el.style.boxShadow = rackGlow(color);
         el.setAttribute('data-title-bar-over', '1');
         setOver(true);
+        return true;
     };
     const release = (x, y, rect) => {
         unglow();

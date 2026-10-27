@@ -226,7 +226,12 @@ export function openActionPopups(doc = document) {
 // element found is recorded, in probe order (the centre's first when the centre
 // found one) — the nearest one carrying a data-testid (the
 // element the page names), its testid path, role/aria-label, visible text and
-// rect. A racked filer points at nothing: `pointedAt: null` with the reason.
+// rect. A racked filer points at nothing: `pointedAt: null` with the reason —
+// and so, since req #3958, does one locked into the title bar. And it records
+// its place only while its PUSHPIN is pressed (user ruling 2026-10-26) — then a
+// drag outlines the element as it goes (filerHover.js) and docks nowhere, so
+// the bars' own elements (navbar, title bar, topology toolbar …) are pickable
+// too (user, 2026-10-27); unpinned, `pointedAt: null`, notPinned.
 //
 // A FIELD'S VALUE (user ruling 2026-10-23, req #3829): an unfocused field is a
 // record's displayed data (a /swarm title is a TextField) and its text is
@@ -245,6 +250,8 @@ const TEXT_WALK_MAX_NODES = 2000;
 
 export const POINTED_AT_REASONS = Object.freeze({
     racked: 'racked — a filer in the navbar or a toolbar rack points at nothing',
+    titleLocked: 'locked into the title bar — a docked filer points at nothing',
+    notPinned: 'not pinned — the filer records its place only while its pushpin is pressed',
     notDrawn: 'the filer is not drawn — nothing to point from',
     nothing: 'nothing under the filer but the page itself',
     overCap: 'dropped — the capture was over its size cap',
@@ -330,9 +337,61 @@ function pageElementAt(doc, x, y) {
     return els.find(el => el.tagName !== 'HTML' && el.tagName !== 'BODY' && !el.closest?.('[data-rack-id]')) || null;
 }
 
+/** The one iframe under (x, y) inside `hit` — a frame whose pointer is off
+ *  while a popup is carried over it (Systems/ToolbarRack.jsx) is skipped by
+ *  elementsFromPoint, so its container is hit instead. */
+function frameUnder(hit, x, y) {
+    const frames = hit.tagName === 'IFRAME' ? [hit] : Array.from(hit.querySelectorAll?.('iframe') || []);
+    return frames.find((f) => {
+        const r = f.getBoundingClientRect();
+        return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+    }) || null;
+}
+
+/**
+ * The page element at (x, y) of `doc`, as a popup over it points at it:
+ * `{ hit, off, frame, typing }` — `hit` the topmost element (Action Popups,
+ * html and body skipped), one level into a same-origin iframe (`off` — that
+ * document's origin in Darwin's viewport; `frame` — the iframe's testid path
+ * and label); `typing` — `typingIn`, or the frame's focused element when focus
+ * was in the frame. Null over nothing.
+ */
+export function probeAt(doc, x, y, typingIn = null) {
+    let hit = pageElementAt(doc, x, y);
+    if (!hit) return null;
+    let off = { left: 0, top: 0 };
+    let frame = null;
+    let typing = typingIn;
+    // A same-origin frame (Topology, AI Architecture): what is under the point inside it.
+    const iframe = frameUnder(hit, x, y);
+    if (iframe) {
+        try {
+            const fr = iframe.getBoundingClientRect();
+            const inner = iframe.contentDocument && pageElementAt(iframe.contentDocument,
+                x - fr.left - iframe.clientLeft, y - fr.top - iframe.clientTop);
+            if (inner) {
+                off = { left: fr.left + iframe.clientLeft, top: fr.top + iframe.clientTop };
+                // Focus held inside the frame as the press began.
+                if (typingIn === iframe) typing = iframe.contentDocument.activeElement;
+                frame = { testidPath: testidPath(iframe), label: (iframe.getAttribute('data-testid') || iframe.getAttribute('src') || 'iframe').slice(0, POINTED_TESTID_MAX) };
+                hit = inner;
+            } else if (hit !== iframe) {
+                hit = iframe;
+            }
+        } catch {
+            // Cross-origin: the iframe itself is what it points at.
+            hit = iframe;
+        }
+    }
+    return { hit, off, frame, typing };
+}
+
+/** The element a probe names — the nearest carrying a data-testid. */
+export const namedElement = (hit) => hit.closest?.('[data-testid]') || hit;
+
 /** One element as recorded; `off` — its document's origin in Darwin's viewport. */
-function elementRecord(hit, off, frame, typingIn) {
-    const named = hit.closest?.('[data-testid]') || hit;
+export function elementRecord(hit, off, frame, typingIn) {
+    const named = namedElement(hit);
     const r = named.getBoundingClientRect();
     const role = named.getAttribute('role');
     const ariaLabel = named.getAttribute('aria-label');
@@ -358,6 +417,8 @@ function elementRecord(hit, off, frame, typingIn) {
  *  that held focus as the press began; it is never copied. */
 export function pointedAtNow(self, doc = document, typingIn = null) {
     if (self?.racked) return { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.racked };
+    // Docked in the title bar, it sits over the bar (req #3958).
+    if (self?.titleLocked) return { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.titleLocked };
     if (!self?.rect) return { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
     const { x, y, w, h } = self.rect;
     const view = doc.defaultView;
@@ -374,27 +435,10 @@ export function pointedAtNow(self, doc = document, typingIn = null) {
     for (const [name, rawX, rawY] of points) {
         const px0 = Math.min(maxX, Math.max(0, rawX));
         const py0 = Math.min(maxY, Math.max(0, rawY));
-        let hit = pageElementAt(doc, px0, py0);
-        if (!hit) continue;
-        let off = { left: 0, top: 0 };
-        let frame = null;
-        let typing = typingIn;
-        // A same-origin frame (Topology, AI Architecture): what is under the point inside it.
-        if (hit.tagName === 'IFRAME') {
-            try {
-                const fr = hit.getBoundingClientRect();
-                const inner = hit.contentDocument && pageElementAt(hit.contentDocument,
-                    px0 - fr.left - hit.clientLeft, py0 - fr.top - hit.clientTop);
-                if (inner) {
-                    off = { left: fr.left + hit.clientLeft, top: fr.top + hit.clientTop };
-                    // Focus held inside the frame as the press began.
-                    if (typingIn === hit) typing = hit.contentDocument.activeElement;
-                    frame = { testidPath: testidPath(hit), label: (hit.getAttribute('data-testid') || hit.getAttribute('src') || 'iframe').slice(0, POINTED_TESTID_MAX) };
-                    hit = inner;
-                }
-            } catch { /* cross-origin: the iframe itself is what it points at */ }
-        }
-        const key = hit.closest?.('[data-testid]') || hit;
+        const probe = probeAt(doc, px0, py0, typingIn);
+        if (!probe) continue;
+        const { hit, off, frame, typing } = probe;
+        const key = namedElement(hit);
         if (!byElement.has(key)) byElement.set(key, { points: [], hit, off, frame, typing });
         byElement.get(key).points.push(name);
     }
@@ -424,9 +468,10 @@ function visibleApps(profile) {
  * @param {string} p.popupId     the filer's rack id
  * @param {?Object} p.popupStore the filer's { dock, open, titleLock }
  * @param {?Element} [p.typingIn] the element focused as the press began
+ * @param {boolean} [p.pinned]   the filer's pushpin — unpressed, it records no place (req #3958)
  * @param {Date} [p.now]
  */
-export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, now = new Date() }) {
+export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, now = new Date() }) {
     const { pathname = '/', search = '', hash = '' } = location || {};
     const page = readPageOptions();
     const app = appForRoute(pathname);
@@ -436,7 +481,8 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     const query = cleanQuery(search, '?', ['filer']);
     const cleanHash = cleanQuery(hash, '#');
     const racked = self ? self.racked : rackPlacement(usePanelRackStore.getState(), popupId) != null;
-    const pointed = typeof document !== 'undefined'
+    const pointed = !pinned ? { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notPinned }
+        : typeof document !== 'undefined'
         ? pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn)
         : { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
     return {
@@ -467,6 +513,7 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
         popup: {
             id: popupId,
             racked,
+            pinned: !!pinned,
             ...(self?.racked ? { rackIndex: self.rackIndex } : null),
             open: popupStore?.open ?? self?.open ?? null,
             dock: popupStore?.dock ?? null,
@@ -515,5 +562,7 @@ export function filedFromNow(args) {
     }
     return { version: ctx.version, filedAt: ctx.filedAt, surface: ctx.surface.slice(0, 2000),
         url: { full: ctx.url.full.slice(0, 2000) }, omitted: `over the ${FILED_FROM_MAX_CHARS}-char size cap`,
-        pointedAt: null, pointedAtReason: POINTED_AT_REASONS.overCap };
+        // A press that recorded no place keeps saying why (req #3958: not pinned, racked …).
+        pointedAt: null, pointedAtReason: ctx.pointedAt == null && ctx.pointedAtReason ? ctx.pointedAtReason : POINTED_AT_REASONS.overCap,
+        popup: { id: ctx.popup?.id, pinned: !!ctx.popup?.pinned } };
 }

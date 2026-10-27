@@ -1,4 +1,4 @@
-// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestrables" box
+// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestrable" box
 // (req #3583; titled and outlined in purple by req #3605; retitled from
 // "Orchestration Ready" by req #3648).
 //
@@ -947,7 +947,7 @@ export default function UnorchestratedReqBox({
                 ▾ at the upper left (req #3741), the count as a badge LEFT of
                 the name (req #3648) folded or not, the upper right blank. */}
             <ActionPopupHead ref={headerRef} open={open} onToggle={toggleOpen}
-                             name="Orchestrables" testid="pipeline-viz-unseated"
+                             name="Orchestrable" testid="pipeline-viz-unseated"
                              badge={
                                  <ActionPopupBadge testid="pipeline-viz-unseated-count"
                                                    fill={statusColor} text="#0d1420">
@@ -959,7 +959,7 @@ export default function UnorchestratedReqBox({
                              // stays whole — and the icon-only navbar has room
                              // for the ▾ and badge alone.
                              label={dropOver && (open || inRack) ? 'Drop to un-orchestrate'
-                                 : (open || inRack ? 'Orchestrables' : 'OR')}
+                                 : (open || inRack ? 'Orchestrable' : 'OR')}
                              narrow={narrow}
                              // The list draws its own rule under the bar, so it
                              // folds away with the list.

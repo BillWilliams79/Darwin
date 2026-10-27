@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildPipelineGroupModel, pipelineBox, groupStatusColor, GROUP, GROUP_STATUS_LEGEND,
-    UNKNOWN_STATUS_COLOR,
+    UNKNOWN_STATUS_COLOR, LABEL_TIER, placeLabels,
 } from '../pipelineGroupModel';
 import { DEFAULT_PLAN_PALETTE, planPalette } from '../../SwarmView/pipelines/pipelinePlanLayout';
 
@@ -154,5 +154,47 @@ describe('status colours', () => {
     it('the legend lists every status in lifecycle order', () => {
         expect(GROUP_STATUS_LEGEND.map((s) => s.status)).toEqual(
             ['authoring', 'approved', 'swarm_ready', 'development', 'met', 'deferred', 'wontfix']);
+    });
+});
+
+// req #4040 — every platform's initiative and epic names are drawn, so the
+// labels are decluttered: placed in priority order, an overlapping one hides.
+describe('placeLabels', () => {
+    const box = (left, top, extra = {}) => ({
+        left, top, right: left + 100, bottom: top + 16, tier: LABEL_TIER.epic, d: 1, ...extra,
+    });
+
+    it('shows every label that overlaps nothing', () => {
+        expect(placeLabels([box(0, 0), box(200, 0), box(0, 100)])).toEqual([true, true, true]);
+    });
+
+    it('a pipeline title beats an initiative, which beats an epic, wherever they sit', () => {
+        const shown = placeLabels([
+            box(10, 4, { tier: LABEL_TIER.epic, d: 0 }),
+            box(0, 0, { tier: LABEL_TIER.initiative, d: 50 }),
+            box(5, 2, { tier: LABEL_TIER.pipeline, d: 99 }),
+        ]);
+        expect(shown).toEqual([false, false, true]);
+    });
+
+    it('within a tier the label nearer the camera wins', () => {
+        expect(placeLabels([box(0, 0, { d: 9 }), box(20, 4, { d: 1 })])).toEqual([false, true]);
+    });
+
+    it("the focused pipeline's epic names beat every other plan's titles", () => {
+        const shown = placeLabels([
+            box(0, 0, { tier: LABEL_TIER.pipeline, d: 0 }),
+            box(10, 5, { tier: LABEL_TIER.epic, d: 50, lit: true }),
+        ]);
+        expect(shown).toEqual([false, true]);
+    });
+
+    it('keeps a small gap: touching boxes count as overlapping', () => {
+        expect(placeLabels([box(0, 0, { d: 0 }), box(101, 0, { d: 1 })])).toEqual([true, false]);
+        expect(placeLabels([box(0, 0, { d: 0 }), box(103, 0, { d: 1 })])).toEqual([true, true]);
+    });
+
+    it('nothing in, nothing shown', () => {
+        expect(placeLabels([])).toEqual([]);
     });
 });

@@ -19,6 +19,10 @@ import {
 //     where the reader dropped it (req #3857, titleBarLock.js); null = it
 //     floats at `dock`. A page with no title bar floats it at `dock`, the lock
 //     kept for the next page that has one.
+//   • `pinned` — its PUSHPIN, between the title and the × (user ruling
+//     2026-10-26, req #3958): pressed, a head drag outlines the element it flies
+//     over (filerHover.js) and the + records the place (`filedFrom.pointedAt`);
+//     not pressed, neither. Off by default, remembered per browser.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here. Its Clear empties it
 //     (req #3975); the requirements themselves are untouched.
@@ -29,6 +33,7 @@ import {
 //
 // THE EDITOR — the popup requirement editor the filer opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
+//     Every open puts `editorDock` back at its content-fitted size (req #3982).
 //     `editorShow` alone is NOT persisted (req #3974): the editor opens on a
 //     press of the + (or a pick from the filer's list), never on a page load —
 //     so a reload, or a dev server reusing this origin, starts it closed. Its
@@ -51,6 +56,9 @@ import {
 //   • `orphaned` — the POST committed but its id could not be read back: Save is
 //     refused until a new requirement is started, so it cannot POST a duplicate.
 //   • `focusPending` — focus the title once, for a draft just started; live only.
+//   • `descriptionCollapsed` — the description is folded to two lines; open, it
+//     grows to the bottom of the screen and then scrolls (req #3982). The
+//     reader's choice, kept for every requirement the editor shows.
 //   • `creating` — the `draftKey` of a CREATE still being written (its POST,
 //     then its debug capture) while the editor it closed is hidden (req #3860);
 //     null when none is. A new or reopened requirement waits for it, so it never
@@ -80,6 +88,14 @@ import {
 // Kept here rather than in the editor's own state because racking a panel
 // re-mounts its subtree (AnchoredPanel). Persisted per browser — where the
 // reader parks the windows, and an unsaved draft, survive a reload.
+/** The editor's size every time it opens (user, 2026-10-27, req #3982:
+ *  "everytime that requirements editor is opened, you get that default" — the
+ *  size a double-click on its corner fits it to): as wide as its form, and at
+ *  least this tall, px, the description filling the rest (RequirementEditorPopup).
+ *  A reshape lasts until the editor is next opened; where it floats is kept. */
+export const EDITOR_DEFAULT_HT = 431;
+const atDefaultSize = (dock) => (dock ? { ...dock, w: null, ht: null } : dock);
+
 /** Where the ids this store holds were filed (req #3888) — always production now. */
 export const FILED_INTO = 'darwin';
 
@@ -128,6 +144,8 @@ export const useRequirementFilerStore = create(
             setDock: (dock) => set({ dock }),
             titleLock: null,
             setTitleLock: (titleLock) => set({ titleLock }),
+            pinned: false,
+            setPinned: (pinned) => set({ pinned }),
             filed: [],
             filedInto: FILED_INTO,
             reopened: false,
@@ -152,19 +170,32 @@ export const useRequirementFilerStore = create(
             captureSentDropped: null,
             captureStage: null,
             restoredDraft: false,
-            setEditorShow: (editorShow) => set({ editorShow, restoredDraft: false }),
+            descriptionCollapsed: false,
+            toggleDescriptionCollapsed: () => set({ descriptionCollapsed: !get().descriptionCollapsed }),
+            setEditorShow: (editorShow) => set({
+                editorShow, restoredDraft: false,
+                ...(editorShow && !get().editorShow && { editorDock: atDefaultSize(get().editorDock) }),
+            }),
             toggleEditorOpen: () => set({ editorOpen: !get().editorOpen }),
             setEditorDock: (editorDock) => set({ editorDock }),
             // A fresh requirement in the editor, shown and unfolded;
             // `withCapture` (the filer's FILE, req #3815) also awaits its debug
             // capture, and `seat` is the plan epic the + was aimed at (req #3854,
-            // filerEpicAim.js) — Create seats it there. Returns the new draft's key.
-            startNew: (withCapture = false, seat = null) => {
+            // filerEpicAim.js) — Create seats it there; `place` (`{ projectId,
+            // categoryId }`) is the category card the + was aimed at (req #4026,
+            // filerCategoryAim.js), filed there instead of the last place.
+            // Returns the new draft's key.
+            startNew: (withCapture = false, seat = null, place = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
+                const projectId = place ? place.projectId : lastProjectId;
+                const categoryId = place ? place.categoryId : lastCategoryId;
                 const draftKey = get().draftKey + 1;
                 set({
-                    draft: { ...newRequirementDraft(lastProjectId, lastCategoryId, defaults), seat },
+                    // `aimedPlace`: its place is the card's, not the last requirement's —
+                    // the editor's carried-place check says so if it drops it.
+                    draft: { ...newRequirementDraft(projectId, categoryId, defaults), seat, aimedPlace: !!place },
                     savedId: null, saved: null, editorShow: true, restoredDraft: false, editorOpen: true,
+                    editorDock: atDefaultSize(get().editorDock),
                     draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
                     captureStage: withCapture ? 'capturing' : null,
@@ -179,6 +210,7 @@ export const useRequirementFilerStore = create(
                 const draft = draftFromRow(row, projectId);
                 set({
                     draft, savedId: row.id, saved: savedValues(draft), editorShow: true, restoredDraft: false, editorOpen: true,
+                    editorDock: atDefaultSize(get().editorDock),
                     draftKey, orphaned: false, focusPending: false, reopened: true,
                     capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
                     filed: withFiled(get().filed, row.id, draft.title),
