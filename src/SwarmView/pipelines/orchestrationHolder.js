@@ -265,6 +265,56 @@ export function machinePlatformLabel(machine) {
     return (machine && PLATFORM_LABELS[machine.platform]) || '?';
 }
 
+// req #3973 — the pipelines card prints ONE letter, M or W ("we are scale of
+// 1 application"): a single user's Mac and WSL box tell apart by platform.
+const PLATFORM_INITIALS = { darwin: 'M', wsl: 'W', linux: 'L' };
+
+/** `M` / `W` / `L` — the letter inside a card's badge; `?` when unknown. */
+export function machinePlatformInitial(machine) {
+    return (machine && PLATFORM_INITIALS[machine.platform]) || '?';
+}
+
+/**
+ * The pipelines card's orchestration badges (req #3973) — the card's ONLY
+ * orchestration signal, so it shows every live machine on the plan, one badge
+ * per machine, lead first.
+ *
+ * With a live whole-plan lead it is that lead (green) and every other machine
+ * (orange). Without one — a plan held only by initiative-scoped engines, or
+ * whose whole-plan holder has gone stale — each live, non-refused claim is
+ * drawn by its own role, and a stale whole-plan holder leads as a dashed
+ * outline. A refused claim leads nothing and is not drawn. `[]` when nobody
+ * holds the plan.
+ */
+export function cardOrchestrationBadges(claims, pipelineId, machines, now = new Date()) {
+    if (pipelineId == null) return [];
+    const byId = new Map(asArray(machines).map((m) => [m.id, m]));
+    const letter = (claim) => machinePlatformInitial(byId.get(claim && claim.machine_fk));
+    const badges = [];
+    const add = (claim, tone, title) => {
+        const machine = claim.machine_fk ?? null;
+        const same = badges.find((b) => b.machineFk === machine);
+        if (same) { same.title = `${same.title} ${title}`; return; }
+        badges.push({ key: badges.length ? `claim-${claim.id}` : 'lead',
+                      machineFk: machine, text: letter(claim), tone, title });
+    };
+    const view = orchestrationView(claims, pipelineId, machines, now);
+    if (view && view.role === ROLE_LEAD) {
+        add(view.claim, BADGE_LEAD, view.title);
+        view.subscribers.forEach((s) => add(s.claim, BADGE_SUBSCRIBER, s.title));
+        return badges;
+    }
+    if (view && view.stale) add(view.claim, BADGE_STALE, view.title);
+    const live = asArray(claims).filter((c) => c.pipeline_fk === pipelineId && !isStale(c, now));
+    const roles = resolveRoles(live);
+    live.slice().sort((a, b) => idKey(a) - idKey(b)).forEach((c) => {
+        const role = roles.get(c.id)?.role;
+        if (role === ROLE_REFUSED) return;
+        add(c, role === ROLE_LEAD ? BADGE_LEAD : BADGE_SUBSCRIBER, holderView(c, machines, now).title);
+    });
+    return badges;
+}
+
 // `claimsForInitiative` — every reservation covering an INITIATIVE's work, its own plus any
 // whole-plan reservation on a plan the initiative sat in — was DELETED by req #3356
 // with its only caller, the 1.0 `/swarm/initiatives` page.

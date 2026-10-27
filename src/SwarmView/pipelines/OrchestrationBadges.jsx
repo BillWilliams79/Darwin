@@ -23,23 +23,26 @@ const TONE_SX = {
 // Stale: the orchestrator is gone, so the badge is an outline only.
 const STALE_SX = { bgcolor: 'transparent', color: 'text.secondary', border: '1px dashed', borderColor: 'text.disabled' };
 
-export default function OrchestrationBadges({ badges }) {
+// `size`, `fontSize` and the test ids are the pipelines card's (req #3973): a
+// smaller badge with one larger letter, M or W.
+export default function OrchestrationBadges({ badges, size = BADGE_SIZE, fontSize,
+    testId = 'pipeline-orchestration-badges', badgeTestIdPrefix = 'pipeline-orchestration-badge' }) {
     if (!badges || badges.length === 0) return null;
     return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: `${BADGE_GAP_PX}px`, flexShrink: 0 }}
-             data-testid="pipeline-orchestration-badges">
+             data-testid={testId}>
             {badges.map((b) => (
                 <Tooltip key={b.key} title={b.title}>
                     <Box
                         role="img"
                         aria-label={b.title}
-                        data-testid={`pipeline-orchestration-badge-${b.key}`}
+                        data-testid={`${badgeTestIdPrefix}-${b.key}`}
                         data-tone={b.tone}
                         sx={{
-                            width: BADGE_SIZE, height: BADGE_SIZE, borderRadius: '50%',
+                            width: size, height: size, borderRadius: '50%',
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             boxSizing: 'border-box', flexShrink: 0,
-                            fontSize: b.text.length > 3 ? '0.55rem' : '0.65rem',
+                            fontSize: fontSize || (b.text.length > 3 ? '0.55rem' : '0.65rem'),
                             fontWeight: 700, lineHeight: 1, letterSpacing: 0,
                             userSelect: 'none',
                             ...(TONE_SX[b.tone] || STALE_SX),
