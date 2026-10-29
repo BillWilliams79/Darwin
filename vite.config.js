@@ -52,11 +52,14 @@ function topologyDevAssets(command) {
     // layout (req #3077): the Primary's <workspace>/primary/Topology, and a
     // session's own <session>/Topology when Topology is in its affectedRepos.
     path.resolve(darwinRoot, '..', 'Topology'),
-    // Two up — the LEGACY layout, where a session worktree is <root>/wt-<task>/
-    // and the machine's single Topology clone sits at <root>/Topology. Still
-    // live on WSL, whose cutover is req #3086.
-    path.resolve(darwinRoot, '..', '..', 'Topology'),
-    // There is deliberately NO home-directory-anchored rung here. The
+    // There is deliberately NO two-up (`../../Topology`) rung. It served only
+    // the retired legacy layout — a session worktree at <root>/wt-<task>/ with
+    // the machine's single Topology clone at <root>/Topology — and both
+    // machines are on mirrors/primary/sessions (req #3127, #3176). Req #4055
+    // removed it; a session without its own Topology reaches the Primary's
+    // through the resolve-primary-root.sh fallback below.
+    //
+    // There is deliberately NO home-directory-anchored rung either. The
     // regression guard in tests/vite-topology/ greps this whole file, comments
     // included, so re-introducing the old spelling anywhere in it goes red
     // (req #3142). One such rung existed for the reference Mac's primary
@@ -67,7 +70,7 @@ function topologyDevAssets(command) {
     // <workspace>/primary, so candidate 2 wins for it. The rung outlived its
     // reason, pointed at a path that no longer exists, and — because the test
     // guarding it mirrored the literal — took its own regression test down with
-    // it into a permanent SKIP. Anything the relative candidates cannot reach is
+    // it into a permanent SKIP. Anything the relative candidate cannot reach is
     // the resolve-primary-root.sh fallback's job, below.
   ].filter(Boolean)
   // Require the candidate to be a directory AND contain the systems2 entrypoint.
@@ -82,10 +85,9 @@ function topologyDevAssets(command) {
   // own, so every candidate above misses and /systems2 404s with only a
   // misleading WebSocket/bfcache line in the browser console.
   // resolve-primary-root.sh resolves this machine's primary DarwinAI-Config
-  // checkout (workspace root on legacy layout, <workspace>/primary on the
-  // target layout) regardless of which repos this session happens to have
-  // cloned, so its sibling Topology/ clone — checked out once per machine, not
-  // per session — is reachable as a last resort. Only shelled out to when the
+  // checkout (<workspace>/primary, req #3077) regardless of which repos this
+  // session happens to have cloned, so its sibling Topology/ clone — checked
+  // out once per machine, not per session — is reachable as a last resort. Only shelled out to when the
   // cheap candidates already missed and only for `vite serve` — `vite build`
   // never needs Topology at all (see `apply: 'serve'` below) and must not pay a
   // subprocess for nothing.
