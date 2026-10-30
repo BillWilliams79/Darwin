@@ -265,16 +265,17 @@ describe('PlanEngineBadge', () => {
     });
 
     it('gives the hold in the engine view\'s plain words on hover', async () => {
-        const overlay = overlayOf('A8', 0);
-        mount(<PlanEngineBadge badge={overlay.badges.get(102)} overlay={overlay} machines={MACHINES}
-                               thisMachineId={1} title="Epic 102" style={{ left: 0, top: 0 }} />);
-        expect(text('plan-engine-badge-102')).toBe('Barrier');
+        // NOT_BEFORE: a held epic the plan view still draws a pill for. A
+        // barrier-held epic with no launch draws none (req #4071).
+        const overlay = overlayOf('A10', 0);
+        mount(<PlanEngineBadge badge={overlay.badges.get(101)} overlay={overlay} machines={MACHINES}
+                               thisMachineId={1} title="Epic 101" style={{ left: 0, top: 0 }} />);
+        expect(text('plan-engine-badge-101')).toBe('Not before');
         await act(async () => {
-            $('plan-engine-badge-102').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            $('plan-engine-badge-101').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             await new Promise((r) => setTimeout(r, 150));
         });
-        expect(text('plan-engine-hold-words-102'))
-            .toBe(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic Epic 101`);
-        expect(text('plan-engine-hold-102')).toContain("From the engine's cycle 1.");
+        expect(text('plan-engine-hold-words-101')).toContain(`Not before — ${PLAIN_WORDS.NOT_BEFORE}`);
+        expect(text('plan-engine-hold-101')).toContain("From the engine's cycle 1.");
     });
 });
