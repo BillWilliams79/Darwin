@@ -2,9 +2,8 @@
 //
 // req #3793 — the Swarm visualizer's full screen switch, through the REAL page
 // header and the REAL visualizer toolbar. The user's rule: a visualizer whose
-// controls are on screen keeps the switch in the controls' title row — here,
-// at the head of the visualizer's own controls (`VisualizerToolbar`), ahead of
-// Today. Maximized, the page becomes the fixed full-window layer over the
+// controls are on screen keeps the switch in the title row — since req #4062,
+// in the page header just left of the Req# jump input. Maximized, the page becomes the fixed full-window layer over the
 // navbar, the header row STAYS (so the switch never moves), and the visualizer
 // is told to fill it. The switch exists only in the Visualizer view. The full
 // screen mechanics (browser full screen, Esc, the rack) are the shared hook's,
@@ -45,7 +44,7 @@ vi.mock('../RequirementsTableView', () => ({
     default: () => <div data-testid="table-view" />, SWARM_TABLE_WIDTH: 1200,
 }));
 vi.mock('../../Components/SettingsMenu/SettingsMenu', () => ({ default: () => null }));
-vi.mock('../../NavBar/RequirementJumpInput', () => ({ default: () => null }));
+vi.mock('../../NavBar/RequirementJumpInput', () => ({ default: () => <div data-testid="req-jump-stub" /> }));
 vi.mock('../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
 import SwarmView from '../SwarmView';
@@ -77,13 +76,14 @@ describe('Swarm visualizer — the full screen switch (req #3793)', () => {
         document.documentElement.style.overflow = '';
     });
 
-    it('sits in the header row, at the head of the visualizer toolbar', () => {
+    it('sits in the header row, immediately left of the Req# jump', () => {
         const { getByTestId, getAllByTestId, getByText } = mount('/swarm?view=visualizer');
         const sw = getByTestId('swarm-viz-fullscreen');
         expect(getAllByTestId('swarm-viz-fullscreen')).toHaveLength(1);
         expect(getByTestId('swarm-view-toggle-row').contains(sw)).toBe(true);
-        // First of the visualizer's own controls: right before Today.
-        expect(sw.nextElementSibling).toBe(getByText('Today').closest('button'));
+        // req #4062 — right after the view toggle, i.e. left of the Req# jump (stubbed here).
+        expect(sw.previousElementSibling).toBe(getByTestId('swarm-view-toggle'));
+        expect(sw.nextElementSibling).toBe(getByTestId('req-jump-stub'));
         expect(sw.getAttribute('aria-pressed')).toBe('false');
         expect(sw.getAttribute('aria-label')).toBe('Full screen — only the swarm visualizer');
         expect(getByTestId('swarm-view-page').getAttribute('data-maximized')).toBe('false');
