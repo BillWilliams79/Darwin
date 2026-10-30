@@ -56,7 +56,7 @@ const sessions = [{
 const props = {
     requirements, allRequirements: requirements, sessions,
     swarmStarts: [], swarmStartSessions: [], swarmUndos: [],
-    swarmCompletes: [], swarmCompleteSessions: [], devServers: [],
+    swarmCompletes: [], swarmCompleteSessions: [],
     selectedDate: date, timezone: 'UTC',
     categoryList: [{ id: 1, category_name: 'Swarm', color: '#1976d2' }],
     rangeStart: date, rangeEnd: date,
