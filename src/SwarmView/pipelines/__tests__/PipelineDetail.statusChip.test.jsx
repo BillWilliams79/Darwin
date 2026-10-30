@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3475 — the Paused chip in the plan header spread
-// `pipelineStatusChipProps('paused')` and then a trailing literal `sx` prop
-// clobbered it, so `#ff9800`/`#000` never reached the DOM and the chip
-// rendered in MUI's default grey. This test mounts the real header with a
-// `paused` plan and asserts the chip's COMPUTED inline style, so a return of
-// the overwrite (or a future edit that reorders the props back) fails here
-// rather than only being caught by eye.
+// Req #3965 — the plan header's STATUS chip, and its editor. It replaced the
+// conditional Paused chip (req #3226/#3475): a plan no longer pauses, and its
+// status is one of seven values the reader can see and change from the plan
+// itself. Req #3475's lesson is kept: the chip's COMPUTED style is asserted, so
+// a trailing `sx` that clobbers the status colours fails here rather than only
+// being caught by eye.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -34,18 +33,22 @@ vi.mock('../pipelineDetailModes', () => {
     };
 });
 
+const restCalls = vi.hoisted(() => []);
 vi.mock('../../../RestApi/RestApi', () => ({
-    default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })),
+    default: vi.fn((uri, method, body) => {
+        if (method !== 'GET') restCalls.push({ uri, method, body });
+        return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
+    }),
 }));
 
 // req #3356 — ONE composed read where the 1.0 seven used to be. The plan is
-// `paused`, which is the whole subject of this file: `composedFixture` puts that
-// status on both `pipeline.pipeline_status` and `derived.pause`, so the header
-// chip has the same fact to draw from that the live page gives it.
+// `orchestration_ready`: `composedFixture` puts that status on both
+// `pipeline.pipeline_status` and `derived.pause`, so the header chip has the
+// same fact to draw from that the live page gives it.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     const { composedFixture } = await import('./pipelineComposedFixture');
-    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'paused' });
+    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'orchestration_ready' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
@@ -100,29 +103,42 @@ function mount(url) {
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 
-describe('PipelineDetail — Paused chip colour (req #3475)', () => {
+describe('PipelineDetail — the status chip and its editor (req #3965)', () => {
     afterEach(() => {
         act(() => { roots.forEach((r) => r.unmount()); });
         roots = [];
+        restCalls.length = 0;
         document.body.innerHTML = '';
         vi.restoreAllMocks();
     });
 
-    it('renders the header Paused chip with the pause colour, not MUI default grey', () => {
+    it('shows the plan\'s status in its requirement-mirroring colours, not MUI default grey', () => {
         mount('/swarm/pipeline/2');
-        const chip = node('pipeline-detail-paused');
+        const chip = node('pipeline-detail-status');
         expect(chip).not.toBeNull();
+        expect(chip.textContent).toBe('Orchestration Ready');
         // jsdom resolves emotion's injected <style> tags, so getComputedStyle
-        // sees the sx-generated CSS class MUI applies — a plain `.style` read
-        // would not, since sx is not inlined.
+        // sees the sx-generated CSS class MUI applies.
         const style = getComputedStyle(chip);
-        expect(style.backgroundColor).toBe('rgb(255, 152, 0)'); // #ff9800
-        expect(style.color).toBe('rgb(0, 0, 0)'); // #000
+        expect(style.backgroundColor).toBe('rgb(25, 118, 210)'); // #1976d2 (~ swarm_ready)
+        expect(style.color).toBe('rgb(255, 255, 255)');
+        expect(style.flexShrink).toBe('0');
+        expect(node('pipeline-detail-paused')).toBeNull();
     });
 
-    it('still does not shrink in its flex row', () => {
+    it('offers all seven statuses and writes the one picked, alone', async () => {
         mount('/swarm/pipeline/2');
-        const chip = node('pipeline-detail-paused');
-        expect(getComputedStyle(chip).flexShrink).toBe('0');
+        act(() => { node('pipeline-detail-status').click(); });
+        const options = [...document.body.querySelectorAll('[data-testid^="pipeline-detail-status-option-"]')]
+            .map((el) => el.textContent);
+        expect(options).toEqual(['Authoring', 'Authorized', 'Orchestration Ready', 'Orchestrating', 'Met',
+            "Won't Fix", 'Deferred']);
+        await act(async () => { node('pipeline-detail-status-option-orchestrating').click(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 2, pipeline_status: 'orchestrating' }],
+        }]);
     });
 });

@@ -19,7 +19,8 @@
 // for being "finished".
 //
 // THE FIXTURE MIRRORS THE LIVE SHAPE rather than an invented one: two open plans
-// (one `active`, one `paused`), one `completed` plan. Every filtering rule in
+// (one `orchestrating`, one `orchestration_ready`), one `met` plan (req #3965's
+// vocabulary). Every filtering rule in
 // `epicOptions` has a row that only it can explain.
 
 import { describe, it, expect } from 'vitest';
@@ -33,9 +34,9 @@ import {
 } from '../orchestrationIndex';
 
 const PIPELINES = [
-    { id: 2,  title: 'Darwin',        pipeline_status: 'active',    create_ts: '2026-07-28T05:17:51' },
-    { id: 79, title: 'Agent Harness', pipeline_status: 'paused',    create_ts: '2026-08-07T08:54:36' },
-    { id: 5,  title: 'Retired plan',  pipeline_status: 'completed', create_ts: '2026-07-01T00:00:00' },
+    { id: 2,  title: 'Darwin',        pipeline_status: 'orchestrating',       create_ts: '2026-07-28T05:17:51' },
+    { id: 79, title: 'Agent Harness', pipeline_status: 'orchestration_ready', create_ts: '2026-08-07T08:54:36' },
+    { id: 5,  title: 'Retired plan',  pipeline_status: 'met',                 create_ts: '2026-07-01T00:00:00' },
 ];
 
 // The MIDDLE HOP. One initiative per plan is enough for every rule under test; the
@@ -72,11 +73,13 @@ const build = (over = {}) => buildOrchestrationIndex({
 });
 
 describe('isOpenPipeline', () => {
-    it('excludes only completed', () => {
-        expect(isOpenPipeline({ pipeline_status: 'active' })).toBe(true);
-        expect(isOpenPipeline({ pipeline_status: 'draft' })).toBe(true);
-        expect(isOpenPipeline({ pipeline_status: 'paused' })).toBe(true);
-        expect(isOpenPipeline({ pipeline_status: 'completed' })).toBe(false);
+    it('excludes only the terminal statuses (req #3965)', () => {
+        for (const s of ['authoring', 'authorized', 'orchestration_ready', 'orchestrating']) {
+            expect(isOpenPipeline({ pipeline_status: s }), s).toBe(true);
+        }
+        for (const s of ['met', 'wontfix', 'deferred']) {
+            expect(isOpenPipeline({ pipeline_status: s }), s).toBe(false);
+        }
     });
 
     // A status nobody has invented yet is far more likely to be workable than
@@ -128,9 +131,9 @@ describe('buildOrchestrationIndex — requirement seat', () => {
     it('pairs the epic with the plan that won the tie-break', () => {
         const idx = build({
             epicRequirements: [
-                { epic_fk: 200, requirement_fk: 3435 },   // paused plan 79
-                { epic_fk: 101, requirement_fk: 3435 },   // active plan 2
-                { epic_fk: 100, requirement_fk: 3435 },   // active plan 2, lower id
+                { epic_fk: 200, requirement_fk: 3435 },   // orchestration_ready plan 79
+                { epic_fk: 101, requirement_fk: 3435 },   // orchestrating plan 2
+                { epic_fk: 100, requirement_fk: 3435 },   // orchestrating plan 2, lower id
             ],
         });
         expect(idx.requirementSeat.get(3435))
@@ -145,7 +148,7 @@ describe('buildOrchestrationIndex — requirement seat', () => {
             epicRequirements: [{ epic_fk: '100', requirement_fk: '3435' }],
             epics: [{ id: '100', initiative_fk: '20' }],
             initiatives: [{ id: '20', pipeline_fk: '2' }],
-            pipelines: [{ id: '2', title: 'Darwin', pipeline_status: 'active' }],
+            pipelines: [{ id: '2', title: 'Darwin', pipeline_status: 'orchestrating' }],
         });
         expect(idx.requirementSeat.get(3435))
             .toEqual({ pipelineId: 2, epicId: 100, initiativeId: 20 });
@@ -190,7 +193,7 @@ describe('epicOptions', () => {
     // emptying: a requirement seated nowhere still has to be placeable, or the
     // control is dead exactly when it is needed.
     it('widens to every open plan when no plan is known', () => {
-        // Plan 5 is `completed`, so epic 300 stays out.
+        // Plan 5 is `met`, so epic 300 stays out.
         expect(epicIds(epicOptions(build(), {}))).toEqual([100, 101, 102, 103, 200]);
     });
 
@@ -287,7 +290,7 @@ describe('pipelineOptions', () => {
     const pipelineIds = (entries) => entries.map((e) => e.pipeline.id);
 
     it('offers every open plan, by title', () => {
-        // 'Retired plan' (5) is completed; 'paused' is still open.
+        // 'Retired plan' (5) is met; 'orchestration_ready' is still open.
         expect(labels(pipelineOptions(build()))).toEqual(['Agent Harness', 'Darwin']);
     });
 

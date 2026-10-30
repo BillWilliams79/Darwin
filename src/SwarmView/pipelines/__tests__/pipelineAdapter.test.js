@@ -316,7 +316,7 @@ describe('adaptComposedPipeline — the plan object', () => {
             no_launch_reason: null, launch_suppressed: false, suppressed_by: [],
         }],
         pause: {
-            pipeline_status: 'active', pipeline_paused: false,
+            pipeline_status: 'orchestrating', pipeline_orchestrating: true,
             paused_initiative_ids: [], suppressed_epic_ids: [],
         },
         eligible_epic_ids: [1],
@@ -404,8 +404,18 @@ describe('adaptComposedPipeline — the plan object', () => {
     it('reshapes pause verbatim under the camelCase field names the layout reads', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.pause).toEqual({
-            pipelineStatus: 'active', pipelinePaused: false,
+            pipelineStatus: 'orchestrating', pipelineOrchestrating: true,
             pausedInitiativeIds: [], suppressedEpicIds: [],
+        });
+    });
+
+    // req #3965 — a missing flag reads as NOT orchestrating, never launchable.
+    it('reads a pause block without pipeline_orchestrating as not orchestrating', () => {
+        const plan = adaptComposedPipeline({ ...payload, derived: { ...payload.derived,
+            pause: { pipeline_status: 'authoring', paused_initiative_ids: [3], suppressed_epic_ids: [1] } } });
+        expect(plan.pause).toEqual({
+            pipelineStatus: 'authoring', pipelineOrchestrating: false,
+            pausedInitiativeIds: [3], suppressedEpicIds: [1],
         });
     });
 

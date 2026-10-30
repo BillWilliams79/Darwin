@@ -61,9 +61,9 @@ vi.mock('react-router-dom', async () => {
 });
 
 const PIPELINES = [
-    { id: 2,  title: 'Darwin',        pipeline_status: 'active', create_ts: '2026-07-28T05:17:51' },
-    { id: 79, title: 'Agent Harness', pipeline_status: 'active', create_ts: '2026-08-07T08:54:36' },
-    { id: 80, title: 'Old Plan',      pipeline_status: 'completed' },   // never offered
+    { id: 2,  title: 'Darwin',        pipeline_status: 'orchestrating', create_ts: '2026-07-28T05:17:51' },
+    { id: 79, title: 'Agent Harness', pipeline_status: 'orchestrating', create_ts: '2026-08-07T08:54:36' },
+    { id: 80, title: 'Old Plan',      pipeline_status: 'met' },   // never offered
 ];
 // The MIDDLE HOP a 2.0 epic's plan is reached through (req #3356), and since
 // req #3579 a select of its own.

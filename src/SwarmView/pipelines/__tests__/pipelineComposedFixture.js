@@ -27,7 +27,7 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 export function composedFixture({
     id = 2,
     title = 'Darwin',
-    pipelineStatus = 'active',
+    pipelineStatus = 'orchestrating',
     epics = [{
         id: 47, initiative_fk: null, title: 'Session Drain', run: 'auto',
         notes: null, not_before: null,
@@ -92,7 +92,8 @@ export function composedFixture({
             rows,
             pause: {
                 pipeline_status: pipelineStatus,
-                pipeline_paused: pipelineStatus === 'paused',
+                // req #3965 — no plan pause; only `orchestrating` launches.
+                pipeline_orchestrating: pipelineStatus === 'orchestrating',
                 paused_initiative_ids: [],
                 suppressed_epic_ids: [],
             },

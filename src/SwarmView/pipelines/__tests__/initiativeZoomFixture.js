@@ -77,7 +77,7 @@ export const INITIATIVE_ZOOM_READS = {
 };
 
 export const INITIATIVE_ZOOM_PIPELINE = {
-    id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2,
+    id: 1, title: 'x', pipeline_status: 'orchestrating', machine_fk: 2,
 };
 
 export const INITIATIVE_ZOOM_NOW = '2026-07-27T03:00:00Z';

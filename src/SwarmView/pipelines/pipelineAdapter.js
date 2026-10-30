@@ -363,10 +363,16 @@ export function adaptComposedPipeline(payload, {
         byInitiative: [...countsById.values()].sort((a, b) => a.initiativeId - b.initiativeId),
     };
 
+    // req #3965 — `derived.pause` is {pipeline_status, pipeline_orchestrating,
+    // paused_initiative_ids, suppressed_epic_ids}: a plan no longer pauses
+    // (`pipeline_paused` and `pipeline_closed` are gone); only an
+    // `orchestrating` plan launches, and the block keeps its name because the
+    // initiative pause still lives in it. A missing flag reads as NOT
+    // orchestrating — never as launchable.
     const pauseSrc = derived.pause || {};
     const pause = {
         pipelineStatus: pauseSrc.pipeline_status != null ? pauseSrc.pipeline_status : null,
-        pipelinePaused: Boolean(pauseSrc.pipeline_paused),
+        pipelineOrchestrating: pauseSrc.pipeline_orchestrating === true,
         pausedInitiativeIds: pauseSrc.paused_initiative_ids || [],
         suppressedEpicIds: pauseSrc.suppressed_epic_ids || [],
     };

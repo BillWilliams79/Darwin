@@ -8,11 +8,12 @@ import { fileURLToPath } from 'url';
 // badges on the epic cards, the cut line with the limits, the machine of each
 // launch, and every held epic's reason on hover.
 //
-//   OVL-01  switch ON from the plan view (A1, A21): the switch is written, a
-//           draft plan is activated, the engine comes up, and the badges and
-//           the cut become the engine's record exactly
-//   OVL-02  switch OFF (A2): the engine goes down and the overlay returns to
-//           the prediction from the derived block
+//   OVL-01  switch ON from the plan view (A1, A21): the switch is written, an
+//           authoring plan is set orchestrating (req #3965), the engine comes
+//           up, and the badges and the cut become the engine's record exactly
+//   OVL-02  switch OFF (A2): the engine goes down, the plan — no engine of it
+//           left wanted on — is set orchestration_ready (req #3965), and the
+//           overlay returns to the prediction from the derived block
 //   OVL-03  hover a held epic: its hold in the engine view's plain words
 //   OVL-A*  each plan-overlay user action of tests/engine/COVERAGE.md (A8–A18,
 //           A21): before and after, the engine's record drawn on the plan
@@ -188,7 +189,7 @@ test.describe('Plan view engine overlay (req #3762)', () => {
 
   test('OVL-01: switching the engine on brings it up and draws its record exactly (A1, A21)', async ({ page }) => {
     const state = action('A1').states[0];
-    const w = world(state, null, { planStatus: 'draft' });
+    const w = world(state, null, { planStatus: 'authoring' });
     await serve(page, w);
     await open(page);
     // Off: the prediction from the derived block, with the limits it was cut against.
@@ -202,9 +203,10 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     expect(write?.method).toBe('POST');
     expect(write?.body).toMatchObject({ pipeline_fk: PLAN, machine_fk: THIS_MACHINE, desired_state: 'on',
       desired_reason: 'user' });
-    // …and the draft plan was activated in the same act (A21).
+    // …and the plan was set orchestrating in the same act (A21, req #3965) —
+    // the status alone: the gateway derives the timestamps.
     const planWrite = w.writes.find((x) => x.table === 'pipelines');
-    expect(planWrite?.body[0]).toMatchObject({ id: PLAN, pipeline_status: 'active' });
+    expect(planWrite?.body).toEqual([{ id: PLAN, pipeline_status: 'orchestrating' }]);
     // It comes up, and the overlay is now the engine's own record.
     await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-actual', 'running', { timeout: 20000 });
     await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-health', 'ok');
@@ -227,8 +229,10 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     const write = w.writes.find((x) => x.table === 'engine_states');
     expect(write?.method).toBe('PUT');
     expect(write?.body[0]).toMatchObject({ id: 1, desired_state: 'off', desired_reason: 'user' });
-    // Off never touches the plan.
-    expect(w.writes.some((x) => x.table === 'pipelines')).toBe(false);
+    // req #3965 — no engine of the plan is still wanted on, so the
+    // orchestrating plan is set orchestration_ready.
+    const planWrite = w.writes.find((x) => x.table === 'pipelines');
+    expect(planWrite?.body).toEqual([{ id: PLAN, pipeline_status: 'orchestration_ready' }]);
     await expect(page.getByTestId('plan-engine-strip')).toHaveAttribute('data-actual', 'stopped', { timeout: 20000 });
     await expect(page.getByTestId('plan-engine-role')).toHaveCount(0);
     await expectOverlay(page, state.predicted, 'predicted');

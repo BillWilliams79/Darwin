@@ -105,12 +105,17 @@ let initiativeDeps = [];
 let requirementSessions;
 let sessionTerminals;
 let requirementsError = false;
+// The options the page's pipelines list read was made with (req #3965: no `closed`).
+let pipelineReadOpts = null;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
-        useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
+        useAllPipelines: (_creator, opts) => {
+            pipelineReadOpts = opts;
+            return { data: pipelines, isLoading: loading.pipelines };
+        },
         useMachines: () => ({ data: machines, isLoading: loading.machines }),
         useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
         useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
@@ -150,9 +155,11 @@ vi.mock('../PipelinePlanThumbnail', () => ({
 // what the PAGE hands it (the plans, the focus) and its two callbacks, so the
 // page's wiring — `?view=group`, `?focus=` — is what these tests pin.
 vi.mock('../PipelineGroupView', () => ({
-    default: ({ pipelines: shown, focusId, onFocusChange, onOpen }) => (
+    default: ({ pipelines: shown, focusId, onFocusChange, onOpen, onSetStatus }) => (
         <div data-testid="pipelines-group-view" data-focus={focusId ?? ''}
              data-ids={shown.map((p) => p.id).join(',')}>
+            <button data-testid="group-stub-status-7"
+                    onClick={() => onSetStatus(shown.find((p) => p.id === 7), 'deferred')} />
             <button data-testid="group-stub-focus-8" onClick={() => onFocusChange(8)} />
             <button data-testid="group-stub-clear" onClick={() => onFocusChange(null)} />
             <button data-testid="group-stub-open-7" onClick={() => onOpen(7)} />
@@ -202,6 +209,9 @@ import AppContext from '../../Context/AppContext';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 
 let mountedRoots = [];
+
+// req #3965 — the status pills lit by default: the four non-terminal values.
+const DEFAULT_PILLS = ['authoring', 'authorized', 'orchestration_ready', 'orchestrating'];
 
 function mount(entry = '/swarm/pipelines') {
     const container = document.createElement('div');
@@ -260,9 +270,9 @@ beforeEach(() => {
         links: false, requirements: false,
     };
     pipelines = [
-        { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'active',
+        { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'orchestrating',
           sort_order: 0, machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
-        { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'draft',
+        { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'authoring',
           sort_order: 1, locked: 1, machine_fk: null, started_at: null,
           completed_at: null },
     ];
@@ -380,10 +390,12 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-thumb-8')).not.toBeNull();
     });
 
-    // req #3804 review — "drop the info blurbs about machine, status".
-    it('carries no status or machine chip', () => {
+    // req #3804 review — "drop the info blurbs about machine, status"; req
+    // #3965 brought the STATUS back as the card's status editor.
+    it('carries a status editor but no machine chip', () => {
         mount();
-        expect(node('pipelines-card-status-7')).toBeNull();
+        expect(node('pipelines-card-status-7').textContent).toBe('Orchestrating');
+        expect(node('pipelines-card-status-8').textContent).toBe('Authoring');
         expect(node('pipelines-card-machine-7')).toBeNull();
         expect(node('pipelines-card-7').textContent).not.toContain('Mac mini');
     });
@@ -522,7 +534,7 @@ describe('PipelinesPage2 — dropping a card (req #3966)', () => {
 });
 
 describe('PipelinesPage2 — status filter', () => {
-    it('shows both fixture pipelines by default (active + draft)', () => {
+    it('shows both fixture pipelines by default (orchestrating + authoring)', () => {
         mount();
         expect(node('pipelines-card-7')).not.toBeNull();
         expect(node('pipelines-card-8')).not.toBeNull();
@@ -532,19 +544,48 @@ describe('PipelinesPage2 — status filter', () => {
 
     it('hides a pipeline when its status chip is toggled off', () => {
         mount();
-        click(node('pipelines-status-chip-draft'));
+        click(node('pipelines-status-chip-authoring'));
         expect(node('pipelines-card-8')).toBeNull();
         expect(node('pipelines-card-7')).not.toBeNull();
     });
 
     it('names the hidden statuses in the empty state when every chip is off', () => {
         mount();
-        click(node('pipelines-status-chip-active'));
-        click(node('pipelines-status-chip-draft'));
-        click(node('pipelines-status-chip-paused'));
+        DEFAULT_PILLS.forEach((s) => click(node(`pipelines-status-chip-${s}`)));
         expect(node('pipelines-card-7')).toBeNull();
-        expect(node('pipelines-cards-empty').textContent).toContain('active');
-        expect(node('pipelines-cards-empty').textContent).toContain('draft');
+        expect(node('pipelines-cards-empty').textContent).toContain('Orchestrating (1)');
+        expect(node('pipelines-cards-empty').textContent).toContain('Authoring (1)');
+    });
+
+    // req #3965 — the pills replaced the `closed` flag.
+    it('offers all seven statuses, with the four non-terminal ones lit by default', () => {
+        mount();
+        const pressed = (s) => node(`pipelines-status-chip-${s}`).className.includes('MuiChip-outlined')
+            ? 'off' : 'on';
+        expect(['authoring', 'authorized', 'orchestration_ready', 'orchestrating', 'met', 'wontfix',
+            'deferred'].map(pressed)).toEqual(['on', 'on', 'on', 'on', 'off', 'off', 'off']);
+        expect(node('pipelines-status-chip-orchestration_ready').textContent).toBe('Orchestration Ready');
+        expect(node('pipelines-status-chip-wontfix').textContent).toBe("Won't Fix");
+    });
+
+    it('hides a finished plan by default and shows it when its pill is lit', () => {
+        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', pipeline_status: 'met', sort_order: 2 }];
+        mount();
+        expect(node('pipelines-card-9')).toBeNull();
+        click(node('pipelines-status-chip-met'));
+        expect(node('pipelines-card-9')).not.toBeNull();
+    });
+
+    it('falls back to the default when the stored filter names a retired status', () => {
+        sessionStorage.setItem('darwin-swarm-pipelines-status-filter', JSON.stringify(['active', 'draft']));
+        mount();
+        expect(node('pipelines-card-7')).not.toBeNull();
+        expect(node('pipelines-card-8')).not.toBeNull();
+    });
+
+    it('has no Closed chip any more (req #3965)', () => {
+        mount();
+        expect(node('pipelines-show-closed')).toBeNull();
     });
 });
 
@@ -617,7 +658,7 @@ describe('PipelinesPage2 — Pipeline group view (req #3972)', () => {
     });
 
     it('opens from a ?view=group link and honours the page filters', async () => {
-        sessionStorage.setItem('darwin-swarm-pipelines-status-filter', JSON.stringify(['active']));
+        sessionStorage.setItem('darwin-swarm-pipelines-status-filter', JSON.stringify(['orchestrating']));
         const view = await groupView('/swarm/pipelines?view=group');
         expect(view.dataset.ids).toBe('7');
     });
@@ -631,6 +672,18 @@ describe('PipelinesPage2 — Pipeline group view (req #3972)', () => {
         click(node('group-stub-clear'));
         expect(node('pipelines-group-view').dataset.focus).toBe('');
         expect(node('location-probe').textContent).toBe('?view=group');
+    });
+
+    // req #3965 — the focus panel's status editor writes through the page.
+    it('writes a status the group view picks, through the page write path', async () => {
+        await groupView('/swarm/pipelines?view=group');
+        await act(async () => { node('group-stub-status-7').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, pipeline_status: 'deferred' }],
+        }]);
     });
 
     it('ignores a ?focus= that is not a pipeline id', async () => {
@@ -754,15 +807,65 @@ describe('PipelinesPage2 lock chip (Cards view)', () => {
     });
 });
 
-describe('PipelinesPage2 status chip (Table view)', () => {
-    it('is a plain label with no click handler', () => {
+// req #3965 — the status chip is the plan's status EDITOR on both views.
+describe('PipelinesPage2 status editor (Table view)', () => {
+    it('opens a menu of all seven statuses and writes the one picked, without navigating', async () => {
         mount();
         switchToTable();
         const chip = node('pipelines-status-7');
-        // MUI's Chip only renders as a <button>/role="button" when it is
-        // given an onClick — a plain <div> here proves no toggle was wired.
-        expect(chip.tagName).not.toBe('BUTTON');
-        expect(chip.getAttribute('role')).not.toBe('button');
+        expect(chip.textContent).toBe('Orchestrating');
+        click(chip);
+        expect(navigations).toEqual([]);
+        const options = [...document.body.querySelectorAll('[data-testid^="pipelines-status-7-option-"]')]
+            .map((el) => el.getAttribute('data-testid').replace('pipelines-status-7-option-', ''));
+        expect(options).toEqual(['authoring', 'authorized', 'orchestration_ready', 'orchestrating', 'met',
+            'wontfix', 'deferred']);
+        await act(async () => { node('pipelines-status-7-option-orchestration_ready').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, pipeline_status: 'orchestration_ready' }],
+        }]);
+        expect(navigations).toEqual([]);
+    });
+
+    it('still writes the status of a LOCKED plan (the gateway lock-free set)', async () => {
+        mount();
+        switchToTable();
+        click(node('pipelines-status-8'));
+        await act(async () => { node('pipelines-status-8-option-authorized').click(); });
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 8, pipeline_status: 'authorized' }]);
+    });
+
+    it('has no Closed column', () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-closed-chip-7')).toBeNull();
+    });
+});
+
+describe('PipelinesPage2 status editor (Cards view)', () => {
+    it('writes the status alone and says when the filter now hides the plan', async () => {
+        mount();
+        click(node('pipelines-card-status-7'));
+        await act(async () => { node('pipelines-card-status-7-option-met').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, pipeline_status: 'met' }],
+        }]);
+        expect(useSnackBarStore.getState().message).toMatch(/now Met — hidden by the status filter/);
+    });
+
+    it('picking the status it already has writes nothing', async () => {
+        mount();
+        click(node('pipelines-card-status-7'));
+        await act(async () => { node('pipelines-card-status-7-option-orchestrating').click(); });
+        await flush();
+        expect(restCalls).toEqual([]);
     });
 });
 
@@ -773,9 +876,9 @@ describe('PipelinesPage2 status chip (Table view)', () => {
 // is a SEPARATE component with its own tests, and pointing these at it would
 // make this file assert another page's behaviour.
 
-const POST_BODY_DEFAULTS = {
-    pipeline_status: 'draft', locked: 0, closed: 0, started_at: null, completed_at: null,
-};
+// req #3965 — a new plan is born `authoring`; `closed` is gone, and the
+// stamps are the gateway's to derive, so the body carries neither.
+const POST_BODY_DEFAULTS = { pipeline_status: 'authoring', locked: 0 };
 
 describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)', () => {
     it('is in the header in both views', () => {
@@ -785,7 +888,7 @@ describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)'
         expect(node('pipelines-new-button')).not.toBeNull();
     });
 
-    it('creates a draft plan from every field and opens it', async () => {
+    it('creates an authoring plan from every field and opens it', async () => {
         mount();
         click(node('pipelines-new-button'));
         expect(node('pipelines-new-dialog')).not.toBeNull();
@@ -834,9 +937,7 @@ describe('PipelinesPage2 — "+ New pipeline" makes a card in place, at the FRON
 
     it('is still offered when the status filter hides every plan', () => {
         mount();
-        click(node('pipelines-status-chip-active'));
-        click(node('pipelines-status-chip-draft'));
-        click(node('pipelines-status-chip-paused'));
+        DEFAULT_PILLS.forEach((s) => click(node(`pipelines-status-chip-${s}`)));
         expect(node('pipelines-cards-empty')).not.toBeNull();
         expect(node('pipelines-new-card')).not.toBeNull();
     });
@@ -860,15 +961,15 @@ describe('PipelinesPage2 — "+ New pipeline" makes a card in place, at the FRON
         expect(node('pipelines-draft-card')).toBeNull();
     });
 
-    it('lights the draft status when it was filtered out, so the new card stays visible', async () => {
+    it('lights the authoring status when it was filtered out, so the new card stays visible', async () => {
         mount();
-        click(node('pipelines-status-chip-draft'));
+        click(node('pipelines-status-chip-authoring'));
         click(node('pipelines-new-card-open'));
         type(node('pipelines-new-card-title'), 'Hidden?');
         await act(async () => { keyDown(node('pipelines-new-card-title'), 'Enter'); });
         await flush();
         expect(JSON.parse(sessionStorage.getItem('darwin-swarm-pipelines-status-filter')))
-            .toContain('draft');
+            .toContain('authoring');
     });
 
     it('Escape takes the unsaved card away without writing', async () => {
@@ -915,17 +1016,16 @@ describe('PipelinesPage2 — hand-sorted order (req #3804)', () => {
         }
     });
 
-    it('gives every open card a drag grip, and a closed card an inert one', () => {
-        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', pipeline_status: 'active',
-            closed: 1, sort_order: 2 }];
+    it('gives every card a drag grip — a finished plan included (req #3965)', () => {
+        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', pipeline_status: 'met', sort_order: 2 }];
         mount();
-        click(node('pipelines-show-closed'));
+        click(node('pipelines-status-chip-met'));
         const grip = node('pipelines-card-grip-7');
         expect(grip.getAttribute('role')).toBe('button');
         expect(grip.getAttribute('aria-roledescription')).toBeNull();
         expect(node('pipelines-card-7').getAttribute('data-darwin-drag')).toBe('true');
         expect(node('pipelines-card-7').getAttribute('role')).toBeNull();
-        expect(node('pipelines-card-grip-9').getAttribute('role')).toBeNull();
+        expect(node('pipelines-card-grip-9').getAttribute('role')).toBe('button');
     });
 
     it('draws the cards in sort_order, not by id', () => {
@@ -941,58 +1041,21 @@ describe('PipelinesPage2 — hand-sorted order (req #3804)', () => {
     });
 });
 
-describe('PipelinesPage2 — closed pipelines (req #3804)', () => {
-    beforeEach(() => {
-        pipelines = [...pipelines, { id: 9, title: 'Plan Nine', description: null,
-            pipeline_status: 'active', closed: 1, sort_order: 2, machine_fk: null }];
-    });
-
-    it('hides a closed plan by default, and the Closed chip shows it', () => {
-        mount();
-        expect(node('pipelines-card-9')).toBeNull();
-        expect(node('pipelines-show-closed').textContent).toBe('Closed (1)');
-        click(node('pipelines-show-closed'));
-        expect(node('pipelines-card-9')).not.toBeNull();
-        expect(node('pipelines-card-closed-9')).not.toBeNull();
-    });
-
-    it('closes a plan from its card menu with a one-field PUT', async () => {
+// req #3965 — the `closed` flag is gone: no Closed chip, no close/reopen in
+// the card menu, nothing reads or writes `closed`.
+describe('PipelinesPage2 — no closed flag (req #3965)', () => {
+    it('offers no close or reopen action in the card menu', () => {
         mount();
         click(node('pipelines-card-menu-7'));
-        await act(async () => { node('pipelines-card-menu-close-7').click(); });
-        await flush();
-        expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipelines',
-            method: 'PUT',
-            body: [{ id: 7, closed: 1 }],
-        }]);
+        expect(node('pipelines-card-menu-close-7')).toBeNull();
+        expect(node('pipelines-card-menu-delete-7')).not.toBeNull();
     });
 
-    it('reopens a closed plan, and a locked plan can still be closed', async () => {
+    it('does not ask the gateway for `closed`', () => {
         mount();
-        click(node('pipelines-show-closed'));
-        click(node('pipelines-card-menu-9'));
-        await act(async () => { node('pipelines-card-menu-close-9').click(); });
-        await flush();
-        click(node('pipelines-card-menu-8'));
-        await act(async () => { node('pipelines-card-menu-close-8').click(); });
-        await flush();
-        expect(restCalls.map((c) => c.body)).toEqual([[{ id: 9, closed: 0 }], [{ id: 8, closed: 1 }]]);
-    });
-
-    it('says every plan is closed rather than "No pipelines yet"', () => {
-        pipelines = pipelines.map((p) => ({ ...p, closed: 1 }));
-        mount();
-        expect(node('pipelines-cards-empty').textContent).toContain('Every pipeline is closed (3)');
-    });
-
-    it('toggles closed from the Table view without navigating', async () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-closed-chip-7'));
-        await flush();
-        expect(restCalls[0].body).toEqual([{ id: 7, closed: 1 }]);
-        expect(navigations).toEqual([]);
+        const fields = pipelineReadOpts.fields.split(',');
+        expect(fields).toContain('pipeline_status');
+        expect(fields).not.toContain('closed');
     });
 });
 
@@ -1017,7 +1080,7 @@ describe('PipelinesPage2 — edit in place (req #3804)', () => {
         act(() => { input.focus(); });
         // Another writer renamed the plan; the next poll re-renders the page.
         pipelines = [{ ...pipelines[0], title: 'Renamed Elsewhere' }, pipelines[1]];
-        click(node('pipelines-status-chip-paused'));
+        click(node('pipelines-status-chip-met'));
         blur(input);
         await flush();
         expect(container).toBeTruthy();

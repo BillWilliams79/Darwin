@@ -9,20 +9,24 @@
 // writes the same row the MCP `create_pipeline` tool does.
 //
 // `deletePipeline` (req #3934) backs the card menu's "Delete pipeline". It is
-// the MCP `delete_pipeline`'s two-phase delete WITHOUT its draft-only refusal —
+// the MCP `delete_pipeline`'s two-phase delete WITHOUT its authoring-only refusal —
 // this is the "delete a plan that has run" that tool's docstring defers.
 //
 // Column shape (from darwin-mcp/services/pipelines2.py's `update_pipeline`):
 //   title           NOT NULL
 //   description     nullable TEXT
-//   pipeline_status draft|active|paused|completed
+//   pipeline_status authoring|authorized|orchestration_ready|orchestrating|
+//                   met|wontfix|deferred (req #3965; the gateway derives
+//                   started_at/completed_at from it, for every writer)
 //   machine_fk      nullable
-//   closed          0|1 — req #3804: parked (hidden; every epic launch-suppressed)
 //   sort_order      nullable INT — req #3804: the card's place on the page
+// (`closed`, req #3804's parking flag, was dropped by req #3965 — a finished
+// plan is a terminal status.)
 
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 import { isStale } from '../SwarmView/pipelines/orchestrationHolder';
+import { NEW_PIPELINE_STATUS } from '../SwarmView/pipelines/pipelineChipStyles';
 
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
@@ -68,8 +72,8 @@ export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_
  * Create a plan and return its id (req #3773).
  *
  * The body is darwin-mcp's `create_pipeline` row for its defaults: a new plan
- * is born `draft`, so `_derive_timestamps2` stamps nothing — `started_at` and
- * `completed_at` go in as real nulls. POST takes a real null (the 'NULL'
+ * is born `authoring` (req #3965), a status the gateway stamps no time for —
+ * `started_at` and `completed_at` go in as real nulls. POST takes a real null (the 'NULL'
  * string is the sentinel, so a title of exactly "NULL" is the caller's to
  * refuse — see `isRestNullLiteral`).
  *
@@ -82,14 +86,14 @@ export async function createPipeline(darwinUri, idToken,
     const r = await call_rest_api(`${darwinUri}/pipelines`, 'POST', {
         title,
         description,
-        pipeline_status: 'draft',
+        pipeline_status: NEW_PIPELINE_STATUS,
         machine_fk,
         locked: 0,
-        closed: 0,
         // req #3804 — the caller places it (the page passes the front slot).
         sort_order,
-        started_at: null,
-        completed_at: null,
+        // No started_at / completed_at: the gateway derives both from the
+        // status (req #3965), and a key sent as null would count as the
+        // caller's own value and suppress the stamp.
     }, idToken);
     const data = assertOk(r, 'createPipeline');
     const row = Array.isArray(data) ? data[0] : data;

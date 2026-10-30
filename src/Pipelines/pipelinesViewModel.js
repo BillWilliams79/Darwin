@@ -145,14 +145,11 @@ export function pipelineRequirementCounts({ pipelines, epics, initiatives,
     return out;
 }
 
-// ── Closed and hand-sorted (req #3804) ──────────────────────────────────────
-// A plan carries `closed` (parked: hidden by default, every epic launch-
-// suppressed by the server's derivation) and `sort_order` (its card's place on
-// this page, ascending). A new plan is written BELOW the current minimum, so it
-// lands at the front; a drag renumbers every positioned card 0..n-1.
-
-/** A TINYINT flag as a boolean — `"0"` is false, `1`/`"1"`/`true` are true. */
-export const isClosedPipeline = (p) => Boolean(Number(p?.closed ?? 0));
+// ── Hand-sorted (req #3804) ─────────────────────────────────────────────────
+// A plan carries `sort_order` (its card's place on this page, ascending). A new
+// plan is written BELOW the current minimum, so it lands at the front; a drag
+// renumbers every positioned card 0..n-1. (The `closed` flag #3804 added beside
+// it is gone — req #3965: a finished plan is a terminal status.)
 
 const position = (p) => (p?.sort_order == null || p.sort_order === ''
     ? -Infinity : Number(p.sort_order));
@@ -194,8 +191,9 @@ export function withPositions(pipelines, positions) {
  * dragged plan takes the target's index, the rest close up behind it), then
  * renumber 0..n-1. Returns the reordered rows and the `{id, sort_order}`
  * writes — only the rows whose position actually changed — or null when the
- * move is a no-op. `ordered` is the FULL ordered list, closed plans included,
- * so a reorder over a filtered view never disturbs a plan the reader cannot see.
+ * move is a no-op. `ordered` is the FULL ordered list, plans the status filter
+ * hides included, so a reorder over a filtered view never disturbs a plan the
+ * reader cannot see.
  */
 export function reorderPipelines(ordered, fromId, toId) {
     const rows = [...(ordered || [])];
@@ -215,8 +213,8 @@ export function reorderPipelines(ordered, fromId, toId) {
 /**
  * Every requirement seated on ANY plan whose latest session is under way — the
  * plan visualizer's Active box rule (`isActiveRequirement`, planActiveReqs.js),
- * applied across all plans, closed ones included: a session still running on a
- * parked plan is still running. No sort and no source column (user directive):
+ * applied across all plans, finished ones included: a session still running on
+ * a finished plan is still running. No sort and no source column (user directive):
  * listed in this page's own plan order (`orderPipelines`), each plan's
  * requirements in seat order, each requirement once.
  *

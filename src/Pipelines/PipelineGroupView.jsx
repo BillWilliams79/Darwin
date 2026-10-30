@@ -45,7 +45,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import ButtonBase from '@mui/material/ButtonBase';
 import ButtonGroup from '@mui/material/ButtonGroup';
-import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
@@ -64,7 +63,7 @@ import { localDayOf } from '../SwarmView/pipelines/pipelinePlanTime';
 import {
     computePlanLayout, DEFAULT_PLAN_PALETTE, PLAN_VIZ_PALETTE,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
-import { pipelineStatusChipProps } from '../SwarmView/pipelines/pipelineChipStyles';
+import PipelineStatusChip from './PipelineStatusChip';
 import {
     buildPipelineGroupModel, calendarLabel, CALENDAR_BUCKETS, DEFAULT_CALENDAR_BUCKET,
     GROUP_STATUS_LEGEND, groupStatusColor,
@@ -237,7 +236,7 @@ function HoverCard({ hover }) {
 }
 
 /** Info, a pipeline focused: its facts, its place in the calendar and the way into its plan. */
-function FocusInfo({ pipeline, column, onOpen, onClose }) {
+function FocusInfo({ pipeline, column, onOpen, onClose, onSetStatus }) {
     const c = pipeline.counts;
     const n = column ? column.pipelineIds.length : 0;
     return (
@@ -252,9 +251,12 @@ function FocusInfo({ pipeline, column, onOpen, onClose }) {
                 </IconButton>
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, mb: 1 }}>
-                {pipeline.status && (
-                    <Chip size="small" label={pipeline.status} {...pipelineStatusChipProps(pipeline.status)} />
-                )}
+                {/* req #3965 — the plan's status editor. The menu renders in
+                    place: a full-screen stage shows nothing portalled to <body>. */}
+                <PipelineStatusChip status={pipeline.status}
+                                    onChange={onSetStatus ? (next) => onSetStatus(pipeline.id, next) : undefined}
+                                    disablePortal tooltip=""
+                                    testId={`pipelines-group-status-${pipeline.id}`} />
                 <Typography variant="caption" sx={{ color: VIEWER.hint }}>#{pipeline.id}</Typography>
             </Stack>
             <Typography variant="body2" sx={{ color: VIEWER.hint }} data-testid="pipelines-group-focus-when">
@@ -373,9 +375,11 @@ function StatusKey() {
  * @param {?number}  focusId       the focused pipeline (the page's `?focus=`)
  * @param {(id: ?number) => void} onFocusChange
  * @param {(id: number) => void}  onOpen   open a plan's visualizer
+ * @param {(row: Object, status: string) => Promise} [onSetStatus]  the focus panel's status
+ *                                 write (req #3965), handed the page's list row
  */
 export default function PipelineGroupView({
-    pipelines, machines = [], refetchInterval, focusId = null, onFocusChange, onOpen,
+    pipelines, machines = [], refetchInterval, focusId = null, onFocusChange, onOpen, onSetStatus,
 }) {
     const [supported] = useState(() => webglAvailable());
     // The page hands a freshly filtered array every render; what the scene
@@ -679,7 +683,11 @@ export default function PipelineGroupView({
                             <Box sx={{ overflow: 'auto', minHeight: 0, mt: '7px' }}>
                                 {focused ? (
                                     <FocusInfo pipeline={focused} column={column} onOpen={onOpen}
-                                               onClose={() => onFocusChange?.(null)} />
+                                               onClose={() => onFocusChange?.(null)}
+                                               onSetStatus={onSetStatus && ((id, next) => {
+                                                   const row = pipelines.find((p) => p.id === id);
+                                                   return row ? onSetStatus(row, next) : undefined;
+                                               })} />
                                 ) : (
                                     <CalendarIndex model={model} onFocus={(id) => onFocusChange?.(id)} />
                                 )}

@@ -244,18 +244,19 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         if (existing) {
             pipelineId = existing.id;
             // A run interrupted mid-flight could have left the plan off
-            // `draft` (nothing in this suite changes `pipeline_status`
-            // today, but `delete_pipeline` REFUSES anything else, and an
-            // adopted plan stuck non-draft would orphan itself permanently).
-            if (existing.pipeline_status !== 'draft') {
-                await devTool('update_pipeline', { id: pipelineId, pipeline_status: 'draft' });
+            // `authoring` (nothing in this suite changes `pipeline_status`
+            // today, but `delete_pipeline` REFUSES anything else since req
+            // #3965, and an adopted plan stuck non-authoring would orphan
+            // itself permanently).
+            if (existing.pipeline_status !== 'authoring') {
+                await devTool('update_pipeline', { id: pipelineId, pipeline_status: 'authoring' });
             }
         } else {
             const created = await devTool<{ id: number; title: string }>('create_pipeline', {
                 title: PLAN_TITLE,
                 description: 'Throwaway plan for the req #3377 mutation-case replay. '
                     + 'Wiped at the start of every run; never a real plan.',
-                pipeline_status: 'draft',
+                pipeline_status: 'authoring',
             });
             expect(created.title, 'create_pipeline echo').toBe(PLAN_TITLE);
             pipelineId = created.id;
@@ -265,8 +266,8 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         const existing2 = list.find((p) => p.title === FOREIGN_PLAN_TITLE);
         if (existing2) {
             foreignPlanId = existing2.id;
-            if (existing2.pipeline_status !== 'draft') {
-                await devTool('update_pipeline', { id: foreignPlanId, pipeline_status: 'draft' });
+            if (existing2.pipeline_status !== 'authoring') {
+                await devTool('update_pipeline', { id: foreignPlanId, pipeline_status: 'authoring' });
             }
         } else {
             const created2 = await devTool<{ id: number; title: string }>('create_pipeline', {
@@ -275,7 +276,7 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
                     + 'refusal (MUT-09) — a re-parent needs a foreign plan to cross INTO. '
                     + 'Wiped at the start of every run and hard-deleted in afterAll; never a '
                     + 'real plan.',
-                pipeline_status: 'draft',
+                pipeline_status: 'authoring',
             });
             expect(created2.title, 'create_pipeline (second plan) echo').toBe(FOREIGN_PLAN_TITLE);
             foreignPlanId = created2.id;

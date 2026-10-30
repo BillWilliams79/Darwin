@@ -260,14 +260,16 @@ export function usePlanEngineOverlay({ pipelineId, machines, claims, sessions, m
         setPending(desired);
         setError(null);
         try {
-            const { planActivated } = await setEngineDesiredState(darwinUri, idToken,
+            const { planStatus } = await setEngineDesiredState(darwinUri, idToken,
                 { pipelineId, machineId, desired });
             // The switch, and what answers it: the supervisor's state, the
             // engine's beat, its first record and the claim it takes or releases.
             await Promise.all(['engine_states', 'engine_heartbeats', 'engine_decision_records',
                 'orchestration_claims']
                 .map((t) => queryClient.invalidateQueries({ queryKey: [t] })));
-            if (planActivated) {
+            // req #3965 — the plan's status follows the switch (orchestrating /
+            // orchestration_ready), so the plan and the list re-read it.
+            if (planStatus) {
                 queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipelineId) });
                 queryClient.invalidateQueries({ queryKey: ['pipelines'] });
             }

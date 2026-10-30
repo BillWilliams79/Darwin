@@ -75,7 +75,7 @@ const PLAN = {
     violations: [],
 };
 
-const PIPELINE = { id: 2, title: 'Darwin', pipeline_status: 'active' };
+const PIPELINE = { id: 2, title: 'Darwin', pipeline_status: 'orchestrating' };
 
 let root;
 let container;

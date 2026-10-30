@@ -44,4 +44,18 @@ describe('pipelineEditFields', () => {
         expect(pipelineEditFields(ROW, form({ title: 'NULL' })).problem).toMatch(/sentinel/);
         expect(pipelineEditFields(ROW, form({ description: ' NULL ' })).problem).toMatch(/sentinel/);
     });
+
+    // req #3965 — the Status field: all seven values, sent only when changed.
+    it('a changed status sends pipeline_status alone; an unchanged or omitted one sends nothing', () => {
+        const row = { ...ROW, pipeline_status: 'authoring' };
+        expect(pipelineEditFields(row, form({ status: 'orchestrating' })))
+            .toEqual({ fields: { pipeline_status: 'orchestrating' } });
+        expect(pipelineEditFields(row, form({ status: 'authoring' }))).toEqual({ fields: {} });
+        expect(pipelineEditFields(row, form())).toEqual({ fields: {} });
+    });
+
+    it('refuses a status outside the seven values', () => {
+        const row = { ...ROW, pipeline_status: 'authoring' };
+        expect(pipelineEditFields(row, form({ status: 'paused' })).problem).toMatch(/Unknown status/);
+    });
 });

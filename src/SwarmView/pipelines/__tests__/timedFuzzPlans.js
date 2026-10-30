@@ -157,7 +157,7 @@ export function makeTimedPlan(seed) {
     }
 
     return {
-        pipeline: { id: 1, title: `fuzz-${seed}`, pipeline_status: 'active', machine_fk: null },
+        pipeline: { id: 1, title: `fuzz-${seed}`, pipeline_status: 'orchestrating', machine_fk: null },
         epics,
         epicDeps,
         epicRequirements,

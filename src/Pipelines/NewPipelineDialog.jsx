@@ -92,7 +92,7 @@ export default function NewPipelineDialog({ machines = [], sortOrder = null }) {
                             ))}
                         </TextField>
                         <Typography variant="body2" color="text.secondary">
-                            The pipeline starts as a draft and opens on its plan, where you add
+                            The pipeline starts in Authoring and opens on its plan, where you add
                             its first initiative and epic.
                         </Typography>
                     </Stack>

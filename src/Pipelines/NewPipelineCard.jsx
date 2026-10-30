@@ -78,7 +78,7 @@ export function NewPipelineDraftCard({ onCreate, onCancel, creating = false }) {
                                                      maxLength: 256 } }} />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-                        Enter creates a draft plan here · Esc cancels
+                        Enter creates the plan here, in Authoring · Esc cancels
                     </Typography>
                     {/* `onMouseDown` preventDefault keeps the field focused, so
                         its blur does not commit or fold the card under the click. */}

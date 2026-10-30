@@ -19,7 +19,7 @@
 //
 // ── WHAT IS LEFT, AND WHY IT IS ERA-NEUTRAL ────────────────────────────────
 // The visualizer's three colour-input strings (NOT an epic state — req #3750),
-// the pause string, the terminal-status set, and the
+// the (initiative) pause string, the terminal-status set, and the
 // two cost functions. None of them derives anything: they are the words the plan
 // table, the plan visualizer and the chip-styles module all have to agree on,
 // plus arithmetic over a CostIndex that `pipelineAdapter.js` calls directly.
@@ -120,9 +120,11 @@ export const EPIC_DONE = 'done';
 export const EPIC_RUNNING = 'running';
 export const EPIC_PENDING = 'pending';
 
-// The one value `pipeline_status` and `initiative_status` share meaning for (req
-// #3223): PAUSED IS THE SAME STRING AT BOTH SCOPES, so `pauseState` below
-// tests one constant against both columns rather than two.
+// `initiative_status`'s pause (req #3223). Since req #3965 it is the ONLY pause:
+// `pipeline_status` no longer has a `paused` value — a plan launches only while
+// it is `orchestrating` (pipelineChipStyles.js `ORCHESTRATING_STATUS`), and the
+// server derivation suppresses every epic of any other plan with reason
+// 'pipeline'.
 export const PAUSED_STATUS = 'paused';
 
 // Requirement statuses that are no longer open work (req #3750: an epic whose

@@ -3778,8 +3778,9 @@ function initiativeBandCountText(initiativeId, initiativeCounts) {
  * @param {?(Map|Object)} [opts.initiativeCounts]  req #3225 — initiativeId -> {met, total}.
  *                             Null/omitted (the toggle-off state) leaves every
  *                             band's label exactly as it reads today.
- * @param {?Object} [opts.pauseInfo]  req #3226 — `pauseState()`'s
- *                             `{pipelinePaused, pausedInitiativeIds}`. Null/omitted
+ * @param {?Object} [opts.pauseInfo]  req #3226 — the adapter's `plan.pause`;
+ *                             `{pausedInitiativeIds}` is read (a plan no longer
+ *                             pauses, req #3965). Null/omitted
  *                             leaves every band unpaused, matching a caller
  *                             (a test, a hand-built probe) with no pause
  *                             concept at all.
@@ -4020,14 +4021,13 @@ export function computePlanLayout(rows, opts = {}) {
         const t = BAND_TIER[bandKinds.get(key)];
         return t === undefined ? BAND_TIER.future : t;
     };
-    // req #3226 — a band is PAUSED when the whole plan is paused (every band
-    // suppressed alike, "No initiative" included — pause is a plan-wide fact there
-    // too) OR when this band's OWN initiative is paused. Resolved once, here, rather
-    // than at render time in every consumer of `band`, the same reasoning
-    // `bandStartOf` below is memoized for.
+    // req #3226 — a band is PAUSED when this band's OWN initiative is paused.
+    // (The whole-plan pause went with req #3965: a plan's status says whether it
+    // launches, and an authoring or finished plan is not a red "paused" band.)
+    // Resolved once, here, rather than at render time in every consumer of
+    // `band`, the same reasoning `bandStartOf` below is memoized for.
     const pausedInitiativeIdSet = new Set(pauseInfo?.pausedInitiativeIds || []);
-    const planPaused = !!pauseInfo?.pipelinePaused;
-    const bandPausedOf = (key) => planPaused || (key != null && pausedInitiativeIdSet.has(key));
+    const bandPausedOf = (key) => key != null && pausedInitiativeIdSet.has(key);
     const lockedInitiativeIdSet = new Set(lockInfo?.lockedInitiativeIds || []);
     const planLocked = !!lockInfo?.planLocked;
     const bandLockedByOf = (key) => (planLocked ? 'pipeline'

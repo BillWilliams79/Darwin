@@ -105,13 +105,31 @@ describe('the plan title (req #3853)', () => {
             { title: 'Renamed plan' });
     });
 
-    it('the editor of a locked plan is read-only', () => {
-        mount({ pipeline: { ...PIPELINE, locked: 1 } });
+    // req #3965 — a locked plan's authoring fields are frozen, but its STATUS
+    // still writes (the gateway's lock-free set), so Save stays available.
+    it('the editor of a locked plan freezes everything but the status', async () => {
+        mount({ pipeline: { ...PIPELINE, locked: 1, pipeline_status: 'authoring' } });
         tap(node('pipeline-title-name'));
         wait(DOUBLE_CLICK_MS + 10);
         expect(node('pipeline-edit-title').disabled).toBe(true);
-        expect(node('pipeline-edit-save').disabled).toBe(true);
         expect(node('pipeline-edit-locked')).not.toBeNull();
+        act(() => { node('pipeline-edit-status-orchestration_ready').click(); });
+        await act(async () => { node('pipeline-edit-save').click(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(updatePipeline).toHaveBeenCalledWith('https://api/darwin', 'tok', 7,
+            { pipeline_status: 'orchestration_ready' });
+    });
+
+    it('the editor offers all seven statuses, the stored one selected', () => {
+        mount({ pipeline: { ...PIPELINE, pipeline_status: 'orchestrating' } });
+        tap(node('pipeline-title-name'));
+        wait(DOUBLE_CLICK_MS + 10);
+        const group = node('pipeline-edit-status');
+        expect(group.getAttribute('data-value')).toBe('orchestrating');
+        expect([...group.querySelectorAll('[data-testid^="pipeline-edit-status-"]')]
+            .map((el) => el.textContent)).toEqual(['Authoring', 'Authorized', 'Orchestration Ready',
+            'Orchestrating', 'Met', "Won't Fix", 'Deferred']);
+        expect(node('pipeline-edit-status-orchestrating').getAttribute('aria-pressed')).toBe('true');
     });
 
     it('a quick click on the name opens the plan editor, seeded from the row', () => {

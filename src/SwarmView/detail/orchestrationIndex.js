@@ -35,17 +35,19 @@
 // invented, because a requirement pinned to a plan that was never read is worse
 // than a box that says "No pipeline".
 //
-// `pipelines.pipeline_status` uses the SAME vocabulary as 1.0's
-// (`draft|active|paused|completed`, verified in `DarwinSQL/schema.sql`),
-// so `isOpenPipeline` and `rankPipeline` below are unchanged — not adapted, not
-// re-derived.
+// `pipelines.pipeline_status` is the req #3965 vocabulary (authoring,
+// authorized, orchestration_ready, orchestrating, met, wontfix, deferred —
+// pipelineChipStyles.js), which `isOpenPipeline` and `rankPipeline` below read.
 //
-// ## Tie-break: active first, then lowest id
+
+import { ORCHESTRATING_STATUS, isTerminalPipelineStatus } from '../pipelines/pipelineChipStyles';
+
+// ## Tie-break: orchestrating first, then lowest id
 //
 // Kept for symmetry with `_resolve_attribution_2_0`'s rule
 // (darwin-mcp/services/requirements.py — the 2.0 successor to `_resolve_pipeline`,
 // which req #3356 deletes along with the rest of the 1.0 resolver). It applies
-// the same active-first-then-lowest-id rule over the 2.0 tables.
+// the same orchestrating-first-then-lowest-id rule over the 2.0 tables.
 //
 // UNDER 2.0 THE MULTI-SEAT CASE IS STRUCTURALLY IMPOSSIBLE:
 // `epic_requirements` has `PRIMARY KEY (requirement_fk)` alone — one
@@ -57,15 +59,13 @@
 // not delete it on the grounds that the constraint makes it unreachable.
 
 // ── Which plans may be OFFERED, and which may host an offerable epic ───────
-// "Open" is every lifecycle state a plan can still do work in. `completed` is
-// the one that cannot, so it is named as the exclusion rather than the three
-// survivors being listed — a future fifth status is far more
-// likely to be workable than finished, and an unknown status showing up in the
-// list is the safe error.
-const CLOSED_PIPELINE_STATUSES = new Set(['completed']);
-
+// "Open" is every lifecycle state a plan can still do work in: every
+// NON-TERMINAL status (req #3965). The terminal three — met, won't fix,
+// deferred — are named as the exclusion rather than the four survivors being
+// listed: a future status is far more likely to be workable than finished, and
+// an unknown status showing up in the list is the safe error.
 export const isOpenPipeline = (p) =>
-    !!p && !CLOSED_PIPELINE_STATUSES.has(p.pipeline_status);
+    !!p && !isTerminalPipelineStatus(p.pipeline_status);
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -154,12 +154,13 @@ export function buildOrchestrationIndex({ pipelines, initiatives, epics, epicReq
         requirementSeats.set(rid, seats);
     }
 
-    // Active first, then lowest id — `_resolve_attribution_2_0`'s rule
-    // (darwin-mcp/services/requirements.py). Defence only under 2.0; see the
-    // module header for why it cannot fire on live data and stays anyway.
+    // Orchestrating first, then lowest id — `_resolve_attribution_2_0`'s rule
+    // (darwin-mcp/services/requirements.py; `orchestrating` since req #3965).
+    // Defence only under 2.0; see the module header for why it cannot fire on
+    // live data and stays anyway.
     const rankPipeline = (pid) => {
         const p = pipelinesById.get(pid);
-        return (p && p.pipeline_status === 'active') ? 0 : 1;
+        return (p && p.pipeline_status === ORCHESTRATING_STATUS) ? 0 : 1;
     };
     const pickPipeline = (ids) => {
         const list = [...ids];
