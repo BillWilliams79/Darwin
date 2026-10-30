@@ -4360,7 +4360,8 @@ export default function PipelinePlanVisualizer({
         }));
 
     // ── THE ENGINE'S LAUNCH ORDER, ON EACH CARD (req #3762) ─────────────────
-    // One badge per epic the overlay's record speaks for, sitting on the card's
+    // One badge per epic the overlay's record speaks for (except a barrier-held
+    // epic with no launch, req #4071), sitting on the card's
     // top-left corner, just ABOVE its frame — so at no zoom does it cover the
     // card's own collapse head or name — at
     // a FIXED screen size: it is a number to read at every zoom, not part of
@@ -4371,6 +4372,11 @@ export default function PipelinePlanVisualizer({
         ? [...engineBadgeOverlay.badges.values()].flatMap((badge) => {
             const n = drawLayout.nodes.get(badge.epicId);
             if (!n) return [];
+            // A barrier-held epic with no launch in the queue carries no pill
+            // (req #4071): "Barrier" read as though THIS epic were the barrier,
+            // when the hold is an upstream one. The hold is still stated in the
+            // engine view; a queue-numbered badge still shows.
+            if (badge.code === 'BARRIER' && badge.positions.length === 0) return [];
             return [{
                 badge,
                 left: n.frameLeft * t.k + t.x,

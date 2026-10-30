@@ -25,6 +25,7 @@ import { fetchCoordinatesForRuns } from '../services/mapCoordinatesBatch';
 import { generateKml, downloadFile } from '../cyclemeter';
 import { reconstructRun } from '../utils/mapDataUtils';
 import ExportMapPreview from './ExportMapPreview';
+import { FULL_SCREEN_DIALOG_PROPS, useCoverNavbar } from '../Components/fullScreenLayer';
 
 const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners = [], darwinUri, idToken, filterDescription }) => {
     const [mapTitle, setMapTitle] = useState('');
@@ -188,6 +189,10 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
         onClose();
     };
 
+    // Expanded, the dialog is a full screen mode: under the Requirement Filer
+    // and over the navbar, which it covers (req #4053).
+    useCoverNavbar(open && expanded);
+
     // Dialog starts narrow; widens after generation to show map card
     const dialogMaxWidth = routeCoordinates ? 'sm' : 'xs';
 
@@ -198,6 +203,7 @@ const ExportDialog = ({ open, onClose, runs, routes, partners = [], runPartners 
             fullWidth
             maxWidth={expanded ? false : dialogMaxWidth}
             fullScreen={expanded}
+            {...(expanded && FULL_SCREEN_DIALOG_PROPS)}
             data-testid="export-dialog"
         >
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

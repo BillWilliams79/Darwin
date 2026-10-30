@@ -132,11 +132,17 @@ export function dockToFit(r0, natural, vw, vh, dock, minW, minH) {
     };
 }
 
-/** The rect a head drag moves to, kept whole inside the viewport. */
-export function moveRect(r0, dx, dy, vw, vh) {
+/** The rect a head drag moves to, kept whole inside the viewport — or, with
+ *  `overhang` (the Requirement Filer's pushpin mode, req #4046), only its
+ *  CENTRE kept inside, so the point it aims from reaches every pixel.
+ *  `overhang` may be the {width, height} it is DRAWN at, when that is not
+ *  `r0`'s (dragged out of a rack, `r0` is only its head). */
+export function moveRect(r0, dx, dy, vw, vh, overhang = false) {
+    const ox = overhang ? (overhang.width ?? r0.width) / 2 : 0;
+    const oy = overhang ? (overhang.height ?? r0.height) / 2 : 0;
     return {
-        left: clampTo(r0.left + dx, 0, vw - r0.width),
-        top: clampTo(r0.top + dy, 0, vh - r0.height),
+        left: overhang ? clampTo(r0.left + dx, -ox, vw - 1 - ox) : clampTo(r0.left + dx, 0, vw - r0.width),
+        top: overhang ? clampTo(r0.top + dy, -oy, vh - 1 - oy) : clampTo(r0.top + dy, 0, vh - r0.height),
         width: r0.width,
         height: r0.height,
     };

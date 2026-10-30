@@ -8,7 +8,6 @@ import {
     useAllSwarmStarts, useAllSwarmStartSessions,
     useAllRequirements, useAllSwarmUndos,
     useAllSwarmCompletes, useAllSwarmCompleteSessions,
-    useDevServers,
 } from '../hooks/useDataQueries';
 import { localDateStr } from '../utils/dateFormat';
 import { PHASE_SEGMENTS, PHASE_UNCLASSIFIED_COLOR } from '../CalendarFC/timeSeriesSizes';
@@ -91,7 +90,6 @@ const SwarmVisualizerView = ({ maximized = false }) => {
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
     const costOn      = useSwarmVisualizerStore(s => s.costOn);
-    const devServersOn = useSwarmVisualizerStore(s => s.devServersOn);
     const viewResetTick = useSwarmVisualizerStore(s => s.viewResetTick);
     // Scroll-up auto-extend (req #2859) — how many extra days of history the
     // canvas has asked for, plus the action it calls when the user pans near the
@@ -171,22 +169,6 @@ const SwarmVisualizerView = ({ maximized = false }) => {
         profile?.userName,
         { fields: 'id,title,category_fk,coordination_type,ai_model,effort,requirement_status,completed_at,started_at' },
     );
-    // Active dev servers (req #2857) — overlay a clickable port pill on each bead
-    // whose session has an active, associated dev server. The table holds only
-    // currently-claimed servers (released ones are deleted), so a row's mere
-    // presence means "active". Small projection: id + port + session link + the
-    // terminal number for the hover card. Reads route through `darwinOpsUri`
-    // (always production `darwin`) per the req #2871 dev_servers carve-out — this
-    // table is live machine state written by the MCP claim_dev_server tool, never
-    // a seeded `darwin_dev` fixture, so a dev build reads the real claims.
-    const { data: devServers = [] } = useDevServers(
-        profile?.userName,
-        // `machine_fk` too (req #3587): `dev_servers` keeps no `fields` in its
-        // cache key, so this projection is the entry the plan page's port pill
-        // reads when this view populated it first — and that pill needs the
-        // machine to decide whether `localhost:<port>` is the right server.
-        { fields: 'id,port,session_fk,terminal_number,started_at,machine_fk' },
-    );
 
     // Scroll restore — visualizer-specific key so the saved position never
     // leaks into /calview (which has its own `calview_scrollY`).
@@ -252,7 +234,6 @@ const SwarmVisualizerView = ({ maximized = false }) => {
                 swarmUndos={swarmUndos}
                 swarmCompletes={swarmCompletes}
                 swarmCompleteSessions={swarmCompleteSessions}
-                devServers={devServers}
                 selectedDate={currentDate}
                 timezone={profile?.timezone}
                 categoryList={categoryList}
@@ -263,7 +244,6 @@ const SwarmVisualizerView = ({ maximized = false }) => {
                 completesOn={completesOn}
                 phasesOn={phasesOn}
                 costOn={costOn}
-                devServersOn={devServersOn}
                 wide36={konvaWide}
                 resetTick={viewResetTick}
                 onChipClick={onChipClick}
