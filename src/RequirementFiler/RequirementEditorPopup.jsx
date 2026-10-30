@@ -100,6 +100,7 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import { EDITOR_Z } from './filerHover';
 import { useFilerFilesElsewhere } from './filerScope';
 import { notifyEpicSeated, seatProblem } from './filerEpicAim';
 import { moveEpicRequirement } from '../Epics/epicsApi';
@@ -795,7 +796,7 @@ export default function RequirementEditorPopup() {
         <AnchoredPanel dock={dock} onDockChange={setEditorDock}
                        open={open} onToggle={toggleEditorOpen}
                        name="Requirement Editor" testid="requirement-editor"
-                       rackId={EDITOR_RACK_ID}
+                       rackId={EDITOR_RACK_ID} zIndex={EDITOR_Z}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<ActionPopupClose onClick={() => setEditorShow(false)}

@@ -22,7 +22,8 @@
 
 import { humanDuration, parseUtc } from '../pipelines/orchestrationHolder';
 import {
-    HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED, MISSING_AFTER_SECONDS,
+    ENGINE_BASE_INTERVAL_SECONDS, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED,
+    MISSED_INTERVALS, MISSING_AFTER_SECONDS,
     OUTCOME_PENDING, VERDICT_OK, codeLabel, detailText, eventText, plainWords,
 } from './engineVocabulary';
 
@@ -55,6 +56,14 @@ const ageSeconds = (stamp, now) => {
     return Math.max(0, Math.floor((now.getTime() - at.getTime()) / 1000));
 };
 
+/** Seconds after which a beat carrying `health` reads missing — darwin-mcp
+ * `missing_after`: three of its declared intervals, never under the floor. */
+export function missingAfter(health) {
+    const interval = (health || {}).interval_s;
+    if (!Number.isInteger(interval) || interval <= 0) return MISSING_AFTER_SECONDS;
+    return Math.max(MISSING_AFTER_SECONDS, MISSED_INTERVALS * interval);
+}
+
 /**
  * `{health, ageSeconds}` for one engine — darwin-mcp `engine_health`, verbatim
  * in precedence:
@@ -65,10 +74,10 @@ const ageSeconds = (stamp, now) => {
  */
 export function engineHealth(state, beat, now = new Date()) {
     let age = null;
+    const health = beat ? parseJsonColumn(beat.health) || {} : {};
     if (beat) age = ageSeconds(beat.beat_at, now) ?? ageSeconds(beat.create_ts, now);
-    const fresh = age != null && age <= MISSING_AFTER_SECONDS;
+    const fresh = age != null && age <= missingAfter(health);
     if (fresh) {
-        const health = parseJsonColumn(beat.health) || {};
         const degraded = health.degraded_count;
         return { health: Number.isInteger(degraded) && degraded > 0 ? HEALTH_DEGRADED : HEALTH_OK,
             ageSeconds: age };
@@ -309,6 +318,14 @@ export function restartsText(health) {
     if (n == null) return 'not supervised';
     if (n === 0) return 'not restarted';
     return `restarted ${n} time${n === 1 ? '' : 's'}`;
+}
+
+/** The sleep the engine declared before its next cycle (req #4022): the base
+ * interval while things change, longer while it repeats a quiet decision. */
+export function intervalText(health) {
+    const interval = (health || {}).interval_s;
+    if (!Number.isInteger(interval) || interval <= 0) return '—';
+    return `in ${humanDuration(interval)}${interval > ENGINE_BASE_INTERVAL_SECONDS ? ' — idle, backing off' : ''}`;
 }
 
 /** A UTC stamp in the reader's zone, or '—'. */

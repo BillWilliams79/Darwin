@@ -10,7 +10,7 @@
 // THE HOVER PATTERN. Pinned, while the filer is dragged by its head, the element
 // under its CENTRE — the probe its + records first in `pointedAt`
 // (filedFromContext.js), resolved the same way to the nearest element carrying a
-// data-testid — is OUTLINED by one fixed overlay drawn above every popup, with a
+// data-testid — is OUTLINED by one fixed overlay drawn above every other popup, with a
 // chip naming it (its innermost testid, or its tag) and a reticle at the aim
 // point. The filer turns translucent while something is outlined (AnchoredPanel
 // `onMoveTrack`), so the element shows through. The overlay is one DOM node
@@ -29,12 +29,32 @@
 // THE DATA is the + press's own `pointedAt` (filedFromContext.js): where the
 // filer IS at the press, never a spot it has left — and nothing, with its
 // reason, when the pin is not pressed.
+//
+// THE FILER AND ITS EDITOR ARE ON TOP (req #4044, "Requirement editor should
+// have highest z axis"). Every Action Popup used to share AnchoredPanel's 1250,
+// so which one won was DOM order, and the outline (drawn above every popup)
+// tinted the filer itself — carried over the plan's Active box it read as
+// buried under it. The order is stated now: the other popups, the outline,
+// the filer, the reticle, then its editor — all below MUI's modals (1300+);
+// carried out of the navbar, the navbar lifts to the filer's own z
+// (usePanelRack `track` z).
+// And the other Action Popups are pickable like any element: only the filer's
+// own two windows are skipped (filedFromContext.js FILER_OWN_POPUPS).
 
 import { namedElement, probeAt } from './filedFromContext';
 
-/** The overlay's stacking: above every Action Popup (AnchoredPanel 1250) and the
- *  navbar lifted for a rack drag, below MUI's modals and snackbars (1300+). */
+/** The outline's stacking: above every other Action Popup (AnchoredPanel 1250)
+ *  and the navbar lifted for a rack drag, below the filer (req #4044). */
 export const AIM_Z = 1290;
+/** The Requirement Filer's stacking: above every other Action Popup and the
+ *  outline, so what it is carried over never covers or tints it (req #4044). */
+export const FILER_Z = 1294;
+/** The aim point's reticle: over the filer it marks the centre of — and,
+ *  like the outline, under the editor, so it never floats there alone. */
+export const AIM_POINT_Z = 1295;
+/** Its editor's: the highest of all (req #4044) — over the filer too. All of
+ *  these stay below MUI's modals, menus and snackbars (1300+). */
+export const EDITOR_Z = 1296;
 /** How often a drag re-samples what is under the filer, ms, and how long the
  *  outline glides to a new element — both 15% slower than a 60 Hz frame and the
  *  first 60 ms glide (user, 2026-10-26: "slightly less frenetic"). */
@@ -47,6 +67,7 @@ export const AIM_SETTLE_MS = 160;
 /** The outline's colour — the Action Popups' accent. */
 export const AIM_COLOR = '#4fc3f7';
 const OVERLAY_ID = 'darwin-requirement-filer-aim';
+const RETICLE_ID = 'darwin-requirement-filer-aim-point';
 
 /** The point a popup at `rect` ({left, top, width, height}, Darwin viewport px) aims from. */
 export const aimPoint = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
@@ -91,16 +112,27 @@ function overlay(doc) {
         textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '1px 6px', borderRadius: '3px 3px 0 0',
         background: AIM_COLOR, color: '#000', font: '600 11px/16px "SF Mono", Menlo, monospace',
     });
-    const reticle = doc.createElement('div');
-    reticle.setAttribute('data-testid', 'requirement-aim-point');
-    Object.assign(reticle.style, {
-        position: 'fixed', width: '10px', height: '10px', marginLeft: '-5px', marginTop: '-5px',
+    o.append(chip);
+    doc.body.appendChild(o);
+    return o;
+}
+
+/** The reticle at the aim point — its own node, above the filer (AIM_POINT_Z). */
+function reticle(doc) {
+    let r = doc.getElementById(RETICLE_ID);
+    if (r) return r;
+    r = doc.createElement('div');
+    r.id = RETICLE_ID;
+    r.setAttribute('data-testid', 'requirement-aim-point');
+    r.setAttribute('aria-hidden', 'true');
+    Object.assign(r.style, {
+        position: 'fixed', zIndex: String(AIM_POINT_Z), pointerEvents: 'none',
+        width: '10px', height: '10px', marginLeft: '-5px', marginTop: '-5px',
         borderRadius: '50%', border: `2px solid ${AIM_COLOR}`, boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.6)',
         boxSizing: 'border-box',
     });
-    o.append(chip, reticle);
-    doc.body.appendChild(o);
-    return o;
+    doc.body.appendChild(r);
+    return r;
 }
 
 /** Outlines `target` (aimAt), or clears the outline when null. `note` — said
@@ -112,16 +144,17 @@ export function showAim(target, note = '', doc = document) {
     Object.assign(o.style, { display: 'block', left: `${left}px`, top: `${top}px`,
         width: `${Math.max(width, 4)}px`, height: `${Math.max(height, 4)}px` });
     o.setAttribute('data-aim', target.name);
-    const [chip, reticle] = o.children;
+    const [chip] = o.children;
     const label = note ? `${target.name} · ${note}` : target.name;
     if (chip.textContent !== label) chip.textContent = label;
     // An element at the very top: its chip sits inside the outline instead.
     chip.style.bottom = top < 18 ? 'auto' : '100%';
     chip.style.top = top < 18 ? '0' : 'auto';
-    Object.assign(reticle.style, { left: `${target.point.x}px`, top: `${target.point.y}px` });
+    Object.assign(reticle(doc).style, { left: `${target.point.x}px`, top: `${target.point.y}px` });
 }
 
-/** Clears the outline. */
+/** Clears the outline and its reticle. */
 export function clearAim(doc = document) {
     doc.getElementById(OVERLAY_ID)?.remove();
+    doc.getElementById(RETICLE_ID)?.remove();
 }

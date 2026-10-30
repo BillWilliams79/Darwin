@@ -3243,6 +3243,13 @@ export default function PipelinePlanVisualizer({
                 queryKey: initiativeDepKeys.all(creatorFk) }),
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
+    // req #3967 — an epic delete deletes or un-seats its requirements, which
+    // leaves every requirement list stale too, not only the plan's.
+    const refreshAfterEpicEditor = useCallback((result) => Promise.all([
+        refreshPlan(),
+        result?.deleted && profile?.userName
+            && queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) }),
+    ]), [refreshPlan, queryClient, profile?.userName]);
 
     // ── THE SINGLE EDITOR, OVER THE CANVAS (req #3742) ─────────────────────
     // User directives: "single click of initiative and epic to take you to the single
@@ -3281,7 +3288,8 @@ export default function PipelinePlanVisualizer({
                 // is the backstop for a dependent the composed read did not
                 // carry (a 409, the plan untouched).
                 deletion = {
-                    reqCount: (row.reqIds || []).length,
+                    // req #3967 — the ids, so the Delete can offer to take them too.
+                    reqIds: row.reqIds || [],
                     dependents: rows
                         .filter((r) => r.id !== row.id && (r.depIds || []).includes(row.id))
                         .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
@@ -7023,7 +7031,7 @@ export default function PipelinePlanVisualizer({
                     deletion={planEditor.deletion}
                     initiativeOptions={insertInitiativeOptions}
                     onClose={closePlanEditor}
-                    onSaved={refreshPlan}
+                    onSaved={refreshAfterEpicEditor}
                 />
             )}
             {planEditor.kind === 'initiative' && (
