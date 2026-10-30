@@ -42,9 +42,12 @@ export const migrateVisualizerState = (persisted) => {
     //                   SVG/DOM TimeSeriesView and its Day/Week + Sidewalk +
     //                   Elevator + sub-day bead modes were retired; the Konva
     //                   canvas is the only substrate (req #2844).
+    //   • devServersOn — the dev-server port-pill overlay and its "Dev" toggle
+    //                   were removed (req #4088).
     const {
         currentDate, vizKey,
         konvaOn, viewType, beadWindow, sidewalkOn, elevatorOn,
+        devServersOn,
         ...rest
     } = persisted || {};
     return {
@@ -65,9 +68,6 @@ export const migrateVisualizerState = (persisted) => {
         // v9 → v10: req #2846 costOn (off by default) — size each bead by its
         // session's token cost so expensive work stands out at a glance.
         costOn: rest.costOn ?? false,
-        // v11 → v12: req #2857 devServersOn (ON by default) — overlay a port pill
-        // on beads whose session has an active, associated dev server.
-        devServersOn: rest.devServersOn ?? true,
     };
 };
 
@@ -81,7 +81,6 @@ export const useSwarmVisualizerStore = create(
             phasesOn: false,             // segment duration line by session phase buckets — req #2823 (off by default)
             konvaWide: false,            // 36h noon-centered window for the Konva canvas mid zoom — req #2841 (OFF by default = 24h since req #2856)
             costOn: false,               // size each bead by its session token cost — req #2846 (off by default)
-            devServersOn: true,          // overlay active dev-server port pill on beads — req #2857 (on by default)
             viewResetTick: 0,            // bumped by "Today" to reset the canvas view (req #2841) — not persisted
             pastExtraDays: 0,            // extra days of history fetched by scroll-up auto-extend — req #2859 (transient, NOT persisted)
 
@@ -96,7 +95,6 @@ export const useSwarmVisualizerStore = create(
             setPhasesOn: (on) => set({ phasesOn: !!on }),
             setKonvaWide: (on) => set({ konvaWide: !!on }),
             setCostOn: (on) => set({ costOn: !!on }),
-            setDevServersOn: (on) => set({ devServersOn: !!on }),
             // Scroll-up auto-extend (req #2859) — widen the fetch window backward
             // by `days`, clamped to [0, MAX_PAST_EXTRA_DAYS]. Called by the canvas
             // when the user pans near the oldest loaded day.
@@ -125,9 +123,9 @@ export const useSwarmVisualizerStore = create(
             //   now defaults ON and konvaWide defaults OFF (24h window). The migrate
             //   back-fills match so a blob missing either field adopts the new
             //   default.
-            // v11 → v12 (req #2857): devServersOn added; migrate back-fills it to
-            //   true (active dev-server port pill overlay is on by default).
-            version: 12,
+            // v11 → v12 (req #2857): devServersOn added; removed again by req #4088
+            //   (v12 → v13: migrate strips it from persisted blobs).
+            version: 13,
             // Never write currentDate (req #2799) — it stays a today-default each load.
             partialize: persistPartialize,
             migrate: migrateVisualizerState,

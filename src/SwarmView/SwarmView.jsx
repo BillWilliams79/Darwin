@@ -25,6 +25,7 @@ import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableVie
 import SwarmVisualizerView from './SwarmVisualizerView';
 import RequirementsTrendsView from './RequirementsTrendsView';
 import VisualizerToolbar from './VisualizerToolbar';
+import FullscreenSwitch from '../Components/FullscreenSwitch';
 
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -620,6 +621,19 @@ const SwarmView = () => {
                                 );
                             })}
                         </ToggleButtonGroup>
+                        {/* req #4062 — the full screen switch (req #3793) sits LEFT of
+                            the Req# jump, in the page's header row; the row stays on
+                            screen while maximized, so the switch never moves. */}
+                        {view === 'visualizer' && (
+                            <FullscreenSwitch
+                                on={vizMaximized}
+                                onToggle={toggleVizMaximized}
+                                testid="swarm-viz-fullscreen"
+                                enterLabel="Full screen — only the swarm visualizer"
+                                leaveLabel="Leave full screen"
+                                enterTitle="Full screen — only the swarm visualizer and its controls (Esc to exit)"
+                                leaveTitle="Leave full screen (Esc)" />
+                        )}
                         <RequirementJumpInput />
                         {view === 'cards' && (
                             <ProjectStripZone>
@@ -651,8 +665,7 @@ const SwarmView = () => {
                             </ProjectStripZone>
                         )}
                         {view === 'visualizer' && (
-                            <VisualizerToolbar maximized={vizMaximized}
-                                               onToggleMaximized={toggleVizMaximized} />
+                            <VisualizerToolbar />
                         )}
                         <Box sx={{ flexGrow: 1 }} />
                         {/* req #3428 — the initiative filter's dismissable pill, first

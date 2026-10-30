@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 
 import fixture from './engineViewFixture.json';
 import {
-    assembleEngines, engineHealth, enginesForPipeline, historyCells, outcomesByRequirement,
-    recordChanges, recordView, scopeKey, scopeText, stoppedAt,
+    assembleEngines, engineHealth, enginesForPipeline, historyCells, intervalText, missingAfter,
+    outcomesByRequirement, recordChanges, recordView, scopeKey, scopeText, stoppedAt,
 } from '../engineModel';
 import { MISSING_AFTER_SECONDS, PLAIN_WORDS } from '../engineVocabulary';
 
@@ -37,6 +37,19 @@ describe('engine health — derived from the heartbeat\'s AGE (darwin-mcp engine
             .toBe('ok');
         expect(engineHealth({ desired_state: 'on' }, { beat_at: at(MISSING_AFTER_SECONDS + 1), health: {} }, NOW))
             .toEqual({ health: 'missing', ageSeconds: MISSING_AFTER_SECONDS + 1 });
+    });
+
+    it('judges an idle beat against three of its own declared intervals (req #4022)', () => {
+        const idle = { degraded_count: 0, interval_s: 300 };
+        expect(engineHealth({ desired_state: 'on' }, { beat_at: at(600), health: idle }, NOW).health)
+            .toBe('ok');
+        expect(engineHealth({ desired_state: 'on' }, { beat_at: at(901), health: idle }, NOW).health)
+            .toBe('missing');
+        expect(missingAfter({ interval_s: 30 })).toBe(MISSING_AFTER_SECONDS);
+        expect(missingAfter(null)).toBe(MISSING_AFTER_SECONDS);
+        expect(intervalText({ interval_s: 60 })).toBe('in 1m');
+        expect(intervalText({ interval_s: 300 })).toMatch(/idle, backing off$/);
+        expect(intervalText({})).toBe('—');
     });
 
     it('floors the age as the service does: 180.6 s is still fresh', () => {

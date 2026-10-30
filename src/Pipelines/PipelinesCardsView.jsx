@@ -277,7 +277,7 @@ function Stat({ value, label, testId }) {
 }
 
 function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, onUpdate,
-    onSetStatus, onDelete, refetchInterval }) {
+    onSetStatus, onDelete, refetchInterval, previewColor, sessionStatus }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
     const locked = isLocked(p);
@@ -482,7 +482,9 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                          sx={{ display: 'block', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}
                          data-testid={`pipelines-card-thumbnail-${p.id}`}>
                         <PipelinePlanThumbnail pipelineId={p.id} machines={machines}
-                                               refetchInterval={refetchInterval} />
+                                               refetchInterval={refetchInterval}
+                                               colorMode={previewColor}
+                                               sessionStatus={sessionStatus} />
                     </Box>
                 </Tooltip>
 
@@ -527,7 +529,7 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     machines, claims = [], onOpen, onUpdate, onSetStatus, onDelete, onReorder,
     onCreate, creating = false, hiddenStatusCounts = [],
-    refetchInterval, thumbnailRefetchInterval }) {
+    refetchInterval, thumbnailRefetchInterval, previewColor, sessionStatus }) {
     const [drafting, setDrafting] = useState(false);
     const gridRef = useRef(null);
     const { ref: grabRef, grabbing } = useGrabScroll();
@@ -591,6 +593,8 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         onSetStatus={onSetStatus}
                         onDelete={onDelete}
                         refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
+                        previewColor={previewColor}
+                        sessionStatus={sessionStatus}
                     />
                 ))}
                 {tile}

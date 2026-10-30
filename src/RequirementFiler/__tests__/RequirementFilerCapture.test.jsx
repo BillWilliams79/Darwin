@@ -7,7 +7,7 @@
 // write fails. One button since the user's ruling (2026-10-23, absorbing #3818).
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest';
 
 // The page's own fetch and a silent console, before the capture buffers wrap them.
 const pageFetch = vi.hoisted(() => {
@@ -502,6 +502,108 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         watch.disconnect();
         expect(seen.has('category-card-862')).toBe(false);
         expect([...seen]).toEqual(['requirement-1', 'requirement-2']);
+        tile.remove();
+    });
+
+    it('pinned, it is dragged half off screen to an edge, let go there holds the place, and + records it (req #4046)', async () => {
+        useRequirementFilerStore.setState({ pinned: true });
+        renderAll({ at: '/swarm' });
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        // A control at the right edge, narrower than half the filer: only an overhang reaches it.
+        const edge = document.createElement('div');
+        edge.setAttribute('data-testid', 'edge-control');
+        document.body.appendChild(edge);
+        box(edge, 1560, 300, 40, 40);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 200, 100, 200, 100);
+        // The press probes within the window (filedFromContext pointedAtNow).
+        const inner = [window.innerWidth, window.innerHeight];
+        onTestFinished(() => {
+            Object.defineProperty(window, 'innerWidth', { value: inner[0], configurable: true });
+            Object.defineProperty(window, 'innerHeight', { value: inner[1], configurable: true });
+            edge.remove();
+        });
+        Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { value: 1000, configurable: true });
+        document.elementsFromPoint = (x, y) => [filer, edge].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        const head = screen.getByTestId('requirement-filer-header');
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 250, clientY: 110 });
+        // Centre to (1580, 320): the filer's right half past the viewport's edge.
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 1530, clientY: 280 });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('edge-control'));
+        fireEvent.pointerUp(head, { pointerId: 1, clientX: 1530, clientY: 280 });
+        // Let go: it slides back whole on screen, and the place stays held.
+        expect(screen.getByTestId('requirement-filer').getAttribute('data-dock')).toMatch(/^r0,/);
+        box(filer, 1400, 270, 200, 100);
+        expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('edge-control');
+        expect(screen.getByTestId('requirement-aim-point').style.left).toBe('1580px');
+        await pressFile();
+        const ff = JSON.parse(useRequirementFilerStore.getState().capture.categories[0].text);
+        expect(ff.pointedAt[0].testidPath).toEqual(['edge-control']);
+        expect(ff).toMatchObject({ pointedAtFrom: 'held', heldRect: { x: 1480, y: 270, w: 200, h: 100 } });
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        // Scrolled under it, the outline follows what is at the point now — here, nothing: the hold ends.
+        box(edge, 1560, 100, 40, 40);
+        await waitFor(() => expect(screen.queryByTestId('requirement-aim')).toBe(null));
+        box(edge, 1560, 300, 40, 40);
+        const holdAgain = async (id) => {
+            fireEvent.pointerDown(head, { button: 0, pointerId: id, clientX: 1450, clientY: 280 });
+            fireEvent.pointerMove(head, { pointerId: id, clientX: 1530, clientY: 280 });
+            await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('edge-control'));
+            fireEvent.pointerUp(head, { pointerId: id, clientX: 1530, clientY: 280 });
+            expect(screen.getByTestId('requirement-aim')).toBeTruthy();
+        };
+        // Dragged again, the hold is gone at once.
+        await holdAgain(2);
+        fireEvent.pointerDown(head, { button: 0, pointerId: 3, clientX: 1450, clientY: 280 });
+        fireEvent.pointerMove(head, { pointerId: 3, clientX: 1300, clientY: 280 });
+        expect(screen.queryByTestId('requirement-aim')).toBe(null);
+        fireEvent.pointerUp(head, { pointerId: 3, clientX: 1300, clientY: 280 });
+        // Closed, too.
+        await holdAgain(4);
+        fireEvent.click(screen.getByTestId('requirement-filer-close'));
+        expect(screen.queryByTestId('requirement-aim')).toBe(null);
+    });
+
+    it('a drag that stops inside one sample window outlines where it stopped (req #4046)', async () => {
+        useRequirementFilerStore.setState({ pinned: true });
+        renderAll({ at: '/swarm' });
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        const tile = document.createElement('div');
+        tile.setAttribute('data-testid', 'category-card-862');
+        const row = document.createElement('div');
+        row.setAttribute('data-testid', 'requirement-1');
+        tile.append(row);
+        document.body.appendChild(tile);
+        box(tile, 0, 0, 1000, 800);
+        box(row, 0, 400, 1000, 40);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 400, 100, 200, 100);
+        document.elementsFromPoint = (x, y) => [filer, row, tile].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
+        Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
+        const head = screen.getByTestId('requirement-filer-header');
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 450, clientY: 110 });
+        // Ten steps at once, as fast as a flick: centre from over the tile to (500, 420), on the row.
+        for (let i = 1; i <= 10; i++) fireEvent.pointerMove(head, { pointerId: 1, clientX: 450, clientY: 110 + 27 * i });
+        await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-1'));
+        // Outlined after the last move, and the filer is translucent over it without another.
+        const panel = screen.getByTestId('requirement-filer');
+        await waitFor(() => expect(panel.style.opacity || getComputedStyle(panel).opacity).toBe('0.6'));
+        fireEvent.pointerUp(head, { pointerId: 1, clientX: 450, clientY: 380 });
+        expect(screen.queryByTestId('requirement-aim')).toBe(null);
         tile.remove();
     });
 });

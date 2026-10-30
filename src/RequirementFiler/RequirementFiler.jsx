@@ -128,6 +128,14 @@ const PRESS_MS = 2000;
 let aimAtPress = null;
 /** How long pressing the pushpin outlines where the filer sits, ms. */
 const PIN_FLASH_MS = 1500;
+/** Whether `rect` ({left, top, width, height}) is somewhere an unpinned drag
+ *  could not have put it — past the viewport (AnchoredPanel moveRect's clamp). */
+const offScreen = (rect) => {
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const vh = document.documentElement.clientHeight || window.innerHeight;
+    return !!rect && (rect.left < 0 || rect.top < 0
+        || rect.left > Math.max(0, vw - rect.width) || rect.top > Math.max(0, vh - rect.height));
+};
 
 /** The pushpin's size: 25% over its first 1.05em (user, 2026-10-26); its
  *  button is the head row's content height (the +'s), so the row never grows. */
@@ -298,7 +306,7 @@ export default function RequirementFiler() {
             location, profile, database, theme, popupId: FILER_RACK_ID,
             popupStore: { open: useRequirementFilerStore.getState().open, dock,
                 titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
-            pinned: useRequirementFilerStore.getState().pinned,
+            pinned: useRequirementFilerStore.getState().pinned, heldRect: heldRect(),
         });
     };
     // The epic the + was aimed at as its press began (req #3854) — read at the
@@ -339,26 +347,19 @@ export default function RequirementFiler() {
     // Sampled at most every AIM_SAMPLE_MS. The outline follows the element it
     // shows; a DIFFERENT element (or nothing) takes over only once it has stayed
     // under the filer for AIM_SETTLE_MS — what is merely crossed never flashes.
-    const hoverRef = useRef({ t: -Infinity, shown: null, pending: null, timer: 0 });
-    const settleHover = (target) => {
+    // A move inside the sample window is not dropped: its rect is sampled at the
+    // window's end (req #4046), or a drag that stops within one window of its
+    // last sample outlines where it was, not where it is. And as that sample and
+    // the settle land on a timer, after the last move, each tells the panel
+    // through the drag's `aim` whether it is pointing at something now.
+    // Pinned, it may be dragged half off screen (AnchoredPanel `overhang`), so its
+    // centre reaches every pixel; let go there it slides back on, and the place
+    // under its centre at the release is HELD — outlined, and what + records —
+    // until it is dragged again or unpinned (req #4046, user ruling 2026-10-30).
+    const hoverRef = useRef({ t: -Infinity, shown: null, pending: null, timer: 0, trail: 0, trailRect: null, aim: null, held: null, follow: 0 });
+    const sampleHover = (rect) => {
         const h = hoverRef.current;
-        clearTimeout(h.timer);
-        h.pending = null;
-        h.shown = target;
-        showAim(target);
-    };
-    const onMoveTrack = ({ phase, rect, docking }) => {
-        clearTimeout(flashRef.current);
-        const h = hoverRef.current;
-        // Unpinned, docking, or the drag over: nothing, at once.
-        if (!useRequirementFilerStore.getState().pinned || phase !== 'move' || docking) {
-            h.t = -Infinity;
-            settleHover(null);
-            return false;
-        }
-        const now = performance.now();
-        if (now - h.t < AIM_SAMPLE_MS) return !!h.shown;
-        h.t = now;
+        h.t = performance.now();
         const target = aimAt(rect);
         const el = target?.el ?? null;
         if (el === (h.shown?.el ?? null)) {
@@ -371,13 +372,82 @@ export default function RequirementFiler() {
         } else {
             h.pending.target = target;
         }
+    };
+    const settleHover = (target) => {
+        const h = hoverRef.current;
+        clearTimeout(h.timer);
+        h.pending = null;
+        h.shown = target;
+        showAim(target);
+        h.aim?.(!!target);
+    };
+    // Unpinned, docking, or the drag over: nothing, at once.
+    const resetHover = () => {
+        const h = hoverRef.current;
+        clearTimeout(h.trail);
+        h.trail = 0;
+        h.t = -Infinity;
+        settleHover(null);
+        h.aim = null;
+        h.held = null;
+        cancelAnimationFrame(h.follow);
+    };
+    // A held place is a point on the screen: whatever moves under it — the page
+    // scrolled, resized, routed, a frame panned, rows loaded — the outline is
+    // redrawn each frame on what is there now, so it names what + records; and
+    // the hold ends once nothing is.
+    const followHeld = () => {
+        const h = hoverRef.current;
+        if (!h.held) return;
+        const target = aimAt(h.held);
+        if (!target) { resetHover(); return; }
+        showAim(target);
+        h.follow = requestAnimationFrame(followHeld);
+    };
+    const heldRect = () => {
+        const r = hoverRef.current.held;
+        return r && { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    const onMoveTrack = ({ phase, rect, docking, aim }) => {
+        clearTimeout(flashRef.current);
+        const h = hoverRef.current;
+        const pinnedNow = useRequirementFilerStore.getState().pinned;
+        if (!pinnedNow || phase !== 'move' || docking) {
+            const hold = pinnedNow && phase === 'drop' && !docking && offScreen(rect) ? rect : null;
+            resetHover();
+            // Over nothing (bare page) there is no place to hold.
+            const target = hold && aimAt(hold);
+            if (target) {
+                h.held = hold;
+                showAim(target);
+                h.follow = requestAnimationFrame(followHeld);
+            }
+            return false;
+        }
+        if (h.held) { h.held = null; cancelAnimationFrame(h.follow); clearAim(); }
+        h.aim = aim ?? null;
+        clearTimeout(h.trail);
+        h.trail = 0;
+        const wait = AIM_SAMPLE_MS - (performance.now() - h.t);
+        if (wait > 0) {
+            h.trailRect = rect;
+            h.trail = setTimeout(() => { h.trail = 0; sampleHover(h.trailRect); }, wait);
+            return !!h.shown;
+        }
+        sampleHover(rect);
         return !!h.shown;
     };
-    useEffect(() => () => { clearTimeout(flashRef.current); clearTimeout(hoverRef.current.timer); clearAim(); }, []);
+    useEffect(() => () => {
+        const h = hoverRef.current;
+        clearTimeout(flashRef.current); clearTimeout(h.timer); clearTimeout(h.trail); cancelAnimationFrame(h.follow); clearAim();
+    }, []);
+    // Hidden — closed, a narrow window, signed out — it holds nothing.
+    const shown = show && isDesktop && !!profile?.userName;
+    useEffect(() => { if (!shown) resetHover(); }, [shown]);
     // The pushpin: pressed, the place it sits over now is outlined a moment.
     const togglePin = () => {
         clearTimeout(flashRef.current);
-        clearAim();
+        resetHover();
         const next = !useRequirementFilerStore.getState().pinned;
         setPinned(next);
         if (!next) return;
@@ -394,7 +464,7 @@ export default function RequirementFiler() {
         useRequirementFilerStore.setState({ show: true, open: true });
     }, [filerParam, signedIn]);
 
-    if (!show || !isDesktop || !profile?.userName) return null;
+    if (!shown) return null;
 
     const reopen = async (id) => {
         setReopenNote(null);
@@ -418,7 +488,7 @@ export default function RequirementFiler() {
                        rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
                        rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock} onMoveTrack={onMoveTrack}
-                       dockable={!pinned}
+                       dockable={!pinned} overhang={pinned}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>

@@ -116,4 +116,13 @@ describe('PipelineDetail — requirement launcher (req #3798)', () => {
         act(() => { node('req-jump-submit').click(); });
         expect(open).toHaveBeenCalledWith('/swarm/requirement/3798', '_blank', 'noopener,noreferrer');
     });
+
+    it('takes at most four digits (req #4064)', () => {
+        mount('/swarm/pipeline/2');
+        const input = node('req-jump-input').querySelector('input');
+        expect(input.getAttribute('maxlength')).toBe('4');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        act(() => { setter.call(input, '123456'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+        expect(input.value).toBe('1234');
+    });
 });

@@ -26,9 +26,19 @@
 // elements like any others and floats where it is dropped. Unpinned, it docks
 // in them as always and outlines nothing.
 //
+// IT REACHES THE EDGES (req #4046, user, 2026-10-30: "can the edges of the
+// requirement filer pass off the screen in this mode so the circle can cover
+// the whole field of view"). Pinned, a drag may carry it half off screen — its
+// centre, the aim point, kept inside (AnchoredPanel `overhang`). Let go there
+// it slides back whole on screen, so its + stays reachable, and the place under
+// its centre at the release is HELD: still outlined, the reticle where it was,
+// and what the + records — until it is dragged again or unpinned (user ruling),
+// closed, or nothing is under it any more. The outline follows what moves under
+// the held point each frame (RequirementFiler `followHeld`).
+//
 // THE DATA is the + press's own `pointedAt` (filedFromContext.js): where the
-// filer IS at the press, never a spot it has left — and nothing, with its
-// reason, when the pin is not pressed.
+// filer IS at the press, never a spot it has left — or the place it holds —
+// and nothing, with its reason, when the pin is not pressed.
 //
 // THE FILER AND ITS EDITOR ARE ON TOP (req #4044, "Requirement editor should
 // have highest z axis"). Every Action Popup used to share AnchoredPanel's 1250,
@@ -66,6 +76,9 @@ export const AIM_GLIDE_MS = 69;
 export const AIM_SETTLE_MS = 160;
 /** The outline's colour — the Action Popups' accent. */
 export const AIM_COLOR = '#4fc3f7';
+/** The targeting circle's: a brighter tint of it, with a glow (user, 2026-10-30:
+ *  "make the targeting circle a bit brighter"). */
+export const AIM_POINT_COLOR = '#9be7ff';
 const OVERLAY_ID = 'darwin-requirement-filer-aim';
 const RETICLE_ID = 'darwin-requirement-filer-aim-point';
 
@@ -128,7 +141,8 @@ function reticle(doc) {
     Object.assign(r.style, {
         position: 'fixed', zIndex: String(AIM_POINT_Z), pointerEvents: 'none',
         width: '10px', height: '10px', marginLeft: '-5px', marginTop: '-5px',
-        borderRadius: '50%', border: `2px solid ${AIM_COLOR}`, boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.6)',
+        borderRadius: '50%', border: `2px solid ${AIM_POINT_COLOR}`,
+        boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 6px 1px rgba(155, 231, 255, 0.85)',
         boxSizing: 'border-box',
     });
     doc.body.appendChild(r);

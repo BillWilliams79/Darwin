@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildPipelineGroupModel, pipelineBox, groupStatusColor, GROUP, GROUP_STATUS_LEGEND,
-    UNKNOWN_STATUS_COLOR, LABEL_TIER, placeLabels,
+    UNKNOWN_STATUS_COLOR, textPlates,
     pipelineWhen, calendarBucket, calendarLabel, gapLabel,
 } from '../pipelineGroupModel';
 import { DEFAULT_PLAN_PALETTE, planPalette } from '../../SwarmView/pipelines/pipelinePlanLayout';
@@ -58,8 +58,11 @@ describe('buildPipelineGroupModel — one plan', () => {
         expect(at.get(1).z).toBe(at.get(2).z);
         // lane 3 is the band's second USED lane, so it sits one lane pitch down
         expect(at.get(3).z - at.get(2).z).toBeCloseTo(GROUP.lane);
-        // the second band starts after the first band's two lanes and the gap
-        expect(at.get(4).z).toBeCloseTo(GROUP.pad + 2 * GROUP.lane + GROUP.bandGap + GROUP.lane / 2);
+        // the first band starts behind the title margin; the second after the
+        // first band's name margin, its two lanes and the gap — then its own name margin
+        expect(at.get(1).z).toBeCloseTo(GROUP.title + GROUP.bandHead + GROUP.lane / 2);
+        expect(at.get(4).z).toBeCloseTo(GROUP.title + GROUP.bandHead + 2 * GROUP.lane + GROUP.bandGap
+            + GROUP.bandHead + GROUP.lane / 2);
         expect(at.get(4).band).toBe(41);
         expect(at.get(4).color).toBe('#000001');
         for (const e of p.epics) {
@@ -254,11 +257,6 @@ describe('buildPipelineGroupModel — the calendar', () => {
         expect(model.columns[0].pipelineIds).toEqual([2, 1]);
     });
 
-    it('a column\'s date outranks the note of a skipped stretch', () => {
-        expect(LABEL_TIER.column).toBeLessThan(LABEL_TIER.gap);
-        expect(LABEL_TIER.epic).toBeLessThan(LABEL_TIER.gap);
-    });
-
     it('the header strip sits behind every platform and inside the bounds', () => {
         const model = buildPipelineGroupModel([dated(1, '2026-10-20T12:00:00'), dated(2, '2026-10-27T12:00:00')]);
         for (const col of model.columns) {
@@ -282,44 +280,100 @@ describe('status colours', () => {
     });
 });
 
-// req #4040 — every platform's initiative and epic names are drawn, so the
-// labels are decluttered: placed in priority order, an overlapping one hides.
-describe('placeLabels', () => {
-    const box = (left, top, extra = {}) => ({
-        left, top, right: left + 100, bottom: top + 16, tier: LABEL_TIER.epic, d: 1, ...extra,
+// req #4045 — every word is PRINTED on a surface of the scene, never floated
+// over it: dates on the floor's header strip, a pipeline's title in its
+// platform's back margin, an initiative's name in its strip's back margin, an
+// epic's name on its pedestal's front face.
+describe('textPlates', () => {
+    const plan = (id, day) => ({
+        ...drawnPlan(id),
+        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'orchestrating', started_at: `${day}T12:00:00` },
+    });
+    const model = buildPipelineGroupModel([plan(1, '2026-08-05'), plan(2, '2026-10-20')]);
+    const plates = textPlates(model);
+    const of = (kind) => plates.filter((t) => t.kind === kind);
+    const inside = (t, minX, maxX, minZ, maxZ) => {
+        expect(t.x - t.w / 2).toBeGreaterThanOrEqual(minX - 1e-9);
+        expect(t.x + t.w / 2).toBeLessThanOrEqual(maxX + 1e-9);
+        expect(t.z - t.h / 2).toBeGreaterThanOrEqual(minZ - 1e-9);
+        expect(t.z + t.h / 2).toBeLessThanOrEqual(maxZ + 1e-9);
+    };
+
+    it('prints every date, title, initiative and epic — and nothing else', () => {
+        expect(of('column').map((t) => t.text)).toEqual(model.columns.map((c) => c.label));
+        expect(of('gap').map((t) => t.text)).toEqual([`· ${model.columns[1].gapBefore.label} ·`]);
+        expect(of('pipeline').map((t) => t.text)).toEqual(['Plan 1', 'Plan 2']);
+        expect(of('initiative').map((t) => t.text)).toEqual(['Init 0', 'Init 1', 'Init 0', 'Init 1']);
+        expect(of('epic').map((t) => t.text)).toEqual(['E1', 'E2', 'E3', 'E4', 'E1', 'E2', 'E3', 'E4']);
+        expect(plates).toHaveLength(2 + 1 + 2 + 4 + 8);
     });
 
-    it('shows every label that overlaps nothing', () => {
-        expect(placeLabels([box(0, 0), box(200, 0), box(0, 100)])).toEqual([true, true, true]);
+    it('a title lies on its platform\'s top, in the back margin, clear of every strip', () => {
+        for (const p of model.pipelines) {
+            const [t] = of('pipeline').filter((x) => x.pipelineId === p.id);
+            expect(t.face).toBe('up');
+            expect(t.y).toBeGreaterThan(GROUP.slabH);
+            inside(t, p.x, p.x + p.w, p.z, p.z + GROUP.title);
+            for (const b of p.bands) expect(t.z + t.h / 2).toBeLessThanOrEqual(p.z + b.z + 1e-9);
+        }
     });
 
-    it('a pipeline title beats an initiative, which beats an epic, wherever they sit', () => {
-        const shown = placeLabels([
-            box(10, 4, { tier: LABEL_TIER.epic, d: 0 }),
-            box(0, 0, { tier: LABEL_TIER.initiative, d: 50 }),
-            box(5, 2, { tier: LABEL_TIER.pipeline, d: 99 }),
+    it('an initiative\'s name lies in its strip\'s back margin, behind every epic on it', () => {
+        for (const p of model.pipelines) {
+            const names = of('initiative').filter((x) => x.pipelineId === p.id);
+            p.bands.forEach((b, i) => {
+                const t = names[i];
+                expect(t.face).toBe('up');
+                expect(t.accent).toBe(b.color);
+                inside(t, p.x, p.x + p.w, p.z + b.z, p.z + b.z + GROUP.bandHead);
+                for (const e of p.epics.filter((x) => x.band === b.key)) {
+                    expect(t.z + t.h / 2).toBeLessThanOrEqual(p.z + e.z - GROUP.pedestal / 2 + 1e-9);
+                }
+            });
+        }
+    });
+
+    it('an epic\'s name stands on its pedestal\'s front face', () => {
+        for (const p of model.pipelines) {
+            const names = of('epic').filter((x) => x.pipelineId === p.id);
+            p.epics.forEach((e, i) => {
+                const t = names[i];
+                expect(t.face).toBe('front');
+                expect(t.x).toBeCloseTo(p.x + e.x);
+                expect(t.z).toBeGreaterThan(p.z + e.z + GROUP.pedestal / 2);
+                expect(t.z).toBeLessThan(p.z + e.z + GROUP.pedestal / 2 + 0.01);
+                expect(t.w).toBeLessThan(GROUP.pedestal);
+                expect(t.y - t.h / 2).toBeGreaterThanOrEqual(GROUP.slabH);
+                expect(t.y + t.h / 2).toBeLessThanOrEqual(GROUP.slabH + GROUP.pedestalH);
+            });
+        }
+    });
+
+    it('a date lies on the floor of its column\'s header strip, the gap note in its aisle', () => {
+        model.columns.forEach((c, i) => {
+            const t = of('column')[i];
+            expect(t.face).toBe('up');
+            expect(t.y).toBeGreaterThan(0);
+            expect(t.y).toBeLessThan(GROUP.slabH);
+            expect(t.z).toBe(c.headerZ);
+            expect(t.z + t.h / 2).toBeLessThanOrEqual(c.z);
+        });
+        const [gap] = of('gap');
+        const [a, b] = model.columns;
+        expect(gap.x - gap.w / 2).toBeGreaterThan(a.x + a.w);
+        expect(gap.x + gap.w / 2).toBeLessThan(b.x);
+    });
+
+    it('a plan still loading or unreadable says so on its own platform', () => {
+        const m = buildPipelineGroupModel([
+            { pipeline: { id: 5, title: 'Slow' }, state: 'loading' },
+            { pipeline: { id: 6, title: 'Bad' }, state: 'error' },
         ]);
-        expect(shown).toEqual([false, false, true]);
+        expect(textPlates(m).filter((t) => t.kind === 'pipeline').map((t) => t.text))
+            .toEqual(expect.arrayContaining(['Slow · loading…', 'Bad · could not load']));
     });
 
-    it('within a tier the label nearer the camera wins', () => {
-        expect(placeLabels([box(0, 0, { d: 9 }), box(20, 4, { d: 1 })])).toEqual([false, true]);
-    });
-
-    it("the focused pipeline's epic names beat every other plan's titles", () => {
-        const shown = placeLabels([
-            box(0, 0, { tier: LABEL_TIER.pipeline, d: 0 }),
-            box(10, 5, { tier: LABEL_TIER.epic, d: 50, lit: true }),
-        ]);
-        expect(shown).toEqual([false, true]);
-    });
-
-    it('keeps a small gap: touching boxes count as overlapping', () => {
-        expect(placeLabels([box(0, 0, { d: 0 }), box(101, 0, { d: 1 })])).toEqual([true, false]);
-        expect(placeLabels([box(0, 0, { d: 0 }), box(103, 0, { d: 1 })])).toEqual([true, true]);
-    });
-
-    it('nothing in, nothing shown', () => {
-        expect(placeLabels([])).toEqual([]);
+    it('no model, no text', () => {
+        expect(textPlates(null)).toEqual([]);
     });
 });

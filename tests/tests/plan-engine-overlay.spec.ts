@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 // Req #3762 — the plan view's engine overlay (/swarm/pipeline/:id?mode=plan):
 // the engine switch for this plan on this machine, the numbered launch-order
 // badges on the epic cards, the cut line with the limits, the machine of each
-// launch, and every held epic's reason on hover.
+// launch, and a held epic's reason on hover (a barrier-held epic with no
+// launch in the queue draws no pill, req #4071).
 //
 //   OVL-01  switch ON from the plan view (A1, A21): the switch is written, an
 //           authoring plan is set orchestrating (req #3965), the engine comes
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'url';
 //   OVL-02  switch OFF (A2): the engine goes down, the plan — no engine of it
 //           left wanted on — is set orchestration_ready (req #3965), and the
 //           overlay returns to the prediction from the derived block
-//   OVL-03  hover a held epic: its hold in the engine view's plain words
+//   OVL-03  an epic held by an upstream barrier draws no pill
 //   OVL-A*  each plan-overlay user action of tests/engine/COVERAGE.md (A8–A18,
 //           A21): before and after, the engine's record drawn on the plan
 //
@@ -30,9 +31,6 @@ const FIXTURE = JSON.parse(fs.readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/SwarmView/engine/__tests__/planOverlayFixture.json'), 'utf8'));
 const PLAN = 900;
 const THIS_MACHINE: number = FIXTURE.this_machine;
-const PLAIN_WORDS: Record<string, string> = {
-  BARRIER: 'a barrier epic upstream still holds open work',
-};
 
 const sql = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 const action = (id: string) => FIXTURE.actions.find((a: any) => a.action === id);
@@ -144,6 +142,8 @@ function expectedBadges(answer: any) {
     if (!out.has(q.epic_id)) out.set(q.epic_id, { code: q.code, positions: [] });
     out.get(q.epic_id)!.positions.push(i + 1);
   });
+  // A barrier-held epic with no launch in the queue draws no pill (req #4071).
+  for (const [id, b] of [...out]) if (b.code === 'BARRIER' && b.positions.length === 0) out.delete(id);
   return out;
 }
 
@@ -238,17 +238,15 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     await expectOverlay(page, state.predicted, 'predicted');
   });
 
-  test('OVL-03: hovering a held epic gives its hold in the engine view\'s words', async ({ page }) => {
+  test('OVL-03: an epic held by an upstream barrier draws no pill (req #4071)', async ({ page }) => {
     const state = action('A8').states[0];
     await serve(page, world(state, { desired: 'on', actual: 'running', published: true }));
     await open(page);
-    const badge = page.getByTestId('plan-engine-badge-102');
-    await expect(badge).toHaveAttribute('data-code', 'BARRIER', { timeout: 20000 });
-    await expect(badge).toHaveText('Barrier');
-    await badge.hover();
-    await expect(page.getByTestId('plan-engine-hold-words-102'))
-      .toHaveText(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic Epic 101`);
-    await expect(page.getByTestId('plan-engine-hold-102')).toContainText(`From the engine's cycle ${state.record_row.seq}.`);
+    // Epic 101 (admitted) draws its badge, so the overlay has rendered; the
+    // barrier-held epic 102 has none — "Barrier" on it read as though it were
+    // the barrier itself.
+    await expect(page.getByTestId('plan-engine-badge-101')).toHaveAttribute('data-code', 'ADMITTED', { timeout: 20000 });
+    await expect(page.getByTestId('plan-engine-badge-102')).toHaveCount(0);
   });
 
   // Each plan-overlay action: every state of its scenario whose engine runs on

@@ -9,7 +9,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-import FullscreenSwitch from '../Components/FullscreenSwitch';
 import { useSwarmVisualizerStore } from '../stores/useSwarmVisualizerStore';
 import { localDateStr } from '../utils/dateFormat';
 
@@ -31,12 +30,10 @@ const formatDayTitle = (dateStr) => {
 // req #2844 — the Konva canvas is the only visualizer substrate now (the Classic
 // SVG/DOM TimeSeriesView and its Day/Week, Sidewalk, Elevator, and sub-day bead
 // windows were retired). The toolbar keeps only the Konva-relevant controls:
-// date navigation, the 36h mid-zoom toggle, and the data overlays — and, since
-// req #3793, the full screen switch at its head.
-//
-// `maximized` / `onToggleMaximized` are SwarmView's (it owns the page layer the
-// switch raises); no `onToggleMaximized`, no switch.
-const VisualizerToolbar = ({ maximized = false, onToggleMaximized = null }) => {
+// date navigation, the 36h mid-zoom toggle, and the data overlays. The full
+// screen switch (req #3793) moved to SwarmView's header row, left of the Req#
+// jump (req #4062).
+const VisualizerToolbar = () => {
     const currentDate = useSwarmVisualizerStore(s => s.currentDate);
     const dataKey     = useSwarmVisualizerStore(s => s.dataKey);
     const titlesOn    = useSwarmVisualizerStore(s => s.titlesOn);
@@ -44,7 +41,6 @@ const VisualizerToolbar = ({ maximized = false, onToggleMaximized = null }) => {
     const phasesOn    = useSwarmVisualizerStore(s => s.phasesOn);
     const konvaWide   = useSwarmVisualizerStore(s => s.konvaWide);
     const costOn      = useSwarmVisualizerStore(s => s.costOn);
-    const devServersOn = useSwarmVisualizerStore(s => s.devServersOn);
     const setCurrentDate = useSwarmVisualizerStore(s => s.setCurrentDate);
     const setDataKey     = useSwarmVisualizerStore(s => s.setDataKey);
     const setTitlesOn    = useSwarmVisualizerStore(s => s.setTitlesOn);
@@ -52,7 +48,6 @@ const VisualizerToolbar = ({ maximized = false, onToggleMaximized = null }) => {
     const setPhasesOn    = useSwarmVisualizerStore(s => s.setPhasesOn);
     const setKonvaWide   = useSwarmVisualizerStore(s => s.setKonvaWide);
     const setCostOn      = useSwarmVisualizerStore(s => s.setCostOn);
-    const setDevServersOn = useSwarmVisualizerStore(s => s.setDevServersOn);
     const resetView      = useSwarmVisualizerStore(s => s.resetView);
 
     const todayStr = useMemo(() => localDateStr(), []);
@@ -95,33 +90,10 @@ const VisualizerToolbar = ({ maximized = false, onToggleMaximized = null }) => {
         setCostOn(!costOn);
     }, [costOn, setCostOn]);
 
-    const handleDevServersClick = useCallback(() => {
-        setDevServersOn(!devServersOn);
-    }, [devServersOn, setDevServersOn]);
-
     const displayTitle = formatDayTitle(currentDate);
 
     return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-            {/* ── FULL SCREEN (req #3793) ─────────────────────────────────────
-                The user's rule: a visualizer whose controls are on screen keeps
-                its full screen switch in the controls' title row, at the head
-                of them — the TPU 3D views put theirs just right of "▾ Controls".
-                The view toggle and the requirement jump to its left are the
-                PAGE's; this toolbar is the visualizer's own controls, so the
-                switch leads it, ahead of Today. The row stays on screen while
-                maximized, so the switch never moves. */}
-            {onToggleMaximized && (
-                <FullscreenSwitch
-                    on={maximized}
-                    onToggle={onToggleMaximized}
-                    testid="swarm-viz-fullscreen"
-                    enterLabel="Full screen — only the swarm visualizer"
-                    leaveLabel="Leave full screen"
-                    enterTitle="Full screen — only the swarm visualizer and its controls (Esc to exit)"
-                    leaveTitle="Leave full screen (Esc)"
-                    sx={{ mr: 0.5 }} />
-            )}
             <Button onClick={handleToday} size="small" className="cal-toggle-btn"
                     variant="outlined" sx={{ textTransform: 'none' }}>
                 Today
@@ -169,15 +141,6 @@ const VisualizerToolbar = ({ maximized = false, onToggleMaximized = null }) => {
                               data-testid="timeseries-cost"
                               title="Size beads by token cost">
                     Tokens
-                </ToggleButton>
-                {/* req #2857 — overlay a clickable port pill on beads whose
-                    session has an active, associated dev server (on by default). */}
-                <ToggleButton value="devservers" className="cal-toggle-btn"
-                              selected={devServersOn}
-                              onChange={handleDevServersClick}
-                              data-testid="timeseries-devservers"
-                              title="Show active dev-server port pills">
-                    Dev
                 </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 0.5 }}>

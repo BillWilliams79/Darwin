@@ -23,7 +23,11 @@
 //               teaches what a returning reader already knows, so it stays a
 //               header in the corner until asked for (Topology req #3591)
 // Each header folds its panel to itself. Native `title` tooltips rather than
-// MUI's: a portal renders outside a full-screen stage and would never show.
+// MUI's (chosen while full screen was the stage's, where a portal never showed).
+//
+// The scene's own words — dates, pipeline titles, initiative and epic names —
+// are PRINTED on its floor and panels (req #4045, `textPlates`), never laid
+// over it; only the chrome above and the pointer's hover card are HTML.
 //
 // The drill-in is the 2D plan visualizer: there is no 3D single-pipeline view
 // yet (user: "honoring the fact that there is no 3-D visualizer … we can add
@@ -56,6 +60,7 @@ import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ThreeSixtyIcon from '@mui/icons-material/ThreeSixty';
 
+import { FULL_SCREEN_Z, useCoverNavbar } from '../Components/fullScreenLayer';
 import { useComposedPipelines } from '../hooks/useDataQueries';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { adaptComposedPipeline } from '../SwarmView/pipelines/pipelineAdapter';
@@ -428,9 +433,15 @@ export default function PipelineGroupView({
     const [controlsOpen, setControlsOpen] = useState(true);
     const [infoOpen, setInfoOpen] = useState(true);
     const [helpOpen, setHelpOpen] = useState(false);
-    // Full screen: the browser's own on the stage where it is allowed
-    // ('native'), a fixed overlay where it is not ('overlay').
+    // Full screen: the stage is a fixed full-window layer over the navbar, with
+    // the browser's own full screen under it where it is allowed ('native') and
+    // alone where it is not ('overlay'). The browser's is the DOCUMENT's, not
+    // the stage's: on the stage it showed the stage alone, and every Action
+    // Popup — the Requirement Filer among them — was gone (req #4053).
     const [full, setFull] = useState(null);
+    useCoverNavbar(!!full);
+    const fullRef = useRef(full);
+    fullRef.current = full;
     const focusChangeRef = useRef(onFocusChange);
     focusChangeRef.current = onFocusChange;
 
@@ -483,7 +494,13 @@ export default function PipelineGroupView({
             if (!document.fullscreenElement) setFull((f) => (f === 'native' ? null : f));
         };
         document.addEventListener('fullscreenchange', onChange);
-        return () => document.removeEventListener('fullscreenchange', onChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', onChange);
+            // Leaving the view while full: the document's full screen would outlive it.
+            if (fullRef.current === 'native' && document.fullscreenElement === document.documentElement) {
+                document.exitFullscreen?.().catch(() => {});
+            }
+        };
     }, []);
     // The overlay stands in for the browser's full screen, Esc included: as
     // there, that Esc only leaves full screen (taken in the capture phase, so
@@ -504,9 +521,9 @@ export default function PipelineGroupView({
             setFull(null);
             return;
         }
-        const stage = hostRef.current;
-        if (stage?.requestFullscreen) {
-            stage.requestFullscreen().then(() => setFull('native'), () => setFull('overlay'));
+        const root = document.documentElement;
+        if (root.requestFullscreen) {
+            root.requestFullscreen().then(() => setFull('native'), () => setFull('overlay'));
         } else {
             setFull('overlay');
         }
@@ -543,42 +560,10 @@ export default function PipelineGroupView({
                     border: '1px solid',
                     borderColor: 'divider',
                     background: P.bg,
-                    ...(full === 'overlay' && {
+                    ...(full && {
                         position: 'fixed', inset: 0, width: '100vw', height: '100vh', minHeight: 0,
-                        zIndex: 1300, borderRadius: 0, border: 'none',
+                        zIndex: FULL_SCREEN_Z, borderRadius: 0, border: 'none',
                     }),
-                    ...(full === 'native' && { height: '100vh', borderRadius: 0, border: 'none' }),
-                    '& .pg-label': {
-                        fontFamily: 'Roboto, Helvetica, Arial, sans-serif',
-                        whiteSpace: 'nowrap',
-                        pointerEvents: 'none',
-                        userSelect: 'none',
-                        transition: 'opacity 150ms',
-                    },
-                    '& .pg-label-column': {
-                        color: '#fff', fontSize: 14, fontWeight: 700, letterSpacing: '0.02em',
-                        padding: '2px 10px', borderRadius: '4px',
-                        background: 'rgba(12, 29, 52, 0.88)', border: `1px solid ${P.accent}`,
-                    },
-                    '& .pg-label-gap': {
-                        color: VIEWER.head, fontSize: 11, fontStyle: 'italic',
-                    },
-                    '& .pg-label-pipeline': {
-                        color: P.text, fontSize: 13, fontWeight: 700, padding: '2px 8px',
-                        borderRadius: '4px', background: 'rgba(13, 20, 32, 0.78)',
-                        border: `1px solid ${P.line}`,
-                    },
-                    '& .pg-label-dim': { opacity: 0.35 },
-                    '& .pg-label-initiative': {
-                        color: P.text, fontSize: 11, fontWeight: 600, padding: '1px 6px',
-                        borderLeft: '3px solid var(--pg-band)', background: 'rgba(13, 20, 32, 0.7)',
-                        maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis',
-                    },
-                    '& .pg-label-epic': {
-                        color: P.text, fontSize: 10, padding: '0 4px', borderRadius: '3px',
-                        background: 'rgba(13, 20, 32, 0.6)', maxWidth: 140,
-                        overflow: 'hidden', textOverflow: 'ellipsis',
-                    },
                 }}
             >
                 {!model && (

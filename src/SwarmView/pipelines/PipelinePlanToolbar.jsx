@@ -93,7 +93,7 @@ export const SHOW_EPIC_WIDTH = false;
 // a colour chip still does what that chip does. Unmounting the row (the Engine
 // view) unpins too, or hover help would stay muted behind a pin nobody can see. The touch context menu a long press would raise
 // on a chip is suppressed for the same press.
-function useKeyHelp(onKeyHover) {
+export function useKeyHelp(onKeyHover) {
     const reportRef = useRef(onKeyHover);
     reportRef.current = onKeyHover;
     const hoverRef = useRef(null);         // the chip under the pointer / focus
