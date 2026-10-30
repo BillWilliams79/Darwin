@@ -22,7 +22,7 @@
 
 import { formatDateTime } from '../../utils/dateFormat';
 import { EPIC_DONE, EPIC_RUNNING, EPIC_PENDING } from './pipelineModel';
-import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
+import { PIPELINE_STATUS_VALUES, pipelineStatusLabel } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -244,7 +244,7 @@ export function hiddenPipelineStatusCounts(pipelines, statusFilter) {
 export function pipelinesEmptyMessage(hiddenStatusCounts) {
     const hidden = asArray(hiddenStatusCounts);
     if (!hidden.length) return 'No pipelines yet.';
-    const named = hidden.map(({ status, count }) => `${status} (${count})`).join(', ');
+    const named = hidden.map(({ status, count }) => `${pipelineStatusLabel(status)} (${count})`).join(', ');
     return `No pipelines match this filter — hidden: ${named}.`;
 }
 

@@ -315,7 +315,7 @@ export const EPIC_DEPS = [
 
 export const SUBSTRATE_REBUILD_MODEL = {
     pipeline: { id: 1, title: "Substrate Rebuild Pipeline", description: null,
-        pipeline_status: "active", machine_fk: 2 },
+        pipeline_status: "orchestrating", machine_fk: 2 },
     epics: EPICS,
     epicRequirements: EPIC_REQUIREMENTS,
     epicDeps: EPIC_DEPS,

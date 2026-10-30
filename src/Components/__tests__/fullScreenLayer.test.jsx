@@ -118,7 +118,7 @@ describe('PipelineGroupView — full screen on the document (req #4053)', () => 
         document.documentElement.requestFullscreen = docReq;
         try {
             await act(async () => root.render(
-                <PipelineGroupView pipelines={[{ id: 1, title: 'P', pipeline_status: 'active', sort_order: 1 }]}
+                <PipelineGroupView pipelines={[{ id: 1, title: 'P', pipeline_status: 'orchestrating', sort_order: 1 }]}
                                    onFocusChange={() => {}} onOpen={() => {}} />));
             const stage = document.querySelector('[data-testid="pipelines-group-stage"]');
             stage.requestFullscreen = stageReq;

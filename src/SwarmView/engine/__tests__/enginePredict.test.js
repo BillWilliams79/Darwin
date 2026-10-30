@@ -43,7 +43,7 @@ describe('predictRecord — decide() on every cycle of the corpus, as a first cy
             for (const e of p.expect.epics) codes.add(e.code);
             for (const q of p.expect.queue) codes.add(q.code);
         }
-        for (const code of ['ENGINE_HOLD', 'PAUSED', 'BARRIER', 'NOT_BEFORE',
+        for (const code of ['ENGINE_HOLD', 'NOT_ORCHESTRATING', 'PAUSED', 'BARRIER', 'NOT_BEFORE',
             'NO_WORK', 'MANUAL', 'MACHINE_PIN', 'DEP_PRIORITY', 'CAPACITY', 'ADMITTED']) {
             expect(codes, code).toContain(code);
         }
@@ -92,6 +92,10 @@ describe('the pieces', () => {
             .toEqual(['NO_WORK', { reason: 'none ready' }]);
         expect(epicHold({ launch_req_ids: [1], launch_candidate: true, run: 'auto' }, null))
             .toEqual([null, null]);
+        // req #3965 — a plan not orchestrating outranks the initiative pause,
+        // and names the plan's status (core.py's slot for the retired CLOSED).
+        expect(epicHold({ ...row, suppressed_by: ['pipeline', 'initiative'] }, null, 'authoring'))
+            .toEqual(['NOT_ORCHESTRATING', { status: 'authoring' }]);
     });
 
     it('names a payload it cannot trust in the engine\'s own verdicts', () => {

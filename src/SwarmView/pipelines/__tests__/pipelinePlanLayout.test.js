@@ -3079,7 +3079,7 @@ describe('initiative band label counts, behind a toggle (req #3225)', () => {
             features: [], initiatives: [], machines: MACHINES,
         };
         const p = orderedPlan(buildPipelineModel({
-            pipeline: { id: 1, title: 'x', pipeline_status: 'active' }, ...reads,
+            pipeline: { id: 1, title: 'x', pipeline_status: 'orchestrating' }, ...reads,
         }), { now: NOW });
         expect(p.rows[0].initiativeId).toBeNull();
         const layout = computePlanLayout(p.rows,
@@ -4230,18 +4230,20 @@ describe('the pause status bubble (req #3226)', () => {
         expect(reserved).not.toContain(PAUSE_PAUSED_COLOR);
     });
 
-    it('computePlanLayout: a band is paused when the WHOLE PLAN is paused — '
-        + 'including the "No initiative" band', () => {
+    // req #3965 — a plan no longer pauses: a plan that is not orchestrating
+    // does not paint every band as paused.
+    it('computePlanLayout: a plan that is not orchestrating pauses no band', () => {
         const layout = computePlanLayout(plan.rows,
-            { pauseInfo: { pipelinePaused: true, pausedInitiativeIds: [] } });
+            { pauseInfo: { pipelineStatus: 'authoring', pipelineOrchestrating: false,
+                pausedInitiativeIds: [] } });
         expect(layout.bands.length).toBeGreaterThan(0);
-        expect(layout.bands.every((b) => b.paused === true)).toBe(true);
+        expect(layout.bands.every((b) => b.paused === false)).toBe(true);
     });
 
     it('computePlanLayout: a band is paused when ITS OWN initiative is paused, '
         + 'neighbours untouched', () => {
         const layout = computePlanLayout(plan.rows,
-            { pauseInfo: { pipelinePaused: false, pausedInitiativeIds: [1] } });
+            { pauseInfo: { pipelineOrchestrating: true, pausedInitiativeIds: [1] } });
         for (const band of layout.bands) {
             expect(band.paused).toBe(band.initiativeId === 1);
         }

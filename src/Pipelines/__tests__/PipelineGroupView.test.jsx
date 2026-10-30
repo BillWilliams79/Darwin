@@ -16,7 +16,7 @@ import AppContext from '../../Context/AppContext';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const pipeline = { id: 7, title: 'Plan Seven', pipeline_status: 'active' };
+const pipeline = { id: 7, title: 'Plan Seven', pipeline_status: 'orchestrating' };
 
 describe('planForGroup', () => {
     it('names the read state of a plan that is not drawable', () => {

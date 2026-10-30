@@ -32,8 +32,8 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useDevServers: () => ({ data: [] }),
     // The seat's plan layer: plan 2 is active (initiative 30 → epics 300, 301), plan 5
     // is completed (initiative 50 → epic 500).
-    useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'active' },
-        { id: 5, title: 'Plan Done', pipeline_status: 'completed' }]),
+    useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'orchestrating' },
+        { id: 5, title: 'Plan Done', pipeline_status: 'met' }]),
     useAllInitiatives: () => q([{ id: 30, title: 'Initiative One', pipeline_fk: 2, closed: 0, sort_order: 1 },
         { id: 50, title: 'Old Initiative', pipeline_fk: 5, closed: 0 }]),
     useAllPipelineEpics: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },

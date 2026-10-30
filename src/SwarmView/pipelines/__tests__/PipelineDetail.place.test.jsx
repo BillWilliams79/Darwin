@@ -66,7 +66,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const { composedFixture } = await import('./pipelineComposedFixture');
     const COMPOSED = new Map([
         [2, composedFixture({ id: 2, title: 'Darwin' })],
-        [5, composedFixture({ id: 5, title: 'Substrate', pipelineStatus: 'completed' })],
+        [5, composedFixture({ id: 5, title: 'Substrate', pipelineStatus: 'met' })],
     ]);
     const empty = () => ({ data: [], isLoading: false, isError: false });
     const gated = () => ({ data: [], isLoading: loading, isError: false });

@@ -701,9 +701,9 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                     sx={{ color: PAUSE_PAUSED_COLOR,
                                                            ...NOWRAP }}
                                                     data-testid={`pipeline-suppressed-${row.id}`}
-                                                    title={(row.suppressedBy || []).includes('closed')
-                                                        ? 'This plan is closed — held until it is reopened'
-                                                        : 'This scope is paused — held, not about to launch'}
+                                                    title={(row.suppressedBy || []).includes('pipeline')
+                                                        ? 'This plan is not orchestrating — held until its status is Orchestrating'
+                                                        : 'This initiative is paused — held, not about to launch'}
                                                 >
                                                     ⏸ held
                                                 </Typography>

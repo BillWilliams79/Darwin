@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, withPositions, isClosedPipeline, allActiveRequirements,
+    reorderPipelines, withPositions, allActiveRequirements,
 } from '../pipelinesViewModel';
 
 const pipelines = [{ id: 7 }, { id: 8 }];
@@ -86,7 +86,7 @@ describe('pipelineRequirementCounts', () => {
     });
 });
 
-// req #3804 — hand-sorted cards and closed plans.
+// req #3804 — hand-sorted cards.
 describe('orderPipelines', () => {
     it('puts unpositioned (new, MCP-made) plans first, then sort_order, newest first among equals', () => {
         const rows = [{ id: 1, sort_order: 2 }, { id: 2, sort_order: null }, { id: 3, sort_order: 0 },
@@ -149,17 +149,10 @@ describe('reorderPipelines', () => {
     });
 });
 
-describe('isClosedPipeline', () => {
-    it('reads the flag, not its spelling', () => {
-        expect([0, '0', null, undefined, 1, '1', true].map((closed) => isClosedPipeline({ closed })))
-            .toEqual([false, false, false, false, true, true, true]);
-    });
-});
-
 // req #3978 — the Pipelines page's All Active box: the plan's Active box rule
 // applied to every plan's seated requirements.
 describe('allActiveRequirements', () => {
-    const plans = [{ id: 7, sort_order: 1 }, { id: 8, sort_order: 0 }, { id: 9, sort_order: 2, closed: 1 }];
+    const plans = [{ id: 7, sort_order: 1 }, { id: 8, sort_order: 0 }, { id: 9, sort_order: 2, pipeline_status: 'met' }];
     const inits = [{ id: 40, pipeline_fk: 7 }, { id: 41, pipeline_fk: 8 }, { id: 42, pipeline_fk: 9 }];
     const eps = [{ id: 500, initiative_fk: 40 }, { id: 502, initiative_fk: 41 }, { id: 503, initiative_fk: 42 }];
     const seats = [

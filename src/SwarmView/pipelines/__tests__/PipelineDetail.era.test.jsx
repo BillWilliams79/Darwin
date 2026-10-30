@@ -64,7 +64,7 @@ vi.mock('../../../RestApi/RestApi', () => ({
 // would pass if the page read both eras and picked the right one to draw; what
 // the outage needs ruled out is the page READING the wrong table at all.
 const COMPOSED_2 = {
-    pipeline: { id: 7, title: 'Darwin (2.0)', pipeline_status: 'active', description: '' },
+    pipeline: { id: 7, title: 'Darwin (2.0)', pipeline_status: 'orchestrating', description: '' },
     initiatives: [], epics: [], epic_requirements: [], epic_deps: [], requirements: [],
     derived: { rows: [], rows_complete: true, withheld: false },
 };

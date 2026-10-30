@@ -250,13 +250,15 @@ export function fairShare(free, own, peers) {
 }
 
 /** core.py `epic_hold`: [code, detail] for the first epic-level code that applies, or [null, null]. */
-export function epicHold(row, derivedNow) {
+export function epicHold(row, derivedNow, pipelineStatus = null) {
     const by = asList(row.suppressed_by);
-    // req #3804 — a closed plan is parked.
-    if (by.includes('closed')) return ['CLOSED', { by: ['plan'] }];
-    const paused = by.filter((s) => s === 'pipeline' || s === 'initiative')
-        .map((s) => (s === 'pipeline' ? 'plan' : 'initiative'));
-    if (paused.length) return ['PAUSED', { by: paused }];
+    // req #3965 — only an `orchestrating` plan launches; the derivation marks
+    // every epic of any other plan `suppressed_by: ['pipeline']`. Same slot the
+    // retired CLOSED held. A plan no longer pauses: PAUSED is initiative-only.
+    if (by.includes('pipeline')) {
+        return ['NOT_ORCHESTRATING', { status: pipelineStatus }];
+    }
+    if (by.includes('initiative')) return ['PAUSED', { by: ['initiative'] }];
     // req #3823 — an initiative this epic's initiative waits for holds open work.
     if (asList(row.initiative_blocked_by).length) {
         return ['INITIATIVE_GATE', { initiative_ids: [...row.initiative_blocked_by] }];
@@ -313,6 +315,8 @@ export function predictRecord(payload, capacity, claims, clock) {
         .filter((row) => initiativeId == null || row.initiative_id === initiativeId);
     const scopeIds = new Set(inScope.map((row) => row.id));
     const derivedNow = parseTime(derived.now);
+    // req #3965 — the plan's status, for NOT_ORCHESTRATING's detail (R1).
+    const pipelineStatus = isDict(derived.pause) ? (derived.pause.pipeline_status ?? null) : null;
     const requirements = new Map();
     if (isDict(payload)) {
         for (const req of asList(payload.requirements)) {
@@ -346,7 +350,7 @@ export function predictRecord(payload, capacity, claims, clock) {
     const epicCode = new Map();
     for (const row of candidates) {
         epicCode.set(row.id, verdict !== VERDICT_OK
-            ? ['ENGINE_HOLD', { verdict }] : epicHold(row, derivedNow));
+            ? ['ENGINE_HOLD', { verdict }] : epicHold(row, derivedNow, pipelineStatus));
     }
 
     const machine = own.machine_fk ?? null;

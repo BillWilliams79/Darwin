@@ -12,9 +12,12 @@
 // sentence rather than a component.
 
 import { DEFAULT_PLAN_PALETTE, planPalette } from '../pipelines/pipelinePlanLayout';
+import { pipelineStatusLabel } from '../pipelines/pipelineChipStyles';
 
 // core.py EPIC_CODES / ITEM_CODES / EVENT_CODES, in the charter's precedence order.
-export const EPIC_CODES = ['ENGINE_HOLD', 'CLOSED', 'PAUSED', 'INITIATIVE_GATE', 'BARRIER',
+// req #3965 — `CLOSED` became `NOT_ORCHESTRATING` (same precedence slot): the
+// plan's status is anything but `orchestrating`. `PAUSED` is initiative-only.
+export const EPIC_CODES = ['ENGINE_HOLD', 'NOT_ORCHESTRATING', 'PAUSED', 'INITIATIVE_GATE', 'BARRIER',
     'NOT_BEFORE', 'NO_WORK', 'MANUAL'];
 export const ITEM_CODES = ['MACHINE_PIN', 'IN_FLIGHT', 'DEP_PRIORITY', 'CAPACITY', 'ADMITTED'];
 export const HOLD_CODES = [...EPIC_CODES, ...ITEM_CODES];
@@ -28,8 +31,8 @@ export const VERDICT_OK = 'OK';
 // core.py PLAIN_WORDS, verbatim.
 export const PLAIN_WORDS = {
     ENGINE_HOLD: 'the engine cannot trust this cycle, so everything waits',
-    CLOSED: 'the plan is closed — reopen it to orchestrate it',
-    PAUSED: 'someone paused the plan or the initiative',
+    NOT_ORCHESTRATING: 'the plan is not orchestrating — only an orchestrating plan launches',
+    PAUSED: 'someone paused the initiative',
     INITIATIVE_GATE: 'an initiative its initiative waits for still holds open work',
     BARRIER: 'a barrier epic upstream still holds open work',
     NOT_BEFORE: 'its start time has not come',
@@ -55,7 +58,7 @@ export const plainWords = (code) => PLAIN_WORDS[code] || `unrecognised code ${co
 // Short labels for chips. The plain words are the sentence; these are the badge.
 export const CODE_LABELS = {
     ENGINE_HOLD: 'Engine hold',
-    CLOSED: 'Closed',
+    NOT_ORCHESTRATING: 'Not orchestrating',
     PAUSED: 'Paused',
     INITIATIVE_GATE: 'Initiative gate',
     BARRIER: 'Barrier',
@@ -155,7 +158,7 @@ const INERT = '#94a3b8';
 
 export const CODE_COLORS = {
     ENGINE_HOLD: ATTENTION,
-    CLOSED: INERT,
+    NOT_ORCHESTRATING: INERT,
     PAUSED: HELD,
     INITIATIVE_GATE: HELD,
     BARRIER: HELD,
@@ -219,6 +222,8 @@ export function detailText(code, detail, names) {
     switch (code) {
         case 'ENGINE_HOLD':
             return detail.verdict ? `verdict ${detail.verdict}` : '';
+        case 'NOT_ORCHESTRATING':
+            return detail.status ? `the plan is ${pipelineStatusLabel(detail.status)}` : '';
         case 'PAUSED':
             return Array.isArray(detail.by) && detail.by.length
                 ? `paused at the ${detail.by.join(' and the ')}` : '';

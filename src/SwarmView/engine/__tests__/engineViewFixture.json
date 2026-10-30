@@ -232,7 +232,7 @@
  "engine_decision_records": [
   {
    "id": 1001,
-   "record_hash": "sha256:a238b0d10070d0ad1729a199cf6e997eaa698c44df146b045e198610f3c8a142",
+   "record_hash": "sha256:c1e50e05948975a674d91bfe2f9a75047b95b82a3727899e70a82b342a0823c9",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -346,19 +346,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:f0b5abf2f98db31531edc3910ac186d861fe3665ac3ab2da4d4ae48a2fce607c",
+     "plan_payload": "sha256:6c9c49e9a6511c752bf9ccd760ac80bf89cf5976a343d723c58e669657430487",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:a238b0d10070d0ad1729a199cf6e997eaa698c44df146b045e198610f3c8a142"
+    "id": "sha256:c1e50e05948975a674d91bfe2f9a75047b95b82a3727899e70a82b342a0823c9"
    }
   },
   {
    "id": 1002,
-   "record_hash": "sha256:737c61541407a0715743a64203992c9c2c6ab67122ba4c8223b32d4c0a1bd094",
-   "prior_hash": "sha256:a238b0d10070d0ad1729a199cf6e997eaa698c44df146b045e198610f3c8a142",
+   "record_hash": "sha256:298a8d1fa970548f739cda994c4ad55dd72bdbdcbc86b4d670aa21c4fdbb6ae5",
+   "prior_hash": "sha256:c1e50e05948975a674d91bfe2f9a75047b95b82a3727899e70a82b342a0823c9",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -372,7 +372,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:a238b0d10070d0ad1729a199cf6e997eaa698c44df146b045e198610f3c8a142",
+    "prior_id": "sha256:c1e50e05948975a674d91bfe2f9a75047b95b82a3727899e70a82b342a0823c9",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -468,19 +468,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:a4d1f35a63dad7f516c2d01c62a4eec229170bce5817fc97e8aaaf7a2bafa0fd",
+     "plan_payload": "sha256:644f79c2157fbeff4aa1cc200866122987cf53bcdea95cb67480f5d27e4968cc",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:a238b0d10070d0ad1729a199cf6e997eaa698c44df146b045e198610f3c8a142"
+     "prior_record": "sha256:c1e50e05948975a674d91bfe2f9a75047b95b82a3727899e70a82b342a0823c9"
     },
-    "id": "sha256:737c61541407a0715743a64203992c9c2c6ab67122ba4c8223b32d4c0a1bd094"
+    "id": "sha256:298a8d1fa970548f739cda994c4ad55dd72bdbdcbc86b4d670aa21c4fdbb6ae5"
    }
   },
   {
    "id": 1003,
-   "record_hash": "sha256:d3a0bd2d499652a7378305d59639a1b656ae24d6f2f44c63907c1ae942aa4f0d",
-   "prior_hash": "sha256:737c61541407a0715743a64203992c9c2c6ab67122ba4c8223b32d4c0a1bd094",
+   "record_hash": "sha256:b8977b6e6db071d532c8f92534fb49b436816c5ce2aee362bbcbad17c4010ba1",
+   "prior_hash": "sha256:298a8d1fa970548f739cda994c4ad55dd72bdbdcbc86b4d670aa21c4fdbb6ae5",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -494,7 +494,7 @@
    "create_ts": "2026-10-22 08:02:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:737c61541407a0715743a64203992c9c2c6ab67122ba4c8223b32d4c0a1bd094",
+    "prior_id": "sha256:298a8d1fa970548f739cda994c4ad55dd72bdbdcbc86b4d670aa21c4fdbb6ae5",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -595,19 +595,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:abed734dab7bc5573bcd75667a3b15d9c67a632c95a894279e0c6079b3d88d1c",
+     "plan_payload": "sha256:3f0c2c5982a12951d6cfcb7f5196f4739194c4b0bfd83eaf39f96d122b6dc19f",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:d1c2db90f24d1ebdb448a63d4336970064abe52b739a1fb44cbe8c635cfb1601",
-     "prior_record": "sha256:810ed84231667504cac82aa37950ae8392341ebb12d1dfde6fa6b3b348e1a914"
+     "prior_record": "sha256:bfcb98a22a4d58144a61f3a22be6ec15482572e8f3b8be9b725db27ca70b3707"
     },
-    "id": "sha256:d3a0bd2d499652a7378305d59639a1b656ae24d6f2f44c63907c1ae942aa4f0d"
+    "id": "sha256:b8977b6e6db071d532c8f92534fb49b436816c5ce2aee362bbcbad17c4010ba1"
    }
   },
   {
    "id": 1004,
-   "record_hash": "sha256:f8122dbf080816d4b75d2fa52797c702f0af5af5fc752378f77d07c48218f47d",
-   "prior_hash": "sha256:d3a0bd2d499652a7378305d59639a1b656ae24d6f2f44c63907c1ae942aa4f0d",
+   "record_hash": "sha256:ab32ba6be915430801c5cf3b7cad79c809fab62d4c1a8b091b05ec03402e59fa",
+   "prior_hash": "sha256:b8977b6e6db071d532c8f92534fb49b436816c5ce2aee362bbcbad17c4010ba1",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -621,7 +621,7 @@
    "create_ts": "2026-10-22 08:03:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:d3a0bd2d499652a7378305d59639a1b656ae24d6f2f44c63907c1ae942aa4f0d",
+    "prior_id": "sha256:b8977b6e6db071d532c8f92534fb49b436816c5ce2aee362bbcbad17c4010ba1",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -717,19 +717,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:a0067be65723920857eb5bef4d13915d4414fb0016f87af9d1c71fe2896a4051",
+     "plan_payload": "sha256:de58654381475b0f28b6f8d079aa7ccafd4a8fc70c3f5c21b0fe50fdbb9ec6d8",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:252ceac67a0311c9207041225d46728a3328d304e3c18db726d41c05d92ee20b",
-     "prior_record": "sha256:d3a0bd2d499652a7378305d59639a1b656ae24d6f2f44c63907c1ae942aa4f0d"
+     "prior_record": "sha256:b8977b6e6db071d532c8f92534fb49b436816c5ce2aee362bbcbad17c4010ba1"
     },
-    "id": "sha256:f8122dbf080816d4b75d2fa52797c702f0af5af5fc752378f77d07c48218f47d"
+    "id": "sha256:ab32ba6be915430801c5cf3b7cad79c809fab62d4c1a8b091b05ec03402e59fa"
    }
   },
   {
    "id": 1005,
-   "record_hash": "sha256:8bea0a05473cc60ec1dd13f2157020a296b0b502f9f5d3155a0b97fdf35c0b41",
-   "prior_hash": "sha256:f8122dbf080816d4b75d2fa52797c702f0af5af5fc752378f77d07c48218f47d",
+   "record_hash": "sha256:3d0254a33aeefe84805fd8b0e7d8148dd67da1093eaa3acc8100d963ccae923c",
+   "prior_hash": "sha256:ab32ba6be915430801c5cf3b7cad79c809fab62d4c1a8b091b05ec03402e59fa",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -743,7 +743,7 @@
    "create_ts": "2026-10-22 08:08:30",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:f8122dbf080816d4b75d2fa52797c702f0af5af5fc752378f77d07c48218f47d",
+    "prior_id": "sha256:ab32ba6be915430801c5cf3b7cad79c809fab62d4c1a8b091b05ec03402e59fa",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -844,19 +844,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:21be632f4ef1e7587951b5f743f20a6b0e9fafd9b18ef4e3cff4ea19f7209b05",
+     "plan_payload": "sha256:c577aff3e0023a75a7231adc56ee9b8a4beabc5170447c54c684b80d58efb521",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:6bb7a0f82757a11c3843df43a6061d209f3d45c099263d35493263aeca859376",
-     "prior_record": "sha256:f8122dbf080816d4b75d2fa52797c702f0af5af5fc752378f77d07c48218f47d"
+     "prior_record": "sha256:ab32ba6be915430801c5cf3b7cad79c809fab62d4c1a8b091b05ec03402e59fa"
     },
-    "id": "sha256:8bea0a05473cc60ec1dd13f2157020a296b0b502f9f5d3155a0b97fdf35c0b41"
+    "id": "sha256:3d0254a33aeefe84805fd8b0e7d8148dd67da1093eaa3acc8100d963ccae923c"
    }
   },
   {
    "id": 1006,
-   "record_hash": "sha256:ec0b2f9b93635f681f035e3de960f14273517ca3df55c5b9596ae698a35afa0e",
-   "prior_hash": "sha256:8bea0a05473cc60ec1dd13f2157020a296b0b502f9f5d3155a0b97fdf35c0b41",
+   "record_hash": "sha256:7084eef70fafd3e7d6306c7aa2e9c97b7fcaed452f9a6393c0017c0dc4c9a3b7",
+   "prior_hash": "sha256:3d0254a33aeefe84805fd8b0e7d8148dd67da1093eaa3acc8100d963ccae923c",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -870,7 +870,7 @@
    "create_ts": "2026-10-22 08:09:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:8bea0a05473cc60ec1dd13f2157020a296b0b502f9f5d3155a0b97fdf35c0b41",
+    "prior_id": "sha256:3d0254a33aeefe84805fd8b0e7d8148dd67da1093eaa3acc8100d963ccae923c",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -964,19 +964,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:1b9e6a2ee80ef8b777f2dd66f6c716e0fa9723829ab9dd5f1acd0601bb89eada",
+     "plan_payload": "sha256:90cc4231934f516063062aa84563428cebe44c27759d03adc72bc90156c40ce6",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:1c1aadaf912b9179acfd452980d86f6e19b5204a2a1bb61e820773f978abcf24",
-     "prior_record": "sha256:8fdb9f5826a21ed3819e570ab86831e93bad4f1877b0dd297c177ca1874c0ee8"
+     "prior_record": "sha256:6bd799dad414cdaaab27e27c08594069a32c74a972342b4eb0af989b4dd91a80"
     },
-    "id": "sha256:ec0b2f9b93635f681f035e3de960f14273517ca3df55c5b9596ae698a35afa0e"
+    "id": "sha256:7084eef70fafd3e7d6306c7aa2e9c97b7fcaed452f9a6393c0017c0dc4c9a3b7"
    }
   },
   {
    "id": 1007,
-   "record_hash": "sha256:c87c0e6dabcfc40a623bfb74f14dda1a94640e261080a3817e4e8e78ba7097e5",
-   "prior_hash": "sha256:ec0b2f9b93635f681f035e3de960f14273517ca3df55c5b9596ae698a35afa0e",
+   "record_hash": "sha256:498942e5df0c5a6700c6ab0dc32e6071e8245636e595987e637f9928c9d24892",
+   "prior_hash": "sha256:7084eef70fafd3e7d6306c7aa2e9c97b7fcaed452f9a6393c0017c0dc4c9a3b7",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -990,7 +990,7 @@
    "create_ts": "2026-10-22 09:10:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:ec0b2f9b93635f681f035e3de960f14273517ca3df55c5b9596ae698a35afa0e",
+    "prior_id": "sha256:7084eef70fafd3e7d6306c7aa2e9c97b7fcaed452f9a6393c0017c0dc4c9a3b7",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -1084,18 +1084,18 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:50e471d775a0bf78d7b75ca3a32f353bba3cdfd707e55ad0ba45d4cd54dbd62b",
+     "plan_payload": "sha256:e738692c955d85e3bdfd8bc1a892e312098700e0030ff657b321885c8edf9467",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:0230f06e6c489ab00c1aaaad5757380a8d6fdaa190f2388d59d0a420defa992c",
-     "prior_record": "sha256:ec0b2f9b93635f681f035e3de960f14273517ca3df55c5b9596ae698a35afa0e"
+     "prior_record": "sha256:7084eef70fafd3e7d6306c7aa2e9c97b7fcaed452f9a6393c0017c0dc4c9a3b7"
     },
-    "id": "sha256:c87c0e6dabcfc40a623bfb74f14dda1a94640e261080a3817e4e8e78ba7097e5"
+    "id": "sha256:498942e5df0c5a6700c6ab0dc32e6071e8245636e595987e637f9928c9d24892"
    }
   },
   {
    "id": 1008,
-   "record_hash": "sha256:dfa7f74d1a0f9c226c728900f6b2576d26ab61159d75622d2dc22a0041e2df28",
+   "record_hash": "sha256:7866a1d36ab4983b5acde4d405c0e2bc8b4849436419253e4f89fcb34bbf5b2c",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -1239,18 +1239,18 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:ee04c36bedaf1d33608b86292e354664e019ecdafb9cc92b88be9386599a85a9",
+     "plan_payload": "sha256:da6265736874ce4a16d98a3030ff134c992c7b7b0b814800764474e5d92bab37",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:31243db0dcfbbd9815a64b721c759b787e8326e01742ba858d5eb28095083696",
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:dfa7f74d1a0f9c226c728900f6b2576d26ab61159d75622d2dc22a0041e2df28"
+    "id": "sha256:7866a1d36ab4983b5acde4d405c0e2bc8b4849436419253e4f89fcb34bbf5b2c"
    }
   },
   {
    "id": 1009,
-   "record_hash": "sha256:b9f916b6e332f444a4cf1df0ba6b00e72ff3d03b6902dd62ae718567f10fd42e",
+   "record_hash": "sha256:41dd0b880eabbbc3584105309bf1581e4bf41c337c8bc20881b30bbf40a7414c",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -1334,19 +1334,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:4be226e91f91adbc1300aa63869fe902568b1a9f3795a95e66b7e241c92ce605",
+     "plan_payload": "sha256:1bf33afcf1e96c50ae7752b5ce612a2eb881fa14294281f18655be36e335121d",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:b9f916b6e332f444a4cf1df0ba6b00e72ff3d03b6902dd62ae718567f10fd42e"
+    "id": "sha256:41dd0b880eabbbc3584105309bf1581e4bf41c337c8bc20881b30bbf40a7414c"
    }
   },
   {
    "id": 1010,
-   "record_hash": "sha256:d0be399ea61da4b001a932249eae8b9d2fa547e7a0dba3cc785803cb969d86cf",
-   "prior_hash": "sha256:b9f916b6e332f444a4cf1df0ba6b00e72ff3d03b6902dd62ae718567f10fd42e",
+   "record_hash": "sha256:0de95a5cb1c777e5e7501efc33a795be3b95508c379e420a1f6a833543cfbc61",
+   "prior_hash": "sha256:41dd0b880eabbbc3584105309bf1581e4bf41c337c8bc20881b30bbf40a7414c",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1360,7 +1360,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:b9f916b6e332f444a4cf1df0ba6b00e72ff3d03b6902dd62ae718567f10fd42e",
+    "prior_id": "sha256:41dd0b880eabbbc3584105309bf1581e4bf41c337c8bc20881b30bbf40a7414c",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1405,19 +1405,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:a2e573e5df1d7486952f2f3e3c871016c983f6ce2b47e3a8382bdda251729b63",
+     "plan_payload": "sha256:48ced3b9ecc825d9f81c2839c825d7b7908efb3a145f610b6af67a5a7c44992b",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:b9f916b6e332f444a4cf1df0ba6b00e72ff3d03b6902dd62ae718567f10fd42e"
+     "prior_record": "sha256:41dd0b880eabbbc3584105309bf1581e4bf41c337c8bc20881b30bbf40a7414c"
     },
-    "id": "sha256:d0be399ea61da4b001a932249eae8b9d2fa547e7a0dba3cc785803cb969d86cf"
+    "id": "sha256:0de95a5cb1c777e5e7501efc33a795be3b95508c379e420a1f6a833543cfbc61"
    }
   },
   {
    "id": 1011,
-   "record_hash": "sha256:ef7f081ceba43ed6349f4087e2a2687231fd3210da1a88d8ef88abc68341781b",
-   "prior_hash": "sha256:d0be399ea61da4b001a932249eae8b9d2fa547e7a0dba3cc785803cb969d86cf",
+   "record_hash": "sha256:514f31c4176749a78ab74743a3e555945a0f7131e0e8a076c38145531ce496b0",
+   "prior_hash": "sha256:0de95a5cb1c777e5e7501efc33a795be3b95508c379e420a1f6a833543cfbc61",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1431,7 +1431,7 @@
    "create_ts": "2026-10-22 08:02:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:d0be399ea61da4b001a932249eae8b9d2fa547e7a0dba3cc785803cb969d86cf",
+    "prior_id": "sha256:0de95a5cb1c777e5e7501efc33a795be3b95508c379e420a1f6a833543cfbc61",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1530,19 +1530,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:abed734dab7bc5573bcd75667a3b15d9c67a632c95a894279e0c6079b3d88d1c",
+     "plan_payload": "sha256:3f0c2c5982a12951d6cfcb7f5196f4739194c4b0bfd83eaf39f96d122b6dc19f",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:d1c2db90f24d1ebdb448a63d4336970064abe52b739a1fb44cbe8c635cfb1601",
-     "prior_record": "sha256:d0be399ea61da4b001a932249eae8b9d2fa547e7a0dba3cc785803cb969d86cf"
+     "prior_record": "sha256:0de95a5cb1c777e5e7501efc33a795be3b95508c379e420a1f6a833543cfbc61"
     },
-    "id": "sha256:ef7f081ceba43ed6349f4087e2a2687231fd3210da1a88d8ef88abc68341781b"
+    "id": "sha256:514f31c4176749a78ab74743a3e555945a0f7131e0e8a076c38145531ce496b0"
    }
   },
   {
    "id": 1012,
-   "record_hash": "sha256:17a07352855050fd1d92172d7d18f5814a1adbe266aa084d7fa5170fdef456c7",
-   "prior_hash": "sha256:ef7f081ceba43ed6349f4087e2a2687231fd3210da1a88d8ef88abc68341781b",
+   "record_hash": "sha256:ef9395104935c7a0291eff0125bcf06df2eaccc1153da8fe18680217bd70fcd3",
+   "prior_hash": "sha256:514f31c4176749a78ab74743a3e555945a0f7131e0e8a076c38145531ce496b0",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1556,7 +1556,7 @@
    "create_ts": "2026-10-22 08:03:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:ef7f081ceba43ed6349f4087e2a2687231fd3210da1a88d8ef88abc68341781b",
+    "prior_id": "sha256:514f31c4176749a78ab74743a3e555945a0f7131e0e8a076c38145531ce496b0",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1648,19 +1648,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:a0067be65723920857eb5bef4d13915d4414fb0016f87af9d1c71fe2896a4051",
+     "plan_payload": "sha256:de58654381475b0f28b6f8d079aa7ccafd4a8fc70c3f5c21b0fe50fdbb9ec6d8",
      "capacity": "sha256:f8065f6e73e44d8d02f31a14f2b24239fb7b15f9d277eff31af75763a79d8b82",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:252ceac67a0311c9207041225d46728a3328d304e3c18db726d41c05d92ee20b",
-     "prior_record": "sha256:ef7f081ceba43ed6349f4087e2a2687231fd3210da1a88d8ef88abc68341781b"
+     "prior_record": "sha256:514f31c4176749a78ab74743a3e555945a0f7131e0e8a076c38145531ce496b0"
     },
-    "id": "sha256:17a07352855050fd1d92172d7d18f5814a1adbe266aa084d7fa5170fdef456c7"
+    "id": "sha256:ef9395104935c7a0291eff0125bcf06df2eaccc1153da8fe18680217bd70fcd3"
    }
   },
   {
    "id": 1013,
-   "record_hash": "sha256:09e02fb6bec68a8e1dbe2f0fae815187634a73d57480d87dca4268716431c68b",
-   "prior_hash": "sha256:17a07352855050fd1d92172d7d18f5814a1adbe266aa084d7fa5170fdef456c7",
+   "record_hash": "sha256:d453fd80d3c681849e30c00e6cfe87249a066640d696fe3c2341e1a8fa6e9156",
+   "prior_hash": "sha256:ef9395104935c7a0291eff0125bcf06df2eaccc1153da8fe18680217bd70fcd3",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1674,7 +1674,7 @@
    "create_ts": "2026-10-22 08:04:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:17a07352855050fd1d92172d7d18f5814a1adbe266aa084d7fa5170fdef456c7",
+    "prior_id": "sha256:ef9395104935c7a0291eff0125bcf06df2eaccc1153da8fe18680217bd70fcd3",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1742,19 +1742,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:89680d91843ec48f657eff45430dd1fb484dccb514e53db68fa924e52ec4544f",
+     "plan_payload": "sha256:693c3587d8bc22930501b3a3316125d9090b4848c1c5e714dbf08f30ddf971a0",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:e5851a7dbe846dafa559e80020bea8d5f94f755a24f7c2dee632c09c09de6f58",
-     "prior_record": "sha256:17a07352855050fd1d92172d7d18f5814a1adbe266aa084d7fa5170fdef456c7"
+     "prior_record": "sha256:ef9395104935c7a0291eff0125bcf06df2eaccc1153da8fe18680217bd70fcd3"
     },
-    "id": "sha256:09e02fb6bec68a8e1dbe2f0fae815187634a73d57480d87dca4268716431c68b"
+    "id": "sha256:d453fd80d3c681849e30c00e6cfe87249a066640d696fe3c2341e1a8fa6e9156"
    }
   },
   {
    "id": 1014,
-   "record_hash": "sha256:75dc8da900c1f4f22b36cf105f112b46f45eccd7fe7ff3768940613043079963",
-   "prior_hash": "sha256:09e02fb6bec68a8e1dbe2f0fae815187634a73d57480d87dca4268716431c68b",
+   "record_hash": "sha256:2a3d73b1f2904ade56f5393fb8b629e3fe4ab05eacbafe41856b72536f31f311",
+   "prior_hash": "sha256:d453fd80d3c681849e30c00e6cfe87249a066640d696fe3c2341e1a8fa6e9156",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1768,7 +1768,7 @@
    "create_ts": "2026-10-22 08:04:30",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:09e02fb6bec68a8e1dbe2f0fae815187634a73d57480d87dca4268716431c68b",
+    "prior_id": "sha256:d453fd80d3c681849e30c00e6cfe87249a066640d696fe3c2341e1a8fa6e9156",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1864,18 +1864,18 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:e4e976233bbfd8cb0ad77dcce05bd3276912e255482271b52e4c89b85a55daff",
+     "plan_payload": "sha256:dc311d8b7b0bea6f0b85a06544349e20590d445dbc372c378a1a1ad9ac0c6b46",
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:c26b50bb777809f39ca9b2355f2274b5a38f847a3e753f2f743ee510255c2be9",
-     "prior_record": "sha256:09e02fb6bec68a8e1dbe2f0fae815187634a73d57480d87dca4268716431c68b"
+     "prior_record": "sha256:d453fd80d3c681849e30c00e6cfe87249a066640d696fe3c2341e1a8fa6e9156"
     },
-    "id": "sha256:75dc8da900c1f4f22b36cf105f112b46f45eccd7fe7ff3768940613043079963"
+    "id": "sha256:2a3d73b1f2904ade56f5393fb8b629e3fe4ab05eacbafe41856b72536f31f311"
    }
   },
   {
    "id": 1015,
-   "record_hash": "sha256:a0dab922986c907795fdd51975bd4172c56aef144f8b751267b483646f090108",
+   "record_hash": "sha256:73c94a0b90394bfecf853590e3f8dc751847227049f2b1ee3cb98002aec04549",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -2060,19 +2060,19 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:3331803019886984ce73194b8ed05ead785d21545eda398e9509f7d4e54560de",
+     "plan_payload": "sha256:76e005547001bd2c6539e299b77486295d99f8754de2fddcbd9769fb25b0ff80",
      "capacity": "sha256:8516e082a6cda7e861657185196087860563a20b8a232f4c9ffa348837d86083",
      "claims": "sha256:57860789549fe686e3e57349135c233d503472d5cdf1be582279abc1d6694502",
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:a0dab922986c907795fdd51975bd4172c56aef144f8b751267b483646f090108"
+    "id": "sha256:73c94a0b90394bfecf853590e3f8dc751847227049f2b1ee3cb98002aec04549"
    }
   },
   {
    "id": 1016,
-   "record_hash": "sha256:228065836694dc0e6e6d00bfb93648b7c02c15303206801b1c5de12ab4adafa2",
-   "prior_hash": "sha256:a0dab922986c907795fdd51975bd4172c56aef144f8b751267b483646f090108",
+   "record_hash": "sha256:517dda32f445addda42cdcc02def1afff3ecb458f29ea77e0c773a2549d2c2f4",
+   "prior_hash": "sha256:73c94a0b90394bfecf853590e3f8dc751847227049f2b1ee3cb98002aec04549",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 4,
@@ -2086,7 +2086,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:a0dab922986c907795fdd51975bd4172c56aef144f8b751267b483646f090108",
+    "prior_id": "sha256:73c94a0b90394bfecf853590e3f8dc751847227049f2b1ee3cb98002aec04549",
     "location": {
      "machine_fk": 4,
      "terminal_pid": 4101,
@@ -2247,13 +2247,13 @@
      "violations": []
     },
     "inputs": {
-     "plan_payload": "sha256:7c88b5a7fd2d534dba4f364ad00a7b74a1fd6fa14c389ed35955921275428564",
+     "plan_payload": "sha256:ec7149bf0cb1a01df4ba0dfc8994c0056d2f4cb86919b077781f5119115f7cd7",
      "capacity": "sha256:8516e082a6cda7e861657185196087860563a20b8a232f4c9ffa348837d86083",
      "claims": "sha256:57860789549fe686e3e57349135c233d503472d5cdf1be582279abc1d6694502",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:a0dab922986c907795fdd51975bd4172c56aef144f8b751267b483646f090108"
+     "prior_record": "sha256:73c94a0b90394bfecf853590e3f8dc751847227049f2b1ee3cb98002aec04549"
     },
-    "id": "sha256:228065836694dc0e6e6d00bfb93648b7c02c15303206801b1c5de12ab4adafa2"
+    "id": "sha256:517dda32f445addda42cdcc02def1afff3ecb458f29ea77e0c773a2549d2c2f4"
    }
   }
  ],
@@ -2276,7 +2276,7 @@
    "epic_fk": 101,
    "outcome_state": "failed",
    "session_ids": [],
-   "reason": "superseded by record sha256:8bea0a05473cc60ec1dd13f2157020a296b0b502f9f5d3155a0b97fdf35c0b41",
+   "reason": "superseded by record sha256:3d0254a33aeefe84805fd8b0e7d8148dd67da1093eaa3acc8100d963ccae923c",
    "create_ts": "2026-10-22 08:02:00",
    "update_ts": null
   },

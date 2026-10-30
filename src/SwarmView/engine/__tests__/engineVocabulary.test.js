@@ -83,7 +83,7 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         // Aurora's `deferred`/`wontfix` are greens since req #3905; a held or
         // degraded engine state borrowing them would read as healthy/finished.
         const held = ['PAUSED', 'INITIATIVE_GATE', 'BARRIER', 'NOT_BEFORE'].map((c) => CODE_COLORS[c]);
-        const inert = ['CLOSED', 'NO_WORK', 'MANUAL', 'DRAINED'].map((c) => CODE_COLORS[c]);
+        const inert = ['NOT_ORCHESTRATING', 'NO_WORK', 'MANUAL', 'DRAINED'].map((c) => CODE_COLORS[c]);
         expect(new Set([...held, HEALTH_COLORS.degraded])).toEqual(new Set(['#fcd34d']));
         expect(new Set([...inert, HEALTH_COLORS.stopped])).toEqual(new Set(['#94a3b8']));
     });
@@ -97,7 +97,11 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         expect(detailText('BARRIER', { barrier_epic_ids: [12] })).toBe('held by barrier epic 12');
         expect(detailText('DEP_PRIORITY', { waiting_on_epic_ids: [101, 102] }))
             .toBe('waiting on epics 101, 102');
-        expect(detailText('PAUSED', { by: ['plan'] })).toBe('paused at the plan');
+        expect(detailText('PAUSED', { by: ['initiative'] })).toBe('paused at the initiative');
+        // req #3965 — the plan's status, in its label.
+        expect(detailText('NOT_ORCHESTRATING', { status: 'orchestration_ready' }))
+            .toBe('the plan is Orchestration Ready');
+        expect(detailText('NOT_ORCHESTRATING', { status: null })).toBe('');
         expect(detailText('MACHINE_PIN', { pinned_to: 'Any', role: 'subscriber' }))
             .toBe('any machine (another engine leads it); this engine is subscriber');
         expect(detailText('MACHINE_PIN', { pinned_to: 1, role: 'lead' }))

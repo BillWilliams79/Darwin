@@ -61,9 +61,10 @@ import {
     DEFAULT_PIPELINE_DETAIL_MODE,
     findPipelineDetailMode,
 } from './pipelineDetailModes';
-import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
+import { toolbarChipProps } from './pipelineChipStyles';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 import PlanTitle from './PlanTitle';
+import PlanStatusChip from './PlanStatusChip';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -771,11 +772,6 @@ export default function PipelineDetail() {
     const panelNeedsPlan = activeEntry.needsPlan !== false;
     const isPlanMode = activeEntry.value === 'plan';
 
-    // req #3261 P2 — the status group's separator renders only when the group
-    // does. Its chip is a live-ops conditional, so this is false on the
-    // ordinary row and the row is byte-identical to one with no status slot.
-    // The orchestration chip left this group for the title (req #3809).
-    const hasStatusChips = pipeline.pipeline_status === 'paused';
 
     // req #3242 — the initiatives in THIS plan (a requirement with no initiative
     // is excluded by `requirementCounts` itself, so this is never inflated by
@@ -1148,49 +1144,30 @@ export default function PipelineDetail() {
                     />}
 
                 {/* The status chip and the machine chip were REMOVED on the
-                    user's directive (2026-08-01). Plan status is already on the
-                    Pipelines list this page is reached from, and the machine
-                    spread is in the plan table; on the title row they
-                    were two more things between the plan's name and the reader.
+                    user's directive (2026-08-01). The STATUS came back as the
+                    plan's status EDITOR (req #3965, user: "the pipeline editors
+                    in every case need to support these states") — below, in
+                    the status group. The machine spread is in the plan table.
                     Snap (req #3503) and the description button (req #3503) are
                     both gone too — this row's own last child now is whichever
                     of Time/Tokens or PipelinePlanToolbar the active mode drew. */}
 
                 {/* ── STATUS GROUP (req #3261 P2) ─────────────────────────────
-                    CONDITIONAL ON ITS OWN CONTENTS, not rendered unconditionally
-                    like the two dividers around it: the chip below appears only
-                    in a live ops state, so an unconditional rule here would put
-                    two adjacent separators with nothing between them on the
-                    ordinary row — a group boundary announcing an empty group,
-                    which is worse than no boundary at all.
+                    Since req #3965 the group always holds the plan's status
+                    editor, so its separator always draws.
 
                     This slot is the one thing on the row the canonical
                     `ViewerHeader` has no place for (P11), recorded and left
                     where it is: whether V3 grows a `status` slot or this prose
                     moves elsewhere is its own question. */}
-                {hasStatusChips && (
-                    <Divider orientation="vertical" flexItem
-                             sx={{ mx: 0.5, flexShrink: 0 }} />
-                )}
+                <Divider orientation="vertical" flexItem
+                         sx={{ mx: 0.5, flexShrink: 0 }} />
 
-                {/* req #3226 — the ONE status this requirement asks to survive
-                    here despite the chip-removal directive above, for the same
-                    reason the orchestration badges beside the title do: it is
-                    CONDITIONAL (renders only while actually paused, so the
-                    ordinary row is unchanged) and it is not a duplicate of the
-                    list page's chip — a reader who navigated straight here
-                    (a deep link, a bookmark) never saw that page at all. */}
-                {pipeline?.pipeline_status === 'paused' && (
-                    <Tooltip title="This plan is paused — its epics are not swarm-starting">
-                        <Chip
-                            size="small"
-                            label="Paused"
-                            {...pipelineStatusChipProps('paused')}
-                            sx={{ ...pipelineStatusChipProps('paused').sx, flexShrink: 0 }}
-                            data-testid="pipeline-detail-paused"
-                        />
-                    </Tooltip>
-                )}
+                {/* req #3965 — the plan's STATUS, and its editor: all seven
+                    values, always shown. It replaced req #3226's conditional
+                    Paused chip — a plan no longer pauses, and a reader who
+                    arrived by a deep link never saw the Pipelines list. */}
+                <PlanStatusChip pipeline={pipeline} />
 
             </Box>
 

@@ -81,8 +81,8 @@ describe('sessionPipelineLink', () => {
 // req #3724 — the sessions table's pill names plan › initiative › epic.
 describe('sessionPipelineLink — initiative and epic placement', () => {
     const INDEX = buildOrchestrationIndex({
-        pipelines: [{ id: 7, title: 'Plan A', pipeline_status: 'active' },
-                    { id: 8, title: 'Plan B', pipeline_status: 'active' }],
+        pipelines: [{ id: 7, title: 'Plan A', pipeline_status: 'orchestrating' },
+                    { id: 8, title: 'Plan B', pipeline_status: 'orchestrating' }],
         initiatives: [{ id: 30, pipeline_fk: 7, title: 'Initiative One' },
                 { id: 31, pipeline_fk: 7, title: 'Initiative Two' },
                 { id: 40, pipeline_fk: 8, title: 'Other Initiative' }],

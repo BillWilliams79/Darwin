@@ -23,24 +23,24 @@
 // plan there, in place. Both write the new plan below every existing
 // `sort_order`, so a new plan is always first.
 //
-// ── REQ #3804: EDIT IN PLACE, HAND-SORTED, CLOSABLE, LIVE ───────────────────
-// * The Cards view is the editor: title, goal, machine, lock and close are
+// ── REQ #3804: EDIT IN PLACE, HAND-SORTED, LIVE ─────────────────────────────
+// * The Cards view is the editor: title, goal, machine, status and lock are
 //   changed on the card (`PipelinesCardsView.jsx`), and cards are dragged into
 //   the reader's own order, held in `pipelines.sort_order`.
-// * A plan can be CLOSED: hidden here unless "Closed" is lit (unlit by
-//   default), and parked from orchestration — the server's derivation
-//   launch-suppresses every epic of a closed plan (engine code CLOSED).
+// * The `closed` flag #3804 added is GONE (req #3965): a finished plan is one
+//   whose STATUS is terminal (met, won't fix, deferred), and the status pills
+//   — the four non-terminal values lit by default — are what put it away.
 // * The page's reads POLL (`LIVE_REFRESH_MS`) — status, counts, holders and
 //   thumbnails are written by swarm workers and engines in other processes,
 //   which no invalidation in this browser ever hears, so before this the
 //   cards stayed as they were when the page loaded until the window lost and
 //   regained focus.
 //
-// `pipeline_status` renders as a DISPLAY-ONLY chip, not a click-to-cycle
-// control — status transitions carry started_at/completed_at side effects
-// (`_derive_timestamps2` in darwin-mcp/services/pipelines2.py) a naive
-// click-to-cycle from this page would get wrong; that stays an MCP/Primary
-// decision.
+// `pipeline_status` is EDITED here (req #3965), in both views, through the one
+// status control (`PipelineStatusChip.jsx`): any of the seven values, freely,
+// as a requirement's status is set. The started_at/completed_at side effects
+// are the GATEWAY's (Lambda-Rest pipeline_lifecycle.py derives them for every
+// writer), so this page sends the status alone.
 //
 // Query layer, chip styles, orchestration-holder and the plan-place memory
 // are the SHARED files (`useDataQueries.js`, `pipelineChipStyles.js`,
@@ -119,10 +119,12 @@ import ChipFilter from '../Components/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     pipelineStatusChipProps,
+    pipelineStatusLabel,
     lockedChipProps,
     lockedLabel,
-    toolbarChipProps,
     PIPELINE_STATUS_VALUES,
+    DEFAULT_PIPELINE_STATUSES,
+    NEW_PIPELINE_STATUS,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import {
     hiddenPipelineStatusCounts,
@@ -150,9 +152,10 @@ import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import {
     pipelineSummaries, pipelineRequirementCounts, orderPipelines, frontSortOrder,
-    reorderPipelines, withPositions, isClosedPipeline, allActiveRequirements,
+    reorderPipelines, withPositions, allActiveRequirements,
 } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
+import PipelineStatusChip from './PipelineStatusChip';
 import NewPipelineDialog from './NewPipelineDialog';
 import useCreatePipeline from './useCreatePipeline';
 import { updatePipeline, updatePipelines, deletePipeline, REST_NULL } from './pipelinesApi';
@@ -178,8 +181,6 @@ const VIEWS = [
     { value: 'group', label: 'Pipeline calendar', icon: ViewInArIcon },
 ];
 
-const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
-
 // req #3804 — how often the page re-reads what other processes write. Each
 // cycle is 7 list reads (one gateway call each); every call is an API Gateway
 // + Lambda request, so the interval is a COST, stated to the user: about 840
@@ -194,7 +195,7 @@ export const THUMBNAIL_REFRESH_MS = 60_000;
 
 // On a LOCKED plan the gateway still writes these (plan_lock.py) — everything
 // else is authoring, refused 423, so it is refused here first in the lock's words.
-const LOCK_FREE_FIELDS = new Set(['locked', 'closed', 'sort_order', 'pipeline_status']);
+const LOCK_FREE_FIELDS = new Set(['locked', 'sort_order', 'pipeline_status']);
 
 // `description` is NOT in `pipelines`' own defaultFields (devopsQueries.js
 // deliberately keeps req #3463's id-producer index light) — this page both
@@ -206,8 +207,8 @@ const LOCK_FREE_FIELDS = new Set(['locked', 'closed', 'sort_order', 'pipeline_st
 // (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
 // req #3649 — `locked` added so the Lock column reads the stored flag.
-// req #3804 — `closed` and the hand-sorted `sort_order`.
-const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,closed,sort_order,'
+// req #3804 — the hand-sorted `sort_order`.
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,sort_order,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 // req #3978 — `id,requirement_status` for the counts, the rest for All Active.
@@ -215,7 +216,7 @@ const REQUIREMENT_FIELDS = 'id,title,requirement_status,coordination_type,ai_mod
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
     value: status,
-    label: status,
+    label: pipelineStatusLabel(status),
     chipProps: pipelineStatusChipProps(status),
 }));
 
@@ -225,7 +226,12 @@ function readStoredStatusFilter() {
         if (raw == null) return null;
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return null;
-        return parsed.filter((v) => PIPELINE_STATUS_VALUES.includes(v));
+        // A stored value this vocabulary no longer has (the pre-#3965
+        // draft|active|paused|completed) means the selection was made over
+        // another vocabulary: fall back to the default rather than keep a
+        // filtered remnant that would hide plans for no reason the reader chose.
+        if (parsed.some((v) => !PIPELINE_STATUS_VALUES.includes(v))) return null;
+        return parsed;
     } catch {
         return null;
     }
@@ -300,12 +306,8 @@ export default function PipelinesPage() {
     // The card's requirement figures are its info block (req #3804) — always
     // shown, so the old show-counts preference no longer gates them.
 
-    // req #3804 — closed plans are hidden until this is lit. Unlit on every
-    // visit: a closed plan is one the reader put away.
-    const [showClosed, setShowClosed] = useState(false);
-
     const [statusFilter, setStatusFilter] = useState(
-        () => readStoredStatusFilter() || DEFAULT_PIPELINE_STATUSES);
+        () => readStoredStatusFilter() || [...DEFAULT_PIPELINE_STATUSES]);
     const toggleStatus = (status) => setStatusFilter((current) => {
         const next = current.includes(status)
             ? current.filter((s) => s !== status)
@@ -420,19 +422,16 @@ export default function PipelinesPage() {
     const reqCounts = pipelineRequirementCounts({
         pipelines, epics, initiatives, epicRequirements, requirements });
 
-    // req #3804 — the reader's hand-sorted order; closed plans only when lit.
+    // req #3804 — the reader's hand-sorted order.
     // req #3966 — over it, the order a drop just made, from the drop's own
     // render until its write settles (`reorder`).
     const [dropped, setDropped] = useState(null);
     const ordered = useMemo(() => orderPipelines(withPositions(pipelines, dropped)),
         [pipelines, dropped]);
-    const closedCount = ordered.filter(isClosedPipeline).length;
-    const shown = useMemo(() => (showClosed ? ordered : ordered.filter((p) => !isClosedPipeline(p))),
-        [ordered, showClosed]);
     // Stable between renders — the Cards view keys its drag list on it.
-    const filtered = useMemo(() => shown.filter((p) => statusFilter.includes(p.pipeline_status)),
-        [shown, statusFilter]);
-    const hiddenStatusCounts = hiddenPipelineStatusCounts(shown, statusFilter);
+    const filtered = useMemo(() => ordered.filter((p) => statusFilter.includes(p.pipeline_status)),
+        [ordered, statusFilter]);
+    const hiddenStatusCounts = hiddenPipelineStatusCounts(ordered, statusFilter);
 
     const listKey = [...pipelineKeys.all(creatorFk), { fields: PIPELINES_FIELDS }];
     const invalidatePipelines = () =>
@@ -470,7 +469,17 @@ export default function PipelinesPage() {
 
     // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
     const toggleLock = (row) => updateRow(row, { locked: Number(row.locked) ? 0 : 1 });
-    const toggleClosed = (row) => updateRow(row, { closed: isClosedPipeline(row) ? 0 : 1 });
+
+    // req #3965 — the status control on every view. Allowed on a locked plan
+    // (LOCK_FREE_FIELDS). A plan moved to a status the pills hide leaves the
+    // view at once, so the reader is told where it went.
+    const setStatus = async (row, next) => {
+        const done = await updateRow(row, { pipeline_status: next });
+        if (done && !statusFilter.includes(next)) {
+            showMessage(`"${row.title}" is now ${pipelineStatusLabel(next)} — hidden by the status filter`);
+        }
+        return done;
+    };
 
     // req #3934 — the card menu's confirmed hard delete. Every plan-layer read
     // on this page is re-read after it, since its initiatives, epics, seats and
@@ -531,16 +540,17 @@ export default function PipelinesPage() {
         }
     };
 
-    // req #3804 — the front card's Enter: a draft plan made in place, first.
+    // req #3804 — the front card's Enter: a new plan made in place, first.
     const { create, creating } = useCreatePipeline();
-    // A new plan is born `draft`: if that status is filtered out, light it,
-    // or the card the reader just made would vanish the moment it is written.
+    // A new plan is born `authoring` (req #3965): if that status is filtered
+    // out, light it, or the card the reader just made would vanish the moment
+    // it is written.
     const createInPlace = async (title) => {
         const done = await create({ title, sort_order: frontSortOrder(pipelines), open: false });
         if (done) {
             setStatusFilter((current) => {
-                if (current.includes('draft')) return current;
-                const next = [...current, 'draft'];
+                if (current.includes(NEW_PIPELINE_STATUS)) return current;
+                const next = [...current, NEW_PIPELINE_STATUS];
                 writeStoredStatusFilter(next);
                 return next;
             });
@@ -581,13 +591,13 @@ export default function PipelinesPage() {
             ),
         },
         {
-            field: 'pipeline_status', headerName: 'Status', width: 120, sortable: false,
+            // req #3965 — the plan's status editor (all seven values).
+            field: 'pipeline_status', headerName: 'Status', width: 190, sortable: false,
             renderCell: (params) => (
-                <Chip
-                    label={params.value}
-                    size="small"
-                    {...pipelineStatusChipProps(params.value)}
-                    data-testid={`pipelines-status-${params.row.id}`}
+                <PipelineStatusChip
+                    status={params.value}
+                    onChange={(next) => setStatus(params.row, next)}
+                    testId={`pipelines-status-${params.row.id}`}
                 />
             ),
         },
@@ -608,24 +618,6 @@ export default function PipelinesPage() {
                     />
                 </Tooltip>
             ),
-        },
-        {
-            // req #3804 — closed plans are parked from orchestration.
-            field: 'closed', headerName: 'Closed', width: 100, sortable: false,
-            renderCell: (params) => {
-                const closed = isClosedPipeline(params.row);
-                return (
-                    <Tooltip title={closed
-                        ? 'Closed — hidden by default and not orchestrated. Click to reopen.'
-                        : 'Click to close — hide this plan and stop every engine launching its work.'}>
-                        <Chip label={closed ? 'closed' : 'open'} size="small"
-                              variant={closed ? 'filled' : 'outlined'}
-                              clickable
-                              onClick={(e) => { e.stopPropagation(); toggleClosed(params.row); }}
-                              data-testid={`pipelines-closed-chip-${params.row.id}`} />
-                    </Tooltip>
-                );
-            },
         },
         {
             // req #3823 — how many initiative-to-initiative dependencies the plan holds.
@@ -705,20 +697,6 @@ export default function PipelinesPage() {
                                 testId="pipelines-status-filter"
                                 chipTestIdPrefix="pipelines-status-chip"
                             />
-                            {/* req #3804 — LIT = SHOWN, like the plan
-                                toolbar's Closed chip (req #3816). Unlit by
-                                default: closed plans are put away. */}
-                            <Tooltip title={showClosed
-                                ? 'Showing closed pipelines — click to hide them'
-                                : `Show closed pipelines (${closedCount})`}>
-                                <Chip
-                                    label={`Closed${closedCount ? ` (${closedCount})` : ''}`}
-                                    aria-label={`${showClosed ? 'Hide' : 'Show'} closed pipelines`}
-                                    onClick={() => setShowClosed((v) => !v)}
-                                    {...toolbarChipProps(showClosed)}
-                                    data-testid="pipelines-show-closed"
-                                />
-                            </Tooltip>
                             {activeView === 'cards' && (
                                 <PreviewColorChips mode={previewColor}
                                                    onChange={setPreviewColor}
@@ -758,6 +736,7 @@ export default function PipelinesPage() {
                             focusId={groupFocus}
                             onFocusChange={setGroupFocus}
                             onOpen={open}
+                            onSetStatus={setStatus}
                         />
                     </Suspense>
                 ) : activeView === 'table' ? (
@@ -790,9 +769,9 @@ export default function PipelinesPage() {
                         onDelete={deleteRow}
                         onReorder={reorder}
                         onCreate={createInPlace}
+                        onSetStatus={setStatus}
                         creating={creating}
                         hiddenStatusCounts={hiddenStatusCounts}
-                        closedHidden={showClosed ? 0 : closedCount}
                         refetchInterval={LIVE_REFRESH_MS}
                         thumbnailRefetchInterval={THUMBNAIL_REFRESH_MS}
                         previewColor={previewColor}

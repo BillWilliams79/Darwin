@@ -1391,12 +1391,16 @@ export function requirementCounts(model) {
 //                           the same discipline `orderedPlan` already applies
 //                           for `row.cost` — these are freshly built rows this
 //                           call owns, never a caller's cached object.
-// @returns {{pipelineStatus: ?string, pipelinePaused: boolean,
+// req #3965 — a plan no longer pauses: only an `orchestrating` plan launches,
+// so every epic of any other plan is suppressed with reason 'pipeline' (a
+// missing status reads as NOT orchestrating), matching `pipeline2_derive.py`.
+//
+// @returns {{pipelineStatus: ?string, pipelineOrchestrating: boolean,
 //            pausedInitiativeIds: number[], suppressedEpicIds: number[]}}
 export function pauseState(model, rows) {
     const pipeline = (model && model.pipeline) || {};
     const pipelineStatus = pipeline.pipeline_status;
-    const pipelinePaused = pipelineStatus === PAUSED_STATUS;
+    const pipelineOrchestrating = pipelineStatus === 'orchestrating';
 
     // `model.initiatives` is the WHOLE label dictionary in the browser (design rule
     // 5 — `buildPipelineModel` passes it through unfiltered, unlike the
@@ -1421,7 +1425,7 @@ export function pauseState(model, rows) {
     const suppressedEpicIds = [];
     for (const row of rows || []) {
         const reasons = [];
-        if (pipelinePaused) reasons.push('pipeline');
+        if (!pipelineOrchestrating) reasons.push('pipeline');
         if (row.initiativeId != null && pausedInitiativeIds.has(row.initiativeId)) reasons.push('initiative');
         row.launchSuppressed = reasons.length > 0;
         row.suppressedBy = reasons;
@@ -1430,7 +1434,7 @@ export function pauseState(model, rows) {
 
     return {
         pipelineStatus,
-        pipelinePaused,
+        pipelineOrchestrating,
         pausedInitiativeIds: [...pausedInitiativeIds].sort((a, b) => a - b),
         suppressedEpicIds,
     };

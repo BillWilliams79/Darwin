@@ -27,9 +27,9 @@ const { default: PipelineGroupView } = await import('../PipelineGroupView');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const pipelines = [
-    { id: 1, title: 'Late plan', pipeline_status: 'active', sort_order: 2, started_at: '2026-10-26T12:00:00' },
-    { id: 2, title: 'Early plan', pipeline_status: 'active', sort_order: 9, started_at: '2026-08-05T12:00:00' },
-    { id: 3, title: 'Front plan', pipeline_status: 'draft', sort_order: 1, started_at: null,
+    { id: 1, title: 'Late plan', pipeline_status: 'orchestrating', sort_order: 2, started_at: '2026-10-26T12:00:00' },
+    { id: 2, title: 'Early plan', pipeline_status: 'orchestrating', sort_order: 9, started_at: '2026-08-05T12:00:00' },
+    { id: 3, title: 'Front plan', pipeline_status: 'authoring', sort_order: 1, started_at: null,
       create_ts: '2026-10-27T12:00:00' },
 ];
 
@@ -105,5 +105,19 @@ describe('PipelineGroupView — the 3-D viewer chrome', () => {
         expect(focus.textContent).toMatch(/Late plan/);
         expect(q('pipelines-group-focus-when').textContent).toBe('Started Oct 26, 2026');
         expect(focus.textContent).toMatch(/Week of Oct 25 · 2nd of 2 by sort order/);
+    });
+
+    // req #3965 — the focus panel's status chip is the plan's status editor;
+    // its menu renders IN PLACE (a full-screen stage shows nothing portalled).
+    it('a focused pipeline\'s status chip edits the status through onSetStatus', async () => {
+        const onSetStatus = vi.fn(() => Promise.resolve(true));
+        render({ focusId: 1, onSetStatus });
+        const chip = q('pipelines-group-status-1');
+        expect(chip.textContent).toBe('Orchestrating');
+        act(() => { chip.click(); });
+        const option = q('pipelines-group-status-1-option-met');
+        expect(q('pipelines-group-info').contains(option)).toBe(true);
+        await act(async () => { option.click(); });
+        expect(onSetStatus).toHaveBeenCalledWith(pipelines[0], 'met');
     });
 });

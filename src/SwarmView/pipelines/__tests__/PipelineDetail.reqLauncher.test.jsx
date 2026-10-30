@@ -35,7 +35,7 @@ vi.mock('../../../RestApi/RestApi', () => ({
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     const { composedFixture } = await import('./pipelineComposedFixture');
-    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'active' });
+    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'orchestrating' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,

@@ -4,27 +4,30 @@
 // ── EVERY CARD IS ITS OWN EDITOR (req #3804) ────────────────────────────────
 // The plan's title and goal are text on the card that becomes a field when
 // clicked; Enter / leaving the field saves, Esc puts the stored text back. The
-// card's menu sets the machine, locks and unlocks, closes or reopens the
-// plan, and DELETES it (req #3934 — behind a confirmation, refused while the
+// status chip under the title sets the plan's status (req #3965 — any of the
+// seven values). The card's menu sets the machine, locks and unlocks, and
+// DELETES the plan (req #3934 — behind a confirmation, refused while the
 // plan is locked or a live orchestrator holds it). The plan itself OPENS from its picture — the card body no longer
 // navigates, because a click on it is now an edit, and the open buttons that
 // stood beside the title and in the menu went in the req #3804 review.
 //
 // ── WHAT THE CARD SAYS (req #3804 review) ───────────────────────────────────
-// Grip, who is orchestrating it, and name, then ONE plain info block — initiatives, epics, requirements
+// Grip, who is orchestrating it, and name, then the plan's STATUS chip (req
+// #3965 — the editor, so it is always there), then ONE plain info block —
+// initiatives, epics, requirements
 // closed / total (labelled just "requirements"), in large figures — right
 // above the whole plan drawn small, then the goal. No badges for those
-// figures, no status or machine chips, no "x of y met" line and no progress
-// bar restating the block (the bar went in the last review). The chips that remain are states a reader must not
-// miss: closed and locked. Who is orchestrating it is a round badge between
+// figures, no machine chip, no "x of y met" line and no progress
+// bar restating the block (the bar went in the last review). The other chip is a state a reader must not
+// miss: locked. Who is orchestrating it is a round badge between
 // the grip and the title (req #3973) — green the holder, orange any other
 // machine, a dashed outline when the holder's claim is stale — carrying only
 // the machine's letter, M or W. The goal sits collapsed to a few lines under
 // the shared Show more toggle (req #3945).
 //
-// What is NOT editable here is the lifecycle (`pipeline_status`): its
-// transitions carry started_at/completed_at side effects, and the plan is
-// started, paused and stopped by the `/pipeline-*` commands.
+// The status is written alone: the gateway derives started_at/completed_at
+// from it (Lambda-Rest pipeline_lifecycle.py), and a status write is allowed
+// on a locked plan.
 //
 // ── THE ORDER IS THE READER'S (req #3804) ───────────────────────────────────
 // The grid is one ReorderList: a card lifts from its GRIP, left of its title
@@ -32,8 +35,7 @@
 // writes every moved card's `sort_order`. Everywhere else a mouse press and
 // drag PANS the page, as on the map and 3D views (`useGrabScroll`) — so the
 // grid is something you take hold of and move through, and a card moves only
-// when its grip is what you took hold of. A closed card is shown (when "Closed" is lit) but is not a
-// position — it neither lifts nor takes a drop. "+ New pipeline" at the END
+// when its grip is what you took hold of. "+ New pipeline" at the END
 // of the grid puts an unsaved card at the FRONT, where the plan it makes will
 // stand.
 //
@@ -66,14 +68,12 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Check from '@mui/icons-material/Check';
-import CloseIcon from '@mui/icons-material/Close';
 import ComputerIcon from '@mui/icons-material/Computer';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import UnarchiveIcon from '@mui/icons-material/Unarchive';
 
 import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
@@ -86,7 +86,7 @@ import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleFie
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 import { NewPipelineTile, NewPipelineDraftCard } from './NewPipelineCard';
 import { pipelineEditFields } from './PipelineEditDialog';
-import { isClosedPipeline } from './pipelinesViewModel';
+import PipelineStatusChip from './PipelineStatusChip';
 import useGrabScroll from '../hooks/useGrabScroll';
 
 const EMPTY_SUMMARY = { total: 0, initiatives: 0, initiativeDeps: 0 };
@@ -95,8 +95,6 @@ const CARD_TYPE = 'pipeline-card';
 const ANY_MACHINE = '';
 
 const cardItemId = (p) => `pipeline-card:${p.id}`;
-// A closed plan is shown, never a position.
-const isOrderable = (p) => !isClosedPipeline(p);
 const isLocked = (p) => Boolean(Number(p?.locked ?? 0));
 
 // req #3804 review — "feels too fast especially corner to corner … smooth".
@@ -279,10 +277,9 @@ function Stat({ value, label, testId }) {
 }
 
 function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, onUpdate,
-    onDelete, refetchInterval, previewColor, sessionStatus }) {
+    onSetStatus, onDelete, refetchInterval, previewColor, sessionStatus }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
-    const closed = isClosedPipeline(p);
     const locked = isLocked(p);
     const s = summary || EMPTY_SUMMARY;
     const reqs = counts || { closed: 0, total: 0 };
@@ -320,22 +317,18 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
             {...rowProps}
             variant="outlined"
             data-testid={`pipelines-card-${p.id}`}
-            data-closed={closed ? 'true' : undefined}
+            data-status={p.pipeline_status ?? ''}
             sx={(theme) => ({
                 // The card is not the grip — only the lifted gap's look applies.
                 ...reorderRowSx(theme, { draggable: false, isDragging }),
-                ...(closed && { opacity: 0.6, borderStyle: 'dashed' }),
             })}
         >
             <CardContent sx={{ pb: '16px !important' }}>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, mb: 0.25 }}>
-                    {/* THE GRIP (req #3804) — the one place a card lifts from. A
-                        closed card is not a position: its grip is drawn dim and
-                        does nothing, so it still keeps its place before the title. */}
+                    {/* THE GRIP (req #3804) — the one place a card lifts from. */}
                     {/* No touch listener: MUI's touch-hold tooltip fires mid-drag
                         and restores the body's user-select under the lift. */}
-                    <Tooltip title={isDragging ? ''
-                                 : handleProps ? 'Drag to reorder' : 'Closed — not a position in the order'}
+                    <Tooltip title={isDragging ? '' : 'Drag to reorder'}
                              placement="top" disableTouchListener>
                         <Box
                             {...(handleProps || {})}
@@ -409,16 +402,6 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                             <ListItemText>{locked ? 'Unlock' : 'Lock'}</ListItemText>
                         </MenuItem>
                         <Divider />
-                        <MenuItem onClick={() => { setMenuAnchor(null); onUpdate(p, { closed: closed ? 0 : 1 }); }}
-                                  data-testid={`pipelines-card-menu-close-${p.id}`}>
-                            <ListItemIcon>
-                                {closed ? <UnarchiveIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
-                            </ListItemIcon>
-                            <ListItemText
-                                primary={closed ? 'Reopen pipeline' : 'Close pipeline'}
-                                secondary={closed ? 'Shown again; orchestratable again'
-                                    : 'Hidden, and no engine launches its work'} />
-                        </MenuItem>
                         <MenuItem disabled={Boolean(deleteBlock)}
                                   onClick={() => { setMenuAnchor(null); setDeleteOpen(true); }}
                                   sx={{ color: 'error.main' }}
@@ -449,6 +432,16 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                             );
                         })}
                     </Menu>
+                </Box>
+
+                {/* THE STATUS (req #3965) — the plan's status editor, all
+                    seven values. Written alone; allowed on a locked plan. */}
+                <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.25 }}>
+                    <PipelineStatusChip status={p.pipeline_status}
+                                        onChange={(next) => (onSetStatus
+                                            ? onSetStatus(p, next)
+                                            : onUpdate(p, { pipeline_status: next }))}
+                                        testId={`pipelines-card-status-${p.id}`} />
                 </Box>
 
                 {/* THE INFO BLOCK (req #3804 review: "not badges … just a
@@ -504,26 +497,18 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                     sx={{ fontSize: 14, color: 'text.secondary' }}
                 />
 
-                {(closed || locked) && (
+                {locked && (
                     <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
-                        {closed && (
-                            <Tooltip title="Closed — hidden by default, and no engine launches its work. Reopen it from the card menu.">
-                                <Chip size="small" label="closed" color="default"
-                                      data-testid={`pipelines-card-closed-${p.id}`} />
-                            </Tooltip>
-                        )}
                         {/* req #3649 — shown only on a locked plan; a click
                             unlocks it in place. Locking is in the card menu. */}
-                        {locked && (
-                            <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record. Click to unlock.">
-                                <Chip size="small"
-                                      {...lockedChipProps(p.locked)}
-                                      label={lockedLabel(p.locked)}
-                                      clickable
-                                      onClick={() => onUpdate(p, { locked: 0 })}
-                                      data-testid={`pipelines-card-locked-${p.id}`} />
-                            </Tooltip>
-                        )}
+                        <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record. Click to unlock.">
+                            <Chip size="small"
+                                  {...lockedChipProps(p.locked)}
+                                  label={lockedLabel(p.locked)}
+                                  clickable
+                                  onClick={() => onUpdate(p, { locked: 0 })}
+                                  data-testid={`pipelines-card-locked-${p.id}`} />
+                        </Tooltip>
                     </Stack>
                 )}
             </CardContent>
@@ -536,12 +521,14 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
  * @param {Object[]} props.pipelines   the cards to draw, in display order
  * @param {(fromId, toId) => void} props.onReorder   a card dropped on another's place
  * @param {(row, fields, problem?) => Promise<boolean>} props.onUpdate  an in-place edit
+ * @param {(row, status) => Promise<boolean>} [props.onSetStatus]  the status chip's write
+ *                                            (falls back to onUpdate)
  * @param {(row) => Promise<boolean>} props.onDelete  the menu's confirmed hard delete
  * @param {(title) => Promise<boolean>} props.onCreate  the front card's Enter
  */
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
-    machines, claims = [], onOpen, onUpdate, onDelete, onReorder,
-    onCreate, creating = false, hiddenStatusCounts = [], closedHidden = 0,
+    machines, claims = [], onOpen, onUpdate, onSetStatus, onDelete, onReorder,
+    onCreate, creating = false, hiddenStatusCounts = [],
     refetchInterval, thumbnailRefetchInterval, previewColor, sessionStatus }) {
     const [drafting, setDrafting] = useState(false);
     const gridRef = useRef(null);
@@ -575,9 +562,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
             <>
                 <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
                             data-testid="pipelines-cards-empty">
-                    {!hiddenStatusCounts.length && closedHidden > 0
-                        ? `Every pipeline is closed (${closedHidden}) — light Closed to see them.`
-                        : pipelinesEmptyMessage(hiddenStatusCounts)}
+                    {pipelinesEmptyMessage(hiddenStatusCounts)}
                 </Typography>
                 <Box className="card" ref={surfaceRef} sx={surfaceSx}>{draft}{tile}</Box>
             </>
@@ -588,7 +573,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     return (
         <Box ref={surfaceRef} sx={surfaceSx} data-testid="pipelines-cards-surface">
             <ReorderList id={LIST_ID} type={CARD_TYPE} ids={ids}
-                         orientation="grid" sortsOutside isTarget={isOrderable}
+                         orientation="grid" sortsOutside
                          liftSx={CARD_LIFT_SX} motion={CARD_MOTION} handle
                          onReorder={(from, to) => onReorder(pipelines[from].id, pipelines[to].id)}
                          className="card"
@@ -605,6 +590,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         heldLive={claims.some((c) => c.pipeline_fk === p.id && !isStale(c))}
                         onOpen={onOpen}
                         onUpdate={onUpdate}
+                        onSetStatus={onSetStatus}
                         onDelete={onDelete}
                         refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
                         previewColor={previewColor}

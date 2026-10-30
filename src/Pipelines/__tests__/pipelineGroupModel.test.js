@@ -20,7 +20,7 @@ const layoutOf = (nodes, bands) => ({
 const reqs = (list) => new Map(list.map(([id, status]) => [id, { id, title: `R${id}`, requirement_status: status }]));
 
 const drawnPlan = (id, extra = {}) => ({
-    pipeline: { id, title: `Plan ${id}`, pipeline_status: 'active' },
+    pipeline: { id, title: `Plan ${id}`, pipeline_status: 'orchestrating' },
     state: 'drawn',
     layout: layoutOf([
         { id: 1, depth: 0, lane: 0, bandIndex: 0 },
@@ -147,7 +147,7 @@ describe('buildPipelineGroupModel — the calendar', () => {
     // Stamps are UTC without a zone; noon UTC is the same local day from
     // UTC−11 to UTC+11, so these fixtures bucket alike wherever the suite runs.
     const dated = (id, started, extra = {}) => drawnPlan(id, {
-        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'active', started_at: started, ...extra },
+        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'orchestrating', started_at: started, ...extra },
     });
 
     it('a pipeline sits on when it started, else when it was created', () => {
@@ -287,7 +287,7 @@ describe('status colours', () => {
 describe('textPlates', () => {
     const plan = (id, day) => ({
         ...drawnPlan(id),
-        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'active', started_at: `${day}T12:00:00` },
+        pipeline: { id, title: `Plan ${id}`, pipeline_status: 'orchestrating', started_at: `${day}T12:00:00` },
     });
     const model = buildPipelineGroupModel([plan(1, '2026-08-05'), plan(2, '2026-10-20')]);
     const plates = textPlates(model);

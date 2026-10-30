@@ -98,16 +98,74 @@ export const LAUNCH_ACCENT = {
 // The eligible-now marker the POC rendered as `● eligible` beside the Run chip.
 export const ELIGIBLE_MARKER_COLOR = '#4caf50';
 
-// pipeline_status is the ONE hand-controlled lifecycle in this feature
-// (req #3111): draft|active|paused|completed. Human/Primary intent about
-// the plan as a whole — deliberately NOT derived, unlike an epic's state.
-export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed'];
+// pipeline_status is the ONE hand-controlled lifecycle in this feature. Since
+// req #3965 its seven values MIRROR the requirement statuses, in the
+// requirement order, each wearing its mirror's chip colours
+// (`requirementStatusChipProps`, statusChipStyles.js):
+//
+//   authoring           Authoring            ~ authoring
+//   authorized          Authorized           ~ approved
+//   orchestration_ready Orchestration Ready  ~ swarm_ready
+//   orchestrating       Orchestrating        ~ development
+//   met                 Met                  ~ met
+//   wontfix             Won't Fix            ~ wontfix
+//   deferred            Deferred             ~ deferred
+//
+// Only `orchestrating` launches (the server derivation suppresses every epic of
+// a plan in any other status). Every pipeline editor offers all seven, freely,
+// as the requirement editors do — no transition table; the gateway derives
+// started_at/completed_at from the value written. A NEW plan is `authoring`.
+// There is no plan-level pause and no `closed` flag any more — the Pipelines
+// page hides finished plans with its status pills.
+export const PIPELINE_STATUS_VALUES = Object.freeze([
+    'authoring', 'authorized', 'orchestration_ready', 'orchestrating', 'met', 'wontfix', 'deferred',
+]);
 
-// req #3220 — default-visible statuses for the list page's status filter.
-// `paused` stays IN: pausing a plan is a normal, reversible operating state the
-// Primary or user can resume any time, not an archival one — unlike `completed`,
-// which is what the default is actually trying to get out of the way. Excluding `paused` would hide a plan the instant someone pauses it.
-export const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
+/** The status a new plan is born with. */
+export const NEW_PIPELINE_STATUS = 'authoring';
+
+/** The one status under which a plan's epics launch. */
+export const ORCHESTRATING_STATUS = 'orchestrating';
+
+/** A finished plan: met, won't fix or deferred. */
+export const TERMINAL_PIPELINE_STATUSES = Object.freeze(['met', 'wontfix', 'deferred']);
+const TERMINAL_SET = new Set(TERMINAL_PIPELINE_STATUSES);
+export const isTerminalPipelineStatus = (status) => TERMINAL_SET.has(status);
+
+// The Pipelines page's status pills select the four non-terminal values by
+// default, so a finished plan is put away until its pill is lit (req #3965 —
+// this is what replaced the `closed` flag).
+export const DEFAULT_PIPELINE_STATUSES = Object.freeze(
+    PIPELINE_STATUS_VALUES.filter((s) => !TERMINAL_SET.has(s)));
+
+const PIPELINE_STATUS_LABEL = {
+    authoring: 'Authoring',
+    authorized: 'Authorized',
+    orchestration_ready: 'Orchestration Ready',
+    orchestrating: 'Orchestrating',
+    met: 'Met',
+    wontfix: "Won't Fix",
+    deferred: 'Deferred',
+};
+
+/** The human label; an unknown stored value is shown as itself, never hidden. */
+export const pipelineStatusLabel = (status) => PIPELINE_STATUS_LABEL[status] || String(status ?? '—');
+
+const PIPELINE_STATUS_CHIP = {
+    authoring: { bgcolor: '#fbc02d', color: '#000' },
+    authorized: { bgcolor: '#90caf9', color: '#000' },
+    orchestration_ready: { bgcolor: '#1976d2', color: '#fff' },
+    orchestrating: { bgcolor: '#81c784', color: '#000' },
+    met: { bgcolor: '#2e7d32', color: '#fff' },
+    wontfix: { bgcolor: '#9e9e9e', color: '#fff' },
+    deferred: { bgcolor: '#ff9800', color: '#fff' },
+};
+
+/** The chip's colours as `{bg, fg}` — for surfaces that are not MUI chips. */
+export const pipelineStatusColors = (status) => {
+    const c = PIPELINE_STATUS_CHIP[status];
+    return c ? { bg: c.bgcolor, fg: c.color } : null;
+};
 
 // ── THE CANVAS TOOLBAR'S ONE CONTROL VOCABULARY (req #3261, S6 + S7) ────────
 // The plan page's header row spoke SIX widget vocabularies — ToggleButtonGroup,
@@ -156,15 +214,9 @@ export const toolbarChipProps = (on, { pressed = true, sx } = {}) => ({
     sx: { ...(on ? TOOLBAR_CHIP_ON_SX : {}), ...sx },
 });
 
-export const pipelineStatusChipProps = (status) => {
-    switch (status) {
-        case 'draft':     return { sx: { bgcolor: '#546e7a', color: '#fff' } };
-        case 'active':    return { sx: { bgcolor: '#6b4e00', color: '#ffd769' } };
-        case 'paused':    return { sx: { bgcolor: '#ff9800', color: '#000' } };
-        case 'completed': return { sx: { bgcolor: '#1b5e20', color: '#a5e5ae' } };
-        default:          return { color: 'default' };
-    }
-};
+export const pipelineStatusChipProps = (status) => (PIPELINE_STATUS_CHIP[status]
+    ? { sx: { ...PIPELINE_STATUS_CHIP[status] } }
+    : { color: 'default' });
 
 // ---------------------------------------------------------------------------
 // Pipeline 2.0 plan-layer editor chips (req #3393), added to this SHARED file
@@ -175,9 +227,8 @@ export const pipelineStatusChipProps = (status) => {
 // ---------------------------------------------------------------------------
 
 // initiative_status — active|paused (req #3393/#3336). NEW: no equivalent editable
-// control exists in 1.0 at all, only a derived bubble. Amber-for-paused,
-// matching `pipeline_status`'s own `paused` treatment above, so "paused" reads
-// as one color across every plan-layer surface, either era.
+// control exists in 1.0 at all, only a derived bubble. Amber-for-paused — since
+// req #3965 the only pause there is (a plan no longer pauses).
 const INITIATIVE_STATUS_CHIP = {
     active: { bgcolor: '#1c3a52', color: '#8fd0ff' },
     paused: { bgcolor: '#ff9800', color: '#000' },

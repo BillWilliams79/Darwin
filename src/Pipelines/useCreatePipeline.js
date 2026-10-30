@@ -4,7 +4,7 @@
 // validation, one landing — so the trial between them is a trial of the
 // CONTROL, not of two subtly different behaviours.
 //
-// The header dialog OPENS the created plan at once: it is born `draft` and
+// The header dialog OPENS the created plan at once: it is born `authoring` and
 // empty, and the plan page is where its first initiative and epic are added
 // (`EmptyPlanAddEpic.jsx`). The Cards view's in-place card (req #3804) passes
 // `open: false` — the new card stays where it was typed, at the front.
