@@ -11,7 +11,7 @@ import { act } from 'react';
 
 import { composedFixture } from '../../SwarmView/pipelines/__tests__/pipelineComposedFixture';
 
-const drawn = vi.hoisted(() => ({ circles: [], rects: [], paths: [] }));
+const drawn = vi.hoisted(() => ({ circles: [], rects: [], paths: [], wedges: [] }));
 vi.mock('react-konva', () => {
     const Stub = ({ children }) => <div>{children}</div>;
     return {
@@ -21,6 +21,7 @@ vi.mock('react-konva', () => {
         Rect: (props) => { drawn.rects.push(props); return null; },
         Circle: (props) => { drawn.circles.push(props); return null; },
         Path: (props) => { drawn.paths.push(props); return null; },
+        Wedge: (props) => { drawn.wedges.push(props); return null; },
         Line: () => null,
         Text: ({ text }) => <span data-testid="thumb-text">{text}</span>,
     };
@@ -32,6 +33,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
 }));
 
 import PipelinePlanThumbnail, { THUMB_H } from '../PipelinePlanThumbnail';
+import { PERCENT_NONE_COLOR } from '../previewColor';
 
 const FRAME_W = 420;
 let container;
@@ -55,6 +57,7 @@ afterEach(() => {
     drawn.circles.length = 0;
     drawn.rects.length = 0;
     drawn.paths.length = 0;
+    drawn.wedges.length = 0;
 });
 
 const plan = () => composedFixture({
@@ -111,5 +114,30 @@ describe('PipelinePlanThumbnail — whole-plan overview (req #3804)', () => {
         const thumb = container.querySelector('[data-testid="pipelines-card-thumb-8"]');
         expect(thumb.getAttribute('data-thumb-state')).toBe('empty');
         expect(container.querySelector('[data-testid="thumb-stage"]')).toBeNull();
+    });
+
+    it('colours beads by progress by default: dark red at 0%, dark green at 100%, a mix between', () => {
+        composed = plan();
+        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} />));
+        const fills = drawn.circles.filter((c) => c.fill).map((c) => c.fill).sort();
+        // A: 1/1 closed -> dark green. B: 0/2 closed -> dark red. C: no work -> neutral.
+        expect(fills).toEqual([PERCENT_NONE_COLOR, '#14692b', '#a31515'].sort());
+        expect(container.querySelector('[data-testid="pipelines-card-thumb-7"]')
+            .getAttribute('data-color-mode')).toBe('percent');
+    });
+
+    it('draws a scale mode as a pie of the epic\'s requirements', () => {
+        composed = plan();
+        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="state" />));
+        // Epic B holds a development and a swarm_ready requirement: two slices.
+        expect(drawn.wedges).toHaveLength(2);
+        expect(drawn.wedges.reduce((n, w) => n + w.angle, 0)).toBeCloseTo(360);
+    });
+
+    it('keeps the original flag colouring behind the Flags mode', () => {
+        composed = plan();
+        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="flags" />));
+        expect(drawn.wedges).toHaveLength(0);
+        expect(drawn.circles.filter((c) => c.fill)).toHaveLength(3);
     });
 });

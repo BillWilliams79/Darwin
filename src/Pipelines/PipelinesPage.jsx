@@ -133,6 +133,10 @@ import PlanActiveBox from '../SwarmView/pipelines/PlanActiveBox';
 import { buildReqPills } from '../SwarmView/pipelines/planReqPills';
 import { buildReqColorViews, reqIdStyle } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { usePlanViewSetting } from '../SwarmView/pipelines/planViewSettings';
+import PreviewColorChips from './PreviewColorChips';
+import {
+    DEFAULT_PREVIEW_COLOR, PREVIEW_COLOR_STORAGE_KEY, normalizePreviewColor,
+} from './previewColor';
 import { useAllActiveBoxStore } from '../stores/usePlanActiveBoxStore';
 // req #3463/#3372 built the reachable 2.0 visualizer at
 // planDetailPath(id). This list is that visualizer's PRODUCER
@@ -256,6 +260,10 @@ export default function PipelinesPage() {
     const timezone = profile?.timezone;
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
+    // req #4063 — what colours the beads of every card's preview.
+    const [previewColorRaw, setPreviewColor] = useViewPreference(
+        PREVIEW_COLOR_STORAGE_KEY, DEFAULT_PREVIEW_COLOR);
+    const previewColor = normalizePreviewColor(previewColorRaw);
     // ── `?view=` MAKES THE PANEL ADDRESSABLE (req #3641) ────────────────────
     // A dev-server deep link or a pasted link names the panel it means; the
     // stored preference would otherwise decide. PipelineDetail's `?mode=`
@@ -711,6 +719,12 @@ export default function PipelinesPage() {
                                     data-testid="pipelines-show-closed"
                                 />
                             </Tooltip>
+                            {activeView === 'cards' && (
+                                <PreviewColorChips mode={previewColor}
+                                                   onChange={setPreviewColor}
+                                                   machines={machines}
+                                                   sessionsKnown={sessionStatus != null} />
+                            )}
                         </Stack>
                     }
                     actions={<NewPipelineDialog machines={machines}
@@ -781,6 +795,8 @@ export default function PipelinesPage() {
                         closedHidden={showClosed ? 0 : closedCount}
                         refetchInterval={LIVE_REFRESH_MS}
                         thumbnailRefetchInterval={THUMBNAIL_REFRESH_MS}
+                        previewColor={previewColor}
+                        sessionStatus={sessionStatus}
                     />
                 )}
             </Box>

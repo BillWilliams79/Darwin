@@ -27,19 +27,28 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
-import { Stage, Layer, Group, Rect, Line, Path, Text, Circle } from 'react-konva';
+import { Stage, Layer, Group, Rect, Line, Path, Text, Circle, Wedge } from 'react-konva';
 
 import { useComposedPipeline } from '../hooks/useDataQueries';
-import { adaptComposedPipeline } from '../SwarmView/pipelines/pipelineAdapter';
+import { adaptComposedPipeline, buildPlanModel } from '../SwarmView/pipelines/pipelineAdapter';
 import { localDayOf } from '../SwarmView/pipelines/pipelinePlanTime';
 import {
     computePlanLayout,
     beadStyle,
+    buildReqColorViews,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
     NEXT_HALO_OPACITY,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { planOverview, overviewArcPath, OVERVIEW } from './planOverview';
+import {
+    DEFAULT_PREVIEW_COLOR, FLAGS_MODE, PERCENT_MODE,
+    PERCENT_NONE_COLOR, beadSlices, epicPercent, percentColor,
+} from './previewColor';
+
+// A bead's ring in the colour modes: neutral, because the ring in `flags` says
+// barrier / lock / run and a second meaning on the same edge would read as one.
+const NEUTRAL_RING = 'rgba(255,255,255,0.55)';
 
 // The frame. Height is the card's to spend and is kept short — a glance, not a
 // reading surface — but tall enough for a plan of six initiative bands to keep
@@ -73,8 +82,12 @@ function badgeBox(bead, r) {
 
 // `refetchInterval` (req #3804): the Pipelines cards keep the picture live, so
 // a plan that moves on while the page is open is redrawn rather than frozen.
+// `colorMode` (req #4063) is what the beads are coloured by — see previewColor.js;
+// `sessionStatus` is the page's requirement → latest-session-status index, which
+// only the `session` mode reads (the composed plan read carries no session data).
 export default function PipelinePlanThumbnail({ pipelineId, machines = [],
-    enabled = true, refetchInterval }) {
+    enabled = true, refetchInterval, colorMode = DEFAULT_PREVIEW_COLOR,
+    sessionStatus = null }) {
     const { data, isLoading, isError } = useComposedPipeline(pipelineId, {
         enabled: enabled && Number.isFinite(pipelineId),
         refetchInterval,
@@ -125,6 +138,16 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         ? planOverview(structure.layout, structure.rows, width, THUMB_H) : null),
     [structure, width]);
 
+    // The visualizer's own scales over this plan's requirements — pure CPU over
+    // the payload already in hand. Built only for the scale modes.
+    const colorViews = useMemo(() => {
+        if (!data || colorMode === PERCENT_MODE || colorMode === FLAGS_MODE) return null;
+        const model = buildPlanModel(data, machines, sessionStatus);
+        return buildReqColorViews({
+            requirements: model.requirements, machines: model.machines,
+        });
+    }, [data, machines, sessionStatus, colorMode]);
+
     const P = PLAN_VIZ_PALETTE;
 
     // The frame is drawn in EVERY state — loading, failed, empty and drawn — at
@@ -133,6 +156,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         <Box
             ref={setEl}
             data-testid={`pipelines-card-thumb-${pipelineId}`}
+            data-color-mode={colorMode}
             data-thumb-state={isLoading ? 'loading' : isError ? 'error'
                 : view ? 'drawn' : 'empty'}
             sx={{
@@ -169,6 +193,12 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                         {view.beads.map((bead) => {
                             const style = beadStyle(bead.row, structure.eligible.has(bead.id),
                                 bead.row.launchSuppressed);
+                            const flags = colorMode === FLAGS_MODE;
+                            // The ring: the flags' own in `flags`, neutral otherwise.
+                            const ring = flags ? style.ring : NEUTRAL_RING;
+                            const ringW = flags ? beadRingWidth(style, view.r) : 1;
+                            const slices = colorViews ? beadSlices(bead.row, colorViews[colorMode]) : [];
+                            let at = -90;       // twelve o'clock, clockwise
                             return (
                                 <Group key={`bead-${bead.id}`}>
                                     {style.next && (
@@ -176,9 +206,28 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                                 stroke={style.haloColor} strokeWidth={1.2}
                                                 opacity={NEXT_HALO_OPACITY} dash={[2, 2]} />
                                     )}
-                                    <Circle x={bead.x} y={bead.y} radius={view.r}
-                                            fill={style.fill} stroke={style.ring}
-                                            strokeWidth={beadRingWidth(style, view.r)} />
+                                    {slices.length > 1 ? (
+                                        <>
+                                            {slices.map((sl) => {
+                                                const rotation = at;
+                                                at += sl.frac * 360;
+                                                return (
+                                                    <Wedge key={sl.color} x={bead.x} y={bead.y}
+                                                           radius={view.r} angle={sl.frac * 360}
+                                                           rotation={rotation} fill={sl.color} />
+                                                );
+                                            })}
+                                            <Circle x={bead.x} y={bead.y} radius={view.r}
+                                                    stroke={ring} strokeWidth={ringW} />
+                                        </>
+                                    ) : (
+                                        <Circle x={bead.x} y={bead.y} radius={view.r}
+                                                fill={flags ? style.fill
+                                                    : colorMode === PERCENT_MODE
+                                                        ? percentColor(epicPercent(bead.row))
+                                                        : (slices[0]?.color ?? PERCENT_NONE_COLOR)}
+                                                stroke={ring} strokeWidth={ringW} />
+                                    )}
                                 </Group>
                             );
                         })}
