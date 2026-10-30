@@ -45,9 +45,9 @@
 // window keydown listeners run in registration order, and a canvas remounted
 // while maximized registers its drag-cancel Esc AFTER this one.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { useCoverNavbar } from '../Components/fullScreenLayer';
 
 const lockEscape = () => {
     try { Promise.resolve(navigator.keyboard?.lock?.(['Escape'])).catch(() => {}); } catch { /* unsupported */ }
@@ -71,13 +71,8 @@ export function useVisualizerMaximize(enabled) {
     const maximized = want && enabled;
 
     // req #3735 — maximized, the page is drawn OVER the navbar, so the panel
-    // rack is suspended for every Action Popup until it is not (before paint,
-    // so nothing is portalled into the covered navbar for a frame).
-    useLayoutEffect(() => {
-        if (!maximized) return undefined;
-        usePanelRackStore.getState().setCovered(true);
-        return () => usePanelRackStore.getState().setCovered(false);
-    }, [maximized]);
+    // rack is suspended for every Action Popup until it is not.
+    useCoverNavbar(maximized);
 
     const onRef = useRef(maximized);
     onRef.current = maximized;

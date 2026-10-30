@@ -40,8 +40,8 @@
 //     on it unfolds the toolbar (`expand`, the toolbar's own ›) unless the
 //     popup's icon does something of its own. The strip is still a drop zone.
 //   • DRAWN — covered by a view's full screen, the toolbar is not drawn: the
-//     slot is withdrawn and its windows are drawn in the Darwin navbar
-//     meanwhile, as on a page with no toolbar at all (rackPlacement).
+//     slot is withdrawn. The full screen covers the Darwin navbar too
+//     (SystemsPage2, req #4053), so its windows float over it meanwhile.
 // An Action Popup carried from anywhere but this toolbar over the frame would
 // otherwise lose its pointer to the iframe, so the frame takes no pointer
 // meanwhile.
@@ -59,11 +59,11 @@ import { usePanelRackStore } from '../stores/usePanelRackStore';
 
 /** The toolbar in the topology page. */
 const TOOLBAR_SELECTOR = 'nav.navbar';
-/** A view's full screen covers the toolbar: a 3D stage takes `.tpu3d-full`, and
- *  a 2D stage refused the browser's full screen takes the fixed `.s2-full`
- *  overlay (Topology tpu3d.js). */
-const FULL_SCREEN_STAGES = '.tpu3d, .stage';
-const FULL_SCREEN_SELECTOR = '.tpu3d-full, .s2-full';
+/** A view's full screen covers the toolbar: a 3D stage takes the fixed
+ *  `.tpu3d-full` overlay and a 2D stage the fixed `.s2-full`, the browser's full
+ *  screen under them where it is allowed (Topology tpu3d.js). */
+export const FULL_SCREEN_STAGES = '.tpu3d, .stage';
+export const FULL_SCREEN_SELECTOR = '.tpu3d-full, .s2-full';
 /** The toolbar folded to its slim strip, and the › that unfolds it (Topology
  *  topology.js setNavCollapsed). */
 const FOLDED_CLASS = 'nav-collapsed';
