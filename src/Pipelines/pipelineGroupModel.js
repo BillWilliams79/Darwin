@@ -52,12 +52,14 @@ export const GROUP = Object.freeze({
     col: 3.2,          // one dependency column
     lane: 2.6,         // one lane
     bandGap: 0.8,      // between two initiative strips
-    pad: 1.6,          // platform edge → first column / strip
+    pad: 1.6,          // platform edge → first column / strip (sides and front)
+    title: 2.4,        // the platform's back margin, its title printed on it (req #4045)
+    bandHead: 1.1,     // an initiative strip's back margin, its name printed on it
     slabH: 0.4,        // platform thickness
     aisle: 7,          // between two platforms
     emptySize: 6,      // the footprint of a plan with nothing drawn on it
     pedestal: 1.8,     // an epic pedestal's side
-    pedestalH: 0.3,
+    pedestalH: 0.5,    // tall enough that its front face is the epic's nameplate
     cube: 0.5,         // a requirement cube's side
     cubeGap: 0.1,
     perLayer: 3,       // cubes per row of a layer (3 × 3 = 9 per layer)
@@ -111,7 +113,7 @@ function layoutPlan(plan) {
         usedLanes.get(b).add(n.lane ?? 0);
     }
     const laneRank = new Map();
-    let z = G.pad;
+    let z = G.title;
     const bands = [];
     const bandZ = new Map();
     const bandOf = new Map();         // band index -> its drawn strip
@@ -120,7 +122,7 @@ function layoutPlan(plan) {
         if (!set || !set.size) return;
         const sorted = [...set].sort((a, b) => a - b);
         laneRank.set(index, new Map(sorted.map((lane, i) => [lane, i])));
-        const depth = sorted.length * G.lane;
+        const depth = G.bandHead + sorted.length * G.lane;
         const strip = {
             key: band.key == null ? 'none' : band.key,
             label: band.initiative || 'No initiative',
@@ -145,7 +147,7 @@ function layoutPlan(plan) {
         if (!bandZ.has(band)) continue;
         at.set(id, {
             x: G.pad + ((n.depth ?? 0) + 0.5) * G.col,
-            z: bandZ.get(band) + (laneRank.get(band).get(n.lane ?? 0) + 0.5) * G.lane,
+            z: bandZ.get(band) + G.bandHead + (laneRank.get(band).get(n.lane ?? 0) + 0.5) * G.lane,
             band,
         });
     }
@@ -449,43 +451,84 @@ export function pipelineBox(p) {
     return { minX: p.x, maxX: p.x + p.w, minZ: p.z, maxZ: p.z + p.d, maxY };
 }
 
-// ── LABELS (req #4040) ─────────────────────────────────────────────────────
-// Every platform carries its title, its initiative names and its epic names,
-// focused or not — a few hundred labels on the production field. Labels a
-// view lays on top of one another cannot be read, so each frame they are
-// PLACED in priority order and a label that would overlap one already placed
-// hides until the view separates them again (a map's declutter).
+// ── TEXT ON THE PANELS (req #4045) ─────────────────────────────────────────
+// User directive: *"I want all text to be integrated into the 3D simulated of
+// the panels in this view, not as a floating helper text."* So no label hovers
+// over the scene: every word is PRINTED on a surface, as the Topology viewer
+// prints a part's name on its top face (tpu3d.js `tpu3dHostNvme`):
+//
+//   column date     → the calendar's header strip, on the floor behind it
+//   skipped stretch → the floor of its wider aisle
+//   pipeline title  → its platform's top, in the back margin (`GROUP.title`)
+//   initiative      → its strip's top, in the strip's back margin (`GROUP.bandHead`)
+//   epic            → its pedestal's front face, the nameplate (`GROUP.pedestalH`)
+//
+// Printed text is part of the world: it foreshortens with the view, a nearer
+// panel hides it, and it is read by moving in (a focus frames one platform).
+// Nothing can print over anything else, so there is no declutter.
 
-/** Label tiers, most important first — the calendar's own headers lead (req #4042). */
-// A skipped stretch's note is last: a column's date never loses to it.
-export const LABEL_TIER = Object.freeze({ column: 0, pipeline: 1, initiative: 2, epic: 3, gap: 4 });
+/** A plate's margin inside the face it is printed on. */
+const PLATE_INSET = 0.4;
+const SURFACE_LIFT = 0.012;        // over the face it lies on: no depth fight
+const MIN_PLATE = 0.1;             // never a zero or mirrored (negative) plate
 
-const LABEL_GAP_PX = 2;
+const plate = (spec) => ({ ...spec, w: Math.max(MIN_PLATE, spec.w), h: Math.max(MIN_PLATE, spec.h) });
 
 /**
- * Which labels show. Priority: the focused pipeline's labels (`lit`) before
- * the rest, then by tier (pipeline title › initiative › epic), then nearest
- * to the camera (`d`).
+ * Every piece of text in the scene, as a plate on the surface it is printed on.
+ * `face: 'up'` lies flat (its top edge toward the back, −z), `'front'` stands
+ * on a face looking at +z. x/y/z is the plate's world centre; w × h its extent
+ * across the face; `lines` how many lines the text may wrap to.
  *
- * @param {Array<{left, top, right, bottom, tier: number, d: number, lit?: boolean}>} items
- *        screen rects, in pixels
- * @returns {boolean[]}  shown, index-aligned with `items`
+ * @returns {Array<{kind: 'column'|'gap'|'pipeline'|'initiative'|'epic', text: string,
+ *   pipelineId: ?number, face: 'up'|'front', x: number, y: number, z: number,
+ *   w: number, h: number, lines: number, align: 'left'|'center', accent?: string}>}
  */
-export function placeLabels(items) {
-    const order = items.map((_, i) => i).sort((a, b) => {
-        const A = items[a];
-        const B = items[b];
-        return (B.lit ? 1 : 0) - (A.lit ? 1 : 0) || A.tier - B.tier || A.d - B.d;
+export function textPlates(model) {
+    const G = GROUP;
+    const plates = [];
+    if (!model) return plates;
+    const cols = model.columns || [];
+    cols.forEach((c, i) => {
+        plates.push(plate({
+            kind: 'column', text: c.label, pipelineId: null, face: 'up',
+            x: c.x + c.w / 2, y: SURFACE_LIFT, z: c.headerZ,
+            w: c.w + G.aisle - 1 - 2 * PLATE_INSET, h: G.header * 0.5, lines: 1, align: 'center',
+        }));
+        if (c.gapBefore && i > 0) {
+            const prev = cols[i - 1];
+            plates.push(plate({
+                kind: 'gap', text: `· ${c.gapBefore.label} ·`, pipelineId: null, face: 'up',
+                x: (prev.x + prev.w + c.x) / 2, y: SURFACE_LIFT, z: c.headerZ,
+                w: c.x - (prev.x + prev.w) - 2 * PLATE_INSET, h: G.header * 0.3, lines: 1, align: 'center',
+            }));
+        }
     });
-    const shown = new Array(items.length).fill(false);
-    const placed = [];
-    for (const i of order) {
-        const r = items[i];
-        const hit = placed.some((q) => r.left < q.right + LABEL_GAP_PX && r.right + LABEL_GAP_PX > q.left
-            && r.top < q.bottom + LABEL_GAP_PX && r.bottom + LABEL_GAP_PX > q.top);
-        if (hit) continue;
-        shown[i] = true;
-        placed.push(r);
+    const top = G.slabH + SURFACE_LIFT;
+    for (const p of model.pipelines || []) {
+        const title = p.state === 'loading' ? `${p.title} · loading…`
+            : p.state === 'error' ? `${p.title} · could not load`
+                : p.title;
+        plates.push(plate({
+            kind: 'pipeline', text: title, pipelineId: p.id, face: 'up',
+            x: p.x + p.w / 2, y: top, z: p.z + G.title / 2,
+            w: p.w - 2 * PLATE_INSET, h: G.title - 2 * PLATE_INSET, lines: 2, align: 'left',
+        }));
+        for (const band of p.bands) {
+            plates.push(plate({
+                kind: 'initiative', text: band.label, pipelineId: p.id, face: 'up',
+                x: p.x + p.w / 2, y: top + SURFACE_LIFT, z: p.z + band.z + G.bandHead / 2,
+                w: p.w - 2 * PLATE_INSET, h: G.bandHead - 0.3, lines: 1, align: 'left',
+                accent: band.color,
+            }));
+        }
+        for (const e of p.epics) {
+            plates.push(plate({
+                kind: 'epic', text: e.title, pipelineId: p.id, face: 'front',
+                x: p.x + e.x, y: G.slabH + G.pedestalH / 2, z: p.z + e.z + G.pedestal / 2 + 0.004,
+                w: G.pedestal - 0.12, h: G.pedestalH - 0.08, lines: 2, align: 'center',
+            }));
+        }
     }
-    return shown;
+    return plates;
 }
