@@ -19,6 +19,7 @@ import MapStatsCard from './MapStatsCard';
 import { IS_MACOS } from '../photo-browser/proxyConfig.js';
 import PhotoMarkerLayer from './PhotoMarkerLayer';
 import './RouteMapFull.css';
+import { FULL_SCREEN_Z, useCoverNavbar } from '../Components/fullScreenLayer';
 
 // --- Base layers (no key required) ---
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -57,16 +58,29 @@ const FitBounds = ({ positions }) => {
     return null;
 };
 
-/** Fullscreen toggle — uses CSS pseudo-fullscreen (no browser API needed) */
+/** Fullscreen toggle — uses CSS pseudo-fullscreen (no browser API needed).
+ *  Full, the map is a full screen mode (req #4053): on FULL_SCREEN_Z, under the
+ *  Requirement Filer — the plugin's own layer is 99999 — and the navbar covered. */
 const FullscreenControl = () => {
     const map = useMap();
+    const [full, setFull] = React.useState(false);
+    useCoverNavbar(full);
     React.useEffect(() => {
         const ctrl = L.control.fullscreen({
             position: 'topleft',
             pseudoFullscreen: true,
         });
         ctrl.addTo(map);
-        return () => ctrl.remove();
+        const onChange = () => {
+            const on = map.isFullscreen();
+            map.getContainer().style.zIndex = on ? String(FULL_SCREEN_Z) : '';
+            setFull(on);
+        };
+        map.on('fullscreenchange', onChange);
+        return () => {
+            map.off('fullscreenchange', onChange);
+            ctrl.remove();
+        };
     }, [map]);
     return null;
 };
