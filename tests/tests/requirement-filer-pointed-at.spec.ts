@@ -124,9 +124,16 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
 
   test('FPA-01: over a requirement card, the description names it and the bundle carries its rect', async ({ page }) => {
     await openSwarm(page, false);
-    // Pinned (req #3958): mid-drag the card is outlined.
+    // Pinned (req #3958): mid-drag the card is outlined — or, as the outline names
+    // the innermost testid under the filer's centre, the element of it there (its
+    // title field, FPA-02), never the category card around it (req #4046).
+    const row = page.getByTestId(`requirement-${targetId}`);
     await dragFilerOnto(page, `requirement-${targetId}`, async () => {
-      await expect(page.getByTestId('requirement-aim')).toHaveAttribute('data-aim', `requirement-${targetId}`);
+      await expect.poll(async () => {
+        const aim = await page.getByTestId('requirement-aim').getAttribute('data-aim', { timeout: 500 }).catch(() => null);
+        if (!aim) return null;
+        return aim === `requirement-${targetId}` || await row.locator(`[data-testid="${aim}"]`).count() > 0 ? 'in the row' : aim;
+      }).toBe('in the row');
     });
     const { description, filedFrom } = await fileIt(page, uniqueName('FilerPointed'));
     const line = description.split('\n').find(l => l.startsWith('Pointed at: '));
@@ -137,6 +144,41 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     expect(card.rect.w).toBeGreaterThan(0);
     expect(card.rect.h).toBeGreaterThan(0);
     expect(JSON.stringify(filedFrom.pointedAt)).not.toContain('requirement-filer');
+  });
+
+  test('FPA-05: pinned, it is carried half off screen to the edge, and let go there the place is held and recorded (req #4046)', async ({ page }) => {
+    await openSwarm(page, false);
+    const vw = page.viewportSize()!.width;
+    const filer = (await page.getByTestId('requirement-filer').boundingBox())!;
+    const head = (await page.getByTestId('requirement-filer-header').boundingBox())!;
+    const t = (await page.getByTestId(`requirement-${targetId}`).boundingBox())!;
+    // The centre to the last pixel column, at the card's height — half the filer past the edge.
+    const aim = { x: vw - 1, y: t.y + t.height / 2 };
+    const sx = head.x + head.width / 2;
+    const sy = head.y + head.height / 2;
+    const dx = aim.x - (filer.x + filer.width / 2);
+    const dy = aim.y - (filer.y + filer.height / 2);
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(sx + (dx * i) / 10, sy + (dy * i) / 10);
+    const carried = (await page.getByTestId('requirement-filer').boundingBox())!;
+    expect(carried.x + carried.width).toBeGreaterThan(vw);
+    await expect(page.getByTestId('requirement-aim')).toHaveAttribute('data-aim', /.+/);
+    await page.mouse.up();
+    // Let go: it slides back whole on screen; the place is still outlined, its reticle at the edge.
+    await expect.poll(async () => {
+      const b = (await page.getByTestId('requirement-filer').boundingBox())!;
+      return b.x + b.width <= vw;
+    }).toBe(true);
+    const held = await page.getByTestId('requirement-aim').getAttribute('data-aim');
+    expect(held).toBeTruthy();
+    const point = (await page.getByTestId('requirement-aim-point').boundingBox())!;
+    expect(Math.abs(point.x + point.width / 2 - aim.x)).toBeLessThanOrEqual(2);
+    // + records the held place, not where the filer now sits.
+    const { filedFrom } = await fileIt(page, uniqueName('FilerHeld'));
+    const centre = filedFrom.pointedAt.find((p: { points: string[] }) => p.points.includes('centre'));
+    expect(centre.testidPath[0]).toBe(held);
+    expect(centre.rect.x + centre.rect.w).toBeGreaterThanOrEqual(aim.x);
   });
 
   test('FPA-02: the field being typed in is named, never copied', async ({ page }) => {

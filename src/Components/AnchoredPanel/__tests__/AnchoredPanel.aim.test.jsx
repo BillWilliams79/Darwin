@@ -61,12 +61,29 @@ describe('AnchoredPanel onMoveTrack (req #3958)', () => {
         press([1300, 810]);
         moveTo([900, 610]);
         expect(track).toHaveBeenLastCalledWith({ phase: 'move', docking: false,
-            rect: { left: 800, top: 600, width: 300, height: 180 } });
+            rect: { left: 800, top: 600, width: 300, height: 180 }, aim: expect.any(Function) });
         expect(panel.style.opacity || getComputedStyle(panel).opacity).toBe('0.6');
 
         release([900, 610]);
         expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'drop', docking: false }));
         expect(getComputedStyle(panel).opacity).not.toBe('0.6');
+    });
+
+    it('a host deciding after the frame (req #4046) draws it translucent through the frame\'s aim', () => {
+        const track = vi.fn(() => false);
+        render(<Panel onMoveTrack={track} />);
+        const panel = screen.getByTestId('p');
+        place(panel, { left: 1200, top: 800, width: 300, height: 180 });
+
+        press([1300, 810]);
+        moveTo([900, 610]);
+        expect(getComputedStyle(panel).opacity).not.toBe('0.6');
+        // The host's answer settles on a timer, after the last move.
+        act(() => track.mock.lastCall[0].aim(true));
+        expect(panel.style.opacity || getComputedStyle(panel).opacity).toBe('0.6');
+        act(() => track.mock.lastCall[0].aim(false));
+        expect(getComputedStyle(panel).opacity).not.toBe('0.6');
+        release([900, 610]);
     });
 
     it('over a rack it is docking; dropped there the drop says so', () => {
