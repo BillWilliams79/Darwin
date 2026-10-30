@@ -79,8 +79,13 @@ export const codeLabel = (code) => CODE_LABELS[code] || code;
 
 // ── Health (heartbeat.schema.json, darwin-mcp services/engine2.py) ─────────
 // `x-missing-after-seconds`: a beat older than this reads `missing` while the
-// engine is wanted on. Held to the schema by the vocabulary test.
+// engine is wanted on — or older than `x-missed-intervals` of the beat's own
+// `health.interval_s`, when an idle engine declares a longer sleep (req #4022).
+// Held to the schema by the vocabulary test.
 export const MISSING_AFTER_SECONDS = 180;
+export const MISSED_INTERVALS = 3;
+// run.py DEFAULT_INTERVAL: a declared `interval_s` above it is the idle backoff.
+export const ENGINE_BASE_INTERVAL_SECONDS = 60;
 export const HEALTH_OK = 'ok';
 export const HEALTH_DEGRADED = 'degraded';
 export const HEALTH_MISSING = 'missing';

@@ -17,12 +17,14 @@
 //     orthographic one at the identical scale
 //   * Rotate turns the view about the pivot
 //   * every platform carries its title, its initiative names and its epic
-//     names (req #4040), decluttered each frame so none prints over another
+//     names (req #4040), PRINTED on its surfaces — no text floats over the
+//     scene (req #4045, `textPlates` says which word goes on which face)
 //   * the floor is a CALENDAR (req #4042): a tile per time column, its date
-//     in a header behind it, and a skipped stretch named in its wider aisle
+//     printed on the header strip behind it, and a skipped stretch named on
+//     the floor of its wider aisle
 //   * hover names what is under the pointer; a click FOCUSES a pipeline — the
-//     others lowlight, the camera flies to frame it and its labels take
-//     priority over every other platform's (the Data Center's focus); a click
+//     others lowlight — their printed text with them — and the camera flies
+//     to frame it, close enough to read (the Data Center's focus); a click
 //     on empty floor or Esc clears it; a double-click zooms toward the point
 //     under the pointer
 //
@@ -32,9 +34,8 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
-import { GROUP, LABEL_TIER, pipelineBox, placeLabels } from './pipelineGroupModel';
+import { GROUP, pipelineBox, textPlates } from './pipelineGroupModel';
 import { PLAN_VIZ_PALETTE } from '../SwarmView/pipelines/pipelinePlanLayout';
 
 const P = PLAN_VIZ_PALETTE;
@@ -66,11 +67,142 @@ export function webglAvailable() {
     }
 }
 
-function labelEl(text, className) {
-    const el = document.createElement('div');
-    el.className = className;
-    el.textContent = text;
-    return el;
+// ── PRINTED TEXT (req #4045) ───────────────────────────────────────────────
+// A plate is a canvas the text is drawn on, mapped onto a plane laid on its
+// face — Topology's way of naming a part (tpu3d.js `tpu3dHostNvme`).
+const FONT = 'Roboto, Helvetica, Arial, sans-serif';
+const PLATE_STYLE = {
+    column: { weight: 700, color: '#ffffff', fill: 'rgba(12, 29, 52, 0.9)', border: P.accent },
+    gap: { weight: 400, color: '#7bb8de', italic: true },
+    pipeline: { weight: 700, color: P.text },
+    initiative: { weight: 600, color: P.text },
+    epic: { weight: 600, color: '#ffffff' },
+};
+const LINE_PX = 64;             // canvas pixels per line of a plate
+const MAX_CANVAS_PX = 2048;
+const SHRINK = [1, 0.9, 0.8, 0.7, 0.6];
+
+const fontOf = (style, px) => `${style.italic ? 'italic ' : ''}${style.weight} ${px}px ${FONT}`;
+
+function ellipsize(g, line, maxW) {
+    if (g.measureText(line).width <= maxW) return line;
+    let s = line;
+    while (s.length > 1 && g.measureText(`${s}…`).width > maxW) s = s.slice(0, -1);
+    return `${s.trimEnd()}…`;
+}
+
+// Greedy word wrap into at most `n` lines; `fits` is false when anything was cut.
+export function wrap(g, text, maxW, n) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let i = 0;
+    while (i < words.length && lines.length < n) {
+        let line = words[i++];
+        while (i < words.length && g.measureText(`${line} ${words[i]}`).width <= maxW) line += ` ${words[i++]}`;
+        lines.push(line);
+    }
+    let fits = i >= words.length;
+    if (!fits) lines[lines.length - 1] += ` ${words.slice(i).join(' ')}`;
+    const out = lines.map((l) => {
+        const cut = ellipsize(g, l, maxW);
+        if (cut !== l) fits = false;
+        return cut;
+    });
+    return { lines: out, fits };
+}
+
+// A plate's frame inside its canvas: the initiative's colour bar, a placard's padding.
+function frameOf(plate, H) {
+    const style = PLATE_STYLE[plate.kind] || PLATE_STYLE.pipeline;
+    const bar = plate.accent ? Math.round(H * 0.14) : 0;
+    const gutter = plate.accent ? bar + Math.round(H * 0.25) : 0;
+    const padX = style.fill ? Math.round(H * 0.45) : 0;
+    return { style, bar, gutter, padX };
+}
+
+// Fit a plate's text into W × H px: one line as large as it fits, else wrapped
+// onto more, else shrunk. When nothing fits whole, the attempt that shows the
+// most of the text wins (the larger font on a tie), cut with an ellipsis.
+function fitPlate(g, plate, W, H) {
+    const { style, gutter, padX } = frameOf(plate, H);
+    const maxW = W - gutter - 2 * padX;
+    let best = null;
+    const shown = (r) => r.lines.join(' ').replace(/…$/, '').length;
+    for (let n = 1; n <= plate.lines; n += 1) {
+        for (const k of SHRINK) {
+            const px = Math.max(6, Math.floor((H / n) * 0.74 * k));
+            g.font = fontOf(style, px);
+            const r = { ...wrap(g, plate.text || '', maxW, n), px, n };
+            if (r.fits) return { ...r, textW: Math.max(0, ...r.lines.map((l) => g.measureText(l).width)) };
+            if (!best || shown(r) > shown(best) || (shown(r) === shown(best) && r.px > best.px)) best = r;
+        }
+    }
+    g.font = fontOf(style, best.px);
+    return { ...best, textW: Math.max(0, ...best.lines.map((l) => g.measureText(l).width)) };
+}
+
+/** Paint a fitted plate's text, its block centred down the plate. */
+function drawPlate(canvas, plate, fit) {
+    const g = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+    g.clearRect(0, 0, W, H);
+    if (!fit.lines.length) return;
+    const { style, bar, gutter, padX } = frameOf(plate, H);
+    g.font = fontOf(style, fit.px);
+    g.textBaseline = 'middle';
+    if (style.fill) {
+        const bw = Math.min(W - 4, fit.textW + 2 * padX);
+        const bh = H * 0.92;
+        g.fillStyle = style.fill;
+        g.strokeStyle = style.border;
+        g.lineWidth = Math.max(2, H * 0.04);
+        g.beginPath();
+        if (g.roundRect) g.roundRect((W - bw) / 2, (H - bh) / 2, bw, bh, H * 0.12);
+        else g.rect((W - bw) / 2, (H - bh) / 2, bw, bh);
+        g.fill();
+        g.stroke();
+    }
+    if (plate.accent) {
+        g.fillStyle = plate.accent;
+        g.fillRect(0, H * 0.1, bar, H * 0.8);
+    }
+    g.fillStyle = style.color;
+    g.textAlign = plate.align === 'center' ? 'center' : 'left';
+    const x = plate.align === 'center' ? gutter + (W - gutter) / 2 : gutter + padX;
+    const lineH = H / fit.n;
+    const y0 = H / 2 - ((fit.lines.length - 1) * lineH) / 2;
+    fit.lines.forEach((line, i) => g.fillText(line, x, y0 + i * lineH));
+}
+
+// A plate's canvas, at its height's full resolution. A left-aligned plate is
+// cropped to the text it carries, so a short title on a wide platform keeps
+// its resolution instead of spending the canvas on empty face; only a text
+// wider than the canvas cap lowers it. Returns the plate's drawn world width
+// and centre x, which a crop changes.
+function plateCanvas(plate) {
+    let ppu = (LINE_PX * plate.lines) / plate.h;
+    const H = Math.max(8, Math.round(plate.h * ppu));
+    let W = Math.round(plate.w * ppu);
+    const canvas = document.createElement('canvas');
+    canvas.height = H;
+    const g = canvas.getContext('2d');
+    let fit = fitPlate(g, plate, W, H);
+    if (plate.align === 'left' && fit.lines.length) {
+        const { gutter, padX } = frameOf(plate, H);
+        W = Math.min(W, Math.ceil(gutter + 2 * padX + fit.textW + H * 0.1));
+    }
+    if (W > MAX_CANVAS_PX) {
+        ppu *= MAX_CANVAS_PX / W;
+        W = MAX_CANVAS_PX;
+        canvas.height = Math.max(8, Math.round(plate.h * ppu));
+        fit = fitPlate(g, plate, W, canvas.height);
+    }
+    canvas.width = Math.max(8, W);
+    drawPlate(canvas, plate, fit);
+    const w = canvas.width / ppu;
+    const x = plate.align === 'left' ? plate.x - plate.w / 2 + w / 2 : plate.x;
+    return { canvas, w, x };
 }
 
 /**
@@ -91,11 +223,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
     renderer.domElement.setAttribute('data-testid', 'pipelines-group-canvas');
     container.appendChild(renderer.domElement);
 
-    const labels = new CSS2DRenderer();
-    Object.assign(labels.domElement.style, {
-        position: 'absolute', top: '0', left: '0', pointerEvents: 'none',
-    });
-    container.appendChild(labels.domElement);
+    const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() || 1);
 
     const scene = new THREE.Scene();
     scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x0a1220, 1.1));
@@ -341,9 +469,11 @@ export function createPipelineGroupScene(container, handlers = {}) {
         world.root.traverse((o) => {
             if (o.geometry) o.geometry.dispose();
             if (o.material) {
-                (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+                (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+                    m.map?.dispose();
+                    m.dispose();
+                });
             }
-            if (o.isCSS2DObject) o.element.remove();
         });
         // An instanced mesh frees its instance buffers on its OWN dispose.
         world.pedestals?.dispose();
@@ -367,20 +497,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
 
         const platforms = [];
         const byPipeline = new Map();
-        const labelRefs = [];            // every label in the field, for the declutter
-        const addLabel = (entry, obj, tier) => {
-            entry.group.add(obj);
-            entry.labels.push(obj);
-            labelRefs.push({ obj, tier, pipelineId: entry.p.id, w: 0, h: 0 });
-        };
         const reqRefs = [];
         const epicRefs = [];
         const allReqs = [];
         const allEpics = [];
 
         // The calendar (req #4042): a tile under every time column, alternate
-        // columns a shade apart so the eye can follow one down; its date in
-        // the header strip behind it; a skipped stretch named in its aisle.
+        // columns a shade apart so the eye can follow one down. Its date and a
+        // skipped stretch's note are printed with the rest of the text, below.
         const calendar = new THREE.Group();
         const half = G.aisle / 2;
         (model.columns || []).forEach((c, i) => {
@@ -392,26 +516,13 @@ export function createPipelineGroupScene(container, handlers = {}) {
             tile.rotation.x = -Math.PI / 2;
             tile.position.set(c.x + c.w / 2, 0.005, c.z - G.header + (tileD + half) / 2);
             calendar.add(tile);
-            const head = new CSS2DObject(labelEl(c.label, 'pg-label pg-label-column'));
-            head.position.set(c.x + c.w / 2, 0.05, c.headerZ);
-            head.center.set(0.5, 0.5);
-            calendar.add(head);
-            labelRefs.push({ obj: head, tier: LABEL_TIER.column, pipelineId: null, w: 0, h: 0 });
-            if (c.gapBefore && i > 0) {
-                const prev = model.columns[i - 1];
-                const gap = new CSS2DObject(labelEl(`· ${c.gapBefore.label} ·`, 'pg-label pg-label-gap'));
-                gap.position.set((prev.x + prev.w + c.x) / 2, 0.05, c.headerZ);
-                gap.center.set(0.5, 0.5);
-                calendar.add(gap);
-                labelRefs.push({ obj: gap, tier: LABEL_TIER.gap, pipelineId: null, w: 0, h: 0 });
-            }
         });
         root.add(calendar);
 
         for (const p of model.pipelines) {
             const g = new THREE.Group();
             g.position.set(p.x, 0, p.z);
-            const entry = { p, group: g, materials: [], labels: [] };
+            const entry = { p, group: g, materials: [] };
 
             const slabMat = new THREE.MeshStandardMaterial({
                 color: P.panel, roughness: 0.9, metalness: 0.05, transparent: true, opacity: 1,
@@ -439,20 +550,11 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 strip.position.set(band.w / 2, G.slabH + 0.01, band.z + band.d / 2);
                 g.add(strip);
                 entry.materials.push({ m: mat, base: new THREE.Color(band.color), opacity: 0.22 });
-                const lab = new CSS2DObject(labelEl(band.label, 'pg-label pg-label-initiative'));
-                lab.element.style.setProperty('--pg-band', band.color);
-                lab.position.set(0.3, G.slabH + 0.05, band.z + band.d / 2);
-                lab.center.set(0, 0.5);
-                addLabel(entry, lab, LABEL_TIER.initiative);
             }
 
             for (const e of p.epics) {
                 allEpics.push({ p, e });
                 for (const r of e.reqs) allReqs.push({ p, e, r });
-                const lab = new CSS2DObject(labelEl(e.title, 'pg-label pg-label-epic'));
-                lab.position.set(e.x, G.slabH + e.height + 0.35, e.z);
-                lab.center.set(0.5, 1);
-                addLabel(entry, lab, LABEL_TIER.epic);
             }
 
             if (p.arcs.length) {
@@ -470,14 +572,6 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 g.add(arcs);
                 entry.materials.push({ m: arcMat, base: new THREE.Color(P.arc), opacity: 0.85 });
             }
-
-            const title = p.state === 'loading' ? `${p.title} · loading…`
-                : p.state === 'error' ? `${p.title} · could not load`
-                    : p.title;
-            const tl = new CSS2DObject(labelEl(title, 'pg-label pg-label-pipeline'));
-            tl.position.set(p.w / 2, G.slabH + 0.2, -0.6);
-            tl.center.set(0.5, 1);
-            addLabel(entry, tl, LABEL_TIER.pipeline);
 
             root.add(g);
             byPipeline.set(p.id, entry);
@@ -519,8 +613,29 @@ export function createPipelineGroupScene(container, handlers = {}) {
             root.add(cubes);
         }
 
+        // Every word in the scene, printed on its face (req #4045). Drawn after
+        // the translucent strips and tiles it lies on, so they never tint it.
+        for (const plate of textPlates(model)) {
+            const { canvas, w, x } = plateCanvas(plate);
+            const map = new THREE.CanvasTexture(canvas);
+            map.colorSpace = THREE.SRGBColorSpace;
+            map.anisotropy = anisotropy;
+            const mat = new THREE.MeshBasicMaterial({
+                map, transparent: true, depthWrite: false,
+                polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+            });
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, plate.h), mat);
+            if (plate.face === 'up') mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set(x, plate.y, plate.z);
+            mesh.renderOrder = 2;
+            mesh.userData = { kind: 'text', plate: plate.kind, text: plate.text, pipelineId: plate.pipelineId };
+            root.add(mesh);
+            const entry = plate.pipelineId != null ? byPipeline.get(plate.pipelineId) : null;
+            if (entry) entry.materials.push({ m: mat, base: new THREE.Color('#ffffff'), opacity: 1 });
+        }
+
         scene.add(root);
-        world = { root, platforms, byPipeline, pedestals, cubes, epicRefs, reqRefs, labelRefs };
+        world = { root, platforms, byPipeline, pedestals, cubes, epicRefs, reqRefs };
         applyFocus();
     }
 
@@ -534,7 +649,6 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 m.color.copy(dim(base, lit));
                 if (opacity != null) m.opacity = lit ? opacity : opacity * 0.5;
             }
-            for (const l of entry.labels) l.element.classList.toggle('pg-label-dim', !lit);
         }
         const paint = (mesh, refs) => {
             if (!mesh) return;
@@ -706,7 +820,6 @@ export function createPipelineGroupScene(container, handlers = {}) {
         width = Math.max(1, container.clientWidth);
         height = Math.max(1, container.clientHeight);
         renderer.setSize(width, height);
-        labels.setSize(width, height);
         persp.aspect = width / height;
         persp.updateProjectionMatrix();
         frustum();
@@ -723,64 +836,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
         else controls.update();
         flushHover();
         renderer.render(scene, live());
-        labels.render(scene, live());
-        declutter();
     }
 
-    // Every label in the field is placed in priority order each frame — the
-    // focused plan's first, then titles › initiatives › epics, nearest first —
-    // and one that would print over a placed one hides until the view
-    // separates them (`placeLabels`). Seen square-on from the front or the
-    // side, platforms in one line of sight print their titles on one spot
-    // (Topology's stacked labels, req #3566): the nearest shows.
-    //
-    // Screen boxes are PROJECTED from each label's anchor exactly as
-    // CSS2DRenderer places it, with its size measured once: a few hundred
-    // getBoundingClientRect calls a frame would be a few hundred layouts.
-    const viewProj = new THREE.Matrix4();
-    const ndcPos = new THREE.Vector3();
-    function declutter() {
-        if (!world) return;
-        const cam = live();
-        viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-        const items = [];
-        const refs = [];
-        // Read every size first, then write: one layout per frame at most.
-        // `visibility` keeps a hidden label's box, so a measurement stays true.
-        for (const ref of world.labelRefs) {
-            const { obj } = ref;
-            if (obj.element.style.display === 'none') continue;   // behind the camera
-            if (!ref.w) {
-                ref.w = obj.element.offsetWidth;
-                ref.h = obj.element.offsetHeight;
-                if (!ref.w) continue;
-            }
-            // `labels.render` just brought every matrixWorld up to date.
-            ndcPos.setFromMatrixPosition(obj.matrixWorld);
-            const d = ndcPos.distanceToSquared(cam.position);
-            ndcPos.applyMatrix4(viewProj);
-            const x = (ndcPos.x * 0.5 + 0.5) * width - obj.center.x * ref.w;
-            const y = (-ndcPos.y * 0.5 + 0.5) * height - obj.center.y * ref.h;
-            // Off the stage: clipped anyway, and it must not crowd one that is on it.
-            if (x > width || y > height || x + ref.w < 0 || y + ref.h < 0) continue;
-            items.push({
-                left: x, top: y, right: x + ref.w, bottom: y + ref.h,
-                tier: ref.tier, d, lit: focusId != null && ref.pipelineId === focusId,
-            });
-            refs.push(ref);
-        }
-        const shown = placeLabels(items);
-        refs.forEach((ref, i) => {
-            const want = shown[i] ? '' : 'hidden';
-            if (ref.obj.element.style.visibility !== want) ref.obj.element.style.visibility = want;
-        });
-    }
-    // A web font landing after the first measurement changes every label's
-    // width: measure again.
-    const remeasure = () => {
-        if (world) for (const ref of world.labelRefs) ref.w = 0;
+    // A web font landing after the plates were drawn changes their fit and
+    // their crop: build them again in it (the camera stays where it is).
+    const redraw = () => {
+        if (world) build();
     };
-    document.fonts?.addEventListener?.('loadingdone', remeasure);
+    document.fonts?.addEventListener?.('loadingdone', redraw);
     raf = requestAnimationFrame(loop);
 
     let framed = false;
@@ -833,7 +896,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
             el.removeEventListener('keydown', onKey);
             el.removeEventListener('pointerdown', takeOver);
             el.removeEventListener('wheel', takeOver);
-            document.fonts?.removeEventListener?.('loadingdone', remeasure);
+            document.fonts?.removeEventListener?.('loadingdone', redraw);
             controls.dispose();
             disposeWorld();
             renderer.dispose();
@@ -841,7 +904,6 @@ export function createPipelineGroupScene(container, handlers = {}) {
             // up until Chrome drops the oldest.
             renderer.forceContextLoss();
             el.remove();
-            labels.domElement.remove();
         },
     };
 }
