@@ -62,11 +62,6 @@ describe('persistPartialize (req #2799)', () => {
         expect(out.costOn).toBe(true);
     });
 
-    it('persists devServersOn (req #2857)', () => {
-        const out = persistPartialize({ currentDate: '2026-06-13', devServersOn: false });
-        expect(out.devServersOn).toBe(false);
-    });
-
     it('drops the transient pastExtraDays scroll-up counter (req #2859)', () => {
         const out = persistPartialize({
             currentDate: '2026-06-13', pastExtraDays: 84, dataKey: 'category',
@@ -175,10 +170,8 @@ describe('migrateVisualizerState (req #2799, req #2806, req #2844)', () => {
         expect(migrateVisualizerState({ costOn: true }).costOn).toBe(true);
     });
 
-    it('back-fills devServersOn to true and preserves a persisted devServersOn=false (req #2857)', () => {
-        // ON by default — an old blob predating the field opts in automatically.
-        expect(migrateVisualizerState({ viewType: 'day' }).devServersOn).toBe(true);
-        expect(migrateVisualizerState({ devServersOn: false }).devServersOn).toBe(false);
+    it('strips the retired devServersOn field (req #4088)', () => {
+        expect(migrateVisualizerState({ devServersOn: false })).not.toHaveProperty('devServersOn');
     });
 
     it('normalizes an unknown dataKey to category', () => {
@@ -194,7 +187,5 @@ describe('migrateVisualizerState (req #2799, req #2806, req #2844)', () => {
         expect(out.dataKey).toBe('category');
         // req #2856 — konvaWide defaults to false (24h).
         expect(out.konvaWide).toBe(false);
-        // req #2857 — devServersOn back-fills to true even from null state.
-        expect(out.devServersOn).toBe(true);
     });
 });
