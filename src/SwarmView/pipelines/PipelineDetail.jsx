@@ -146,9 +146,9 @@ const PLAN_CONTROL_H = 24;
 
 const TITLE_MIN_W = 140;
 // The title row's Req # jump field (req #3798): RequirementJumpInput's own width
-// (110) plus the row gap, added to the title slot's floor so it never eats the
+// (72, req #4064) plus the row gap, added to the title slot's floor so it never eats the
 // plan name's stub.
-const REQ_JUMP_W = 118;
+const REQ_JUMP_W = 80;
 
 /**
  * The plan page (req #3356 — one era).
