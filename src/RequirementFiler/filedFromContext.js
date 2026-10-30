@@ -478,9 +478,12 @@ function visibleApps(profile) {
  * @param {?Object} p.popupStore the filer's { dock, open, titleLock }
  * @param {?Element} [p.typingIn] the element focused as the press began
  * @param {boolean} [p.pinned]   the filer's pushpin — unpressed, it records no place (req #3958)
+ * @param {?Object} [p.heldRect] {x, y, w, h} — where a pinned filer was let go
+ *   half off screen (req #4046): it slid back on, and the place it HOLDS, not
+ *   where it now sits, is what it points at
  * @param {Date} [p.now]
  */
-export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, now = new Date() }) {
+export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, heldRect = null, now = new Date() }) {
     const { pathname = '/', search = '', hash = '' } = location || {};
     const page = readPageOptions();
     const app = appForRoute(pathname);
@@ -492,7 +495,9 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     const racked = self ? self.racked : rackPlacement(usePanelRackStore.getState(), popupId) != null;
     const pointed = !pinned ? { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notPinned }
         : typeof document !== 'undefined'
-        ? pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn)
+        ? (self && heldRect && !self.racked && !self.titleLocked
+            ? { ...pointedAtNow({ ...self, rect: heldRect }, document, typingIn), pointedAtFrom: 'held', heldRect }
+            : pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn))
         : { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
     return {
         version: FILED_FROM_VERSION,

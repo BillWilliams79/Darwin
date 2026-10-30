@@ -91,8 +91,9 @@
 // rect it is drawn at and whether a release would DOCK it (`docking` — over a
 // rack, or the title bar), then once how the drag ended: `drop` (docking: it
 // racked or locked) or `cancel`. The host answers each move frame with whether
-// it is pointing at something; while it is, the panel is drawn translucent so
-// what it points at shows through (the Requirement Filer — filerHover.js).
+// it is pointing at something — or, deciding later, calls that frame's `aim`
+// (req #4046); while it is, the panel is drawn translucent so what it points
+// at shows through (the Requirement Filer — filerHover.js).
 // `dockable={false}` (the filer's pushpin picker mode) suspends docking for the
 // drag: no rack and no title bar takes it — dragged out of one it floats — so
 // a bar's own elements are something it can point at.
@@ -169,15 +170,19 @@ const viewport = () => ({
  * @param {function} [props.onRackIconPress]  a press on the icon begins, before
  *   focus moves (the Filer notes the field being typed in, req #3829)
  * @param {function} [props.onMoveTrack]  ({phase: 'move'|'drop'|'cancel', rect,
- *   docking}) during and at the end of a head drag; a move frame's truthy answer
- *   draws the panel translucent (req #3958)
+ *   docking, aim}) during and at the end of a head drag; a move frame's truthy
+ *   answer draws the panel translucent (req #3958), as does `aim(true)` called
+ *   later in the drag — a host that decides off the frame (req #4046)
  * @param {boolean} [props.dockable]  false = a drag never racks or title-locks
  *   it (dragged out of either, it floats) — the filer's picker mode (req #3958)
+ * @param {boolean} [props.overhang]  true = a head drag may carry it half off
+ *   the viewport, its centre kept inside (req #4046); released, it docks back
+ *   whole on screen as always
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
     limits, fontPx = 12, border = 2, colors, sx, zIndex = PANEL_Z, rackId, titleLock = null, onTitleLockChange,
-    rackIcon, rackIconLabel, onRackIcon, onRackIconPress, onMoveTrack, dockable = true,
+    rackIcon, rackIconLabel, onRackIcon, onRackIconPress, onMoveTrack, dockable = true, overhang = false,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -299,7 +304,7 @@ export default function AnchoredPanel({
         if (!g.last && Math.hypot(dx, dy) <= MOVE_SLOP) return;
         const { vw, vh } = viewport();
         g.last = g.kind === 'move'
-            ? moveRect(g.r0, dx, dy, vw, vh)
+            ? moveRect(g.r0, dx, dy, vw, vh, overhang && (boxRef.current?.getBoundingClientRect() ?? true))
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         // Lifted only off its own rack: a reorder inside it is drawn where it is.
         // Not dockable, it never stays in the rack it came from: lifted at once.
@@ -310,7 +315,7 @@ export default function AnchoredPanel({
             const overBarNow = dockable && titleBar.track(x, y, colors.frame);
             if (onMoveTrack) {
                 g.tracked = true;
-                aim(!!onMoveTrack({ phase: 'move', rect: drawnRect(g), docking: !!(overRackNow || overBarNow) }));
+                aim(!!onMoveTrack({ phase: 'move', rect: drawnRect(g), docking: !!(overRackNow || overBarNow), aim }));
             }
         }
     };

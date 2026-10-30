@@ -138,6 +138,18 @@ describe('moveRect', () => {
         expect(moveRect(r0, 5000, 5000, vw, vh)).toMatchObject({ left: 1300, top: 800 });
         expect(moveRect(r0, -5000, -5000, vw, vh)).toMatchObject({ left: 0, top: 0 });
     });
+    it('with overhang (req #4046) only its centre is kept inside — it reaches every pixel', () => {
+        const r0 = { left: 500, top: 400, width: 300, height: 200 };
+        expect(moveRect(r0, 100, -50, vw, vh, true)).toMatchObject({ left: 600, top: 350 });
+        // Centre at the last pixel, (vw - 1, vh - 1), and at the first, (0, 0).
+        expect(moveRect(r0, 5000, 5000, vw, vh, true)).toMatchObject({ left: vw - 1 - 150, top: vh - 1 - 100 });
+        expect(moveRect(r0, -5000, -5000, vw, vh, true)).toMatchObject({ left: -150, top: -100 });
+    });
+    it('with overhang at a drawn size (dragged out of a rack, r0 is its head) the DRAWN centre is kept inside', () => {
+        const head = { left: 0, top: 0, width: 180, height: 24 };
+        expect(moveRect(head, -5000, -5000, vw, vh, { width: 300, height: 180 })).toMatchObject({ left: -150, top: -90 });
+        expect(moveRect(head, 5000, 5000, vw, vh, { width: 300, height: 180 })).toMatchObject({ left: vw - 1 - 150, top: vh - 1 - 90 });
+    });
 });
 
 describe('freeCorner', () => {

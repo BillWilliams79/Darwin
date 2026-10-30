@@ -523,7 +523,12 @@ const RequirementRowContent = memo(({ requirement, requirementIndex, categoryId,
                                ...markSx,
                         }}
                         size = 'small'
-                        slotProps={{ htmlInput: { maxLength: 256 } }}
+                        // One per row, and never autofilled: MUI's per-input autofill
+                        // keyframes (four <style> tags each, never deduplicated)
+                        // are not injected — in dev every tag is a DOM insert into
+                        // <head>, and hundreds of rows froze /swarm for 20 s
+                        // (req #4087, reported in #4086). Other inputs still inject them.
+                        slotProps={{ htmlInput: { maxLength: 256 }, input: { disableInjectingGlobalStyles: true } }}
                         inputRef={isTemplate ? titleInputRef : undefined}
                         key={`title-${requirement.id}`}
              />
