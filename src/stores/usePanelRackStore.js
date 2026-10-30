@@ -43,6 +43,10 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //     SUSPENDED for every window — no drop zone, a racked window floats —
 //     rather than portalling windows into a navbar nobody can see. Published
 //     by the covering page while it covers; live only, never persisted.
+//     Every full screen mode covers it (req #4053, Components/fullScreenLayer.js
+//     useCoverNavbar), and one can sit inside another — a map's full screen in
+//     a full-screen dialog — so `cover()`/`uncover()` count them (`covers`):
+//     the navbar is covered until the last one ends.
 const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
 
 export const usePanelRackStore = create(
@@ -55,6 +59,7 @@ export const usePanelRackStore = create(
             drag: null,
             seeded: [],
             covered: false,
+            covers: 0,
             seed: (id) => {
                 const { seeded, racked, pageRacked } = get();
                 if (seeded.includes(id)) return;
@@ -74,6 +79,11 @@ export const usePanelRackStore = create(
             setPageSlot: (pageSlot) => set({ pageSlot }),
             setDrag: (drag) => set({ drag }),
             setCovered: (covered) => set({ covered: !!covered }),
+            cover: () => set({ covers: get().covers + 1, covered: true }),
+            uncover: () => {
+                const covers = Math.max(0, get().covers - 1);
+                set({ covers, covered: covers > 0 });
+            },
         }),
         {
             name: 'darwin_panel_rack',

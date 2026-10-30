@@ -27,7 +27,8 @@
 // rack it is drawn in) at that rack's width, ordered by `rackOrder(rackPos)`.
 //
 // SUSPENDED (req #3735): while a page is drawn over the navbar — the Plan page
-// maximized — that page publishes `covered` (usePanelRackStore.setCovered). The
+// maximized, any full screen mode (req #4053) — it publishes `covered`
+// (Components/fullScreenLayer.js useCoverNavbar). The
 // navbar is still mounted underneath, so without it a racked window would be
 // drawn hidden under the page and a drop at the window's left edge would land
 // in a rack nobody can see. ONE fact suspends EVERY rackable window, whatever

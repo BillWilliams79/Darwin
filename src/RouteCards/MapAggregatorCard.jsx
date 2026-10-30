@@ -13,6 +13,7 @@ import { useMapCoordinatesForRuns } from '../hooks/useDataQueries';
 import { countPhotosForRuns } from '../photo-browser/filterUtils.js';
 import RouteMapThumbnail from './RouteMapThumbnail';
 import RouteMapFull from './RouteMapFull';
+import { FULL_SCREEN_DIALOG_PROPS, useCoverNavbar } from '../Components/fullScreenLayer';
 
 const MAP_HEIGHT = 400;
 
@@ -75,6 +76,9 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
     // Whether the full-screen dialog (RouteMapFull) is open. false = the
     // card shows only the non-interactive preview (RouteMapThumbnail).
     const [expanded, setExpanded] = useState(false);
+    // The full-screen dialog is a full screen mode: under the Requirement Filer
+    // and over the navbar, which it covers (req #4053).
+    useCoverNavbar(expanded);
 
     // Over the CAPPED set, like every other figure in the header: the stats
     // describe the rides actually on the map, so header and map agree. The
@@ -182,6 +186,7 @@ const MapAggregatorCard = ({ runs = [], dedupedPhotoIndex }) => {
                 open={expanded}
                 onClose={() => setExpanded(false)}
                 fullScreen
+                {...FULL_SCREEN_DIALOG_PROPS}
                 data-testid="map-aggregator-card-full-dialog"
             >
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
