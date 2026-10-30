@@ -5,8 +5,14 @@ import InputAdornment from '@mui/material/InputAdornment';
 import TextField from '@mui/material/TextField';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 
+// req #4064 — the range is 0–9999, so the field is squeezed to four digits plus
+// the go arrow, in a 72px box.
+const REQ_JUMP_MAX_DIGITS = 4;
+const REQ_JUMP_WIDTH = 72;
+
 const fieldSx = {
-    '& .MuiInputBase-input': { py: 0.5, fontSize: 13 },
+    '& .MuiInputBase-root': { pr: 0.25 },
+    '& .MuiInputBase-input': { py: 0.5, pl: 1, pr: 0.5, fontSize: 13 },
 };
 
 const RequirementJumpInput = () => {
@@ -28,7 +34,7 @@ const RequirementJumpInput = () => {
 
     const onChange = (e) => {
         // digits only
-        const v = e.target.value.replace(/\D/g, '');
+        const v = e.target.value.replace(/\D/g, '').slice(0, REQ_JUMP_MAX_DIGITS);
         setValue(v);
     };
 
@@ -37,12 +43,13 @@ const RequirementJumpInput = () => {
             value={value}
             onChange={onChange}
             onKeyDown={onKeyDown}
-            placeholder="Req #"
+            placeholder="Req"
             size="small"
             inputMode="numeric"
             data-testid="req-jump-input"
-            sx={{ width: 110, ...fieldSx }}
+            sx={{ width: REQ_JUMP_WIDTH, ...fieldSx }}
             slotProps={{
+                htmlInput: { maxLength: REQ_JUMP_MAX_DIGITS },
                 input: {
                     endAdornment: (
                         <InputAdornment position="end">
@@ -51,7 +58,7 @@ const RequirementJumpInput = () => {
                                 onClick={submit}
                                 aria-label="Go to requirement"
                                 data-testid="req-jump-submit"
-                                sx={{ p: 0.25 }}
+                                sx={{ p: 0.125 }}
                             >
                                 <ArrowForwardIcon sx={{ fontSize: 16 }} />
                             </IconButton>
