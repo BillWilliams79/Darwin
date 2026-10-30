@@ -27,7 +27,7 @@ import KonvaSwarmCanvas from '../KonvaSwarmCanvas';
 const props = {
     requirements: [], allRequirements: [], sessions: [],
     swarmStarts: [], swarmStartSessions: [], swarmUndos: [],
-    swarmCompletes: [], swarmCompleteSessions: [], devServers: [],
+    swarmCompletes: [], swarmCompleteSessions: [],
     selectedDate: '2026-10-22', timezone: 'UTC', categoryList: [],
     rangeStart: '2026-10-20', rangeEnd: '2026-10-22',
 };
