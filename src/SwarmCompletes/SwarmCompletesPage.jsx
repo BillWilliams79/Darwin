@@ -13,6 +13,7 @@ import { useLinkedViewPreference } from '../hooks/useLinkedViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import SwarmCompletesStatsView from './SwarmCompletesStatsView';
+import useCompleteTelemetry from './useCompleteTelemetry';
 import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 
@@ -92,6 +93,11 @@ export default function SwarmCompletesPage() {
 
     // View toggle (Table | Stats) — req #2794.
     const [view, setView] = useLinkedViewPreference(VIEW_STORAGE_KEY, 'table', ['table', 'stats']);
+
+    // req #4113 — the stats view needs each row's `telemetry`, which cannot ride
+    // the list read (see devopsQueries.js); fetched in bounded windows, and only
+    // while the Stats view is showing.
+    const telemetry = useCompleteTelemetry(creatorFk, swarmCompletes, { enabled: view === 'stats' });
     const handleViewChange = (_event, newView) => setView(newView);
 
     // Status filter chip-selector. null = All.
@@ -305,7 +311,24 @@ export default function SwarmCompletesPage() {
                 </Box>
             )}
             {view === 'stats' && (
-                <SwarmCompletesStatsView rows={swarmCompletes} />
+                telemetry.rows
+                    ? <SwarmCompletesStatsView rows={telemetry.rows} />
+                    : (
+                        <Box sx={{ px: 3, pt: 1 }} data-testid="swarm-completes-stats-loading">
+                            {telemetry.error
+                                ? <Typography color="error">Could not load telemetry for the stats view.</Typography>
+                                : telemetry.total === 0
+                                    ? <SwarmCompletesStatsView rows={[]} />
+                                    : (
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <CircularProgress size={18} />
+                                            <Typography color="text.secondary">
+                                                Loading telemetry ({telemetry.loaded}/{telemetry.total})…
+                                            </Typography>
+                                        </Stack>
+                                    )}
+                        </Box>
+                    )
             )}
         </Box>
     );

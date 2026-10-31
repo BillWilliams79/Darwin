@@ -182,10 +182,17 @@ export const swarmUndos = createEntityQueries({
 // ops block here after req #2827. Dev-mode reads seeded fixtures from
 // `darwin_dev`; the prod `darwin` rows land at /swarm-complete time.
 // ---------------------------------------------------------------------------
-const SWARM_COMPLETE_DEFAULT_FIELDS =
+// req #4113 — the LIST projection carries NO `telemetry` and NO `complete_summary`.
+// `telemetry` averages ~8 KB a row; across ~1,000 rows the list was ~8.6 MB, over
+// Lambda's 6 MB synchronous-response cap, so the browser saw "Failed to fetch" and
+// the Swarm Completes page rendered empty. Neither field is a column of the table
+// view; the detail page reads them from the by-id fetch (no `fields` → whole row)
+// and the stats view reads `telemetry` in bounded date windows
+// (SwarmCompletes/useCompleteTelemetry.js).
+export const SWARM_COMPLETE_DEFAULT_FIELDS =
     'id,skill_name,coordination_type,status,session_count,' +
     'tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
-    'wall_seconds,turn_count,complete_summary,telemetry,' +
+    'wall_seconds,turn_count,ai_model,effort,' +
     'started_at,completed_at,creator_fk';
 
 export const swarmCompletes = createEntityQueries({
