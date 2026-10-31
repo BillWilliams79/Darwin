@@ -451,6 +451,62 @@ export function pipelineBox(p) {
     return { minX: p.x, maxX: p.x + p.w, minZ: p.z, maxZ: p.z + p.d, maxY };
 }
 
+// ── DOUBLE-CLICK FRAMES (req #4131) ────────────────────────────────────────
+// Double-clicking a thing frames THAT THING — a date column, a pipeline, an
+// initiative strip, an epic with its requirements, one requirement — rather
+// than halving the camera's distance about the cursor. Each is a world box in
+// the shape `pipelineBox` returns; the scene flies to fit it.
+
+const box = (minX, maxX, minZ, maxZ, maxY, minY = 0) => ({ minX, maxX, minZ, maxZ, maxY, minY });
+
+/** A date column: its header strip and every platform standing in it. */
+export function columnBox(c) {
+    return box(c.x, c.x + c.w, c.z - GROUP.header, c.z + c.d, GROUP.slabH);
+}
+
+/** An initiative's strip, its name margin included. */
+export function bandBox(p, band) {
+    return box(p.x, p.x + band.w, p.z + band.z - GROUP.bandHead, p.z + band.z + band.d, GROUP.slabH + 1);
+}
+
+/** An epic: its pedestal and every requirement stacked on it. */
+export function epicBox(p, e) {
+    let minX = p.x + e.x - GROUP.pedestal / 2;
+    let maxX = p.x + e.x + GROUP.pedestal / 2;
+    let minZ = p.z + e.z - GROUP.pedestal / 2;
+    let maxZ = p.z + e.z + GROUP.pedestal / 2;
+    let maxY = GROUP.slabH + (e.height || GROUP.pedestalH);
+    for (const r of e.reqs || []) {
+        minX = Math.min(minX, p.x + r.x - GROUP.cube / 2);
+        maxX = Math.max(maxX, p.x + r.x + GROUP.cube / 2);
+        minZ = Math.min(minZ, p.z + r.z - GROUP.cube / 2);
+        maxZ = Math.max(maxZ, p.z + r.z + GROUP.cube / 2);
+        maxY = Math.max(maxY, GROUP.slabH + r.y + GROUP.cube / 2);
+    }
+    return box(minX, maxX, minZ, maxZ, maxY, GROUP.slabH);
+}
+
+/** One requirement cube. */
+export function reqBox(p, r) {
+    const h = GROUP.cube / 2;
+    return box(p.x + r.x - h, p.x + r.x + h, p.z + r.z - h, p.z + r.z + h, GROUP.slabH + r.y + h, GROUP.slabH + r.y - h);
+}
+
+/**
+ * How far a perspective camera stands from a box's centre to hold it with
+ * `margin` to spare on whichever screen axis binds. Never closer than `min`.
+ * Pure, so a test can pin the framing without a WebGL context.
+ */
+export function frameDistance(b, fovDeg, aspect, { margin = 1.35, min = 2 } = {}) {
+    const sx = b.maxX - b.minX;
+    const sz = b.maxZ - b.minZ;
+    const sy = b.maxY - (b.minY || 0);
+    const radius = 0.5 * Math.sqrt(sx * sx + sz * sz + sy * sy) * margin;
+    const half = (fovDeg * Math.PI) / 360;
+    const fit = Math.max(radius / Math.sin(half), radius / Math.sin(Math.atan(Math.tan(half) * aspect)));
+    return Math.max(min, fit);
+}
+
 // ── TEXT ON THE PANELS (req #4045) ─────────────────────────────────────────
 // User directive: *"I want all text to be integrated into the 3D simulated of
 // the panels in this view, not as a floating helper text."* So no label hovers
