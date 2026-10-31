@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 //
 // Characterization (req #4117): how often the engine view and the plan overlay
-// poll, ahead of req #4122 ("Engine view polling", memory/pipeline-cycle-cost.md
-// finding 10). Today: the three live engine tables refetch every POLL_MS
-// (15 s); a full decision record is read once (content-addressed); its
+// poll (req #4122 "Engine view polling", memory/pipeline-cycle-cost.md
+// finding 10). The three live engine tables refetch every POLL_MS
+// (30 s, was 15 s before #4122); a full decision record is read once (content-addressed); its
 // outcomes poll only while it is the live record; the overlay drops to
 // TRANSITION_POLL_MS (3 s) while an engine is coming up or going down; the
-// name dictionaries never poll. #4122 changes POLL_MS and edits the constant
-// assertion here in the same change; every other row must hold.
+// name dictionaries never poll.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
@@ -80,8 +79,8 @@ afterEach(() => {
 });
 
 describe('engine view polling', () => {
-    it('POLL_MS is 15 s and TRANSITION_POLL_MS 3 s', () => {
-        expect(POLL_MS).toBe(15000);
+    it('POLL_MS is 30 s and TRANSITION_POLL_MS 3 s', () => {
+        expect(POLL_MS).toBe(30000);
         expect(TRANSITION_POLL_MS).toBe(3000);
     });
 
