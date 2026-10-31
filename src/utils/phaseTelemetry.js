@@ -42,6 +42,15 @@ export function extractBalancedJson(text, fromIndex) {
     return null;
 }
 
+// The embedded token blob — COMPLETE_TOKEN_TELEMETRY (worker closeouts) wins
+// over TOKEN_TELEMETRY — parsed, or null when the column carries none.
+function tokenTelemetryJson(telemetry) {
+    if (!telemetry || typeof telemetry !== 'string') return null;
+    let markerIdx = telemetry.indexOf('COMPLETE_TOKEN_TELEMETRY:');
+    if (markerIdx === -1) markerIdx = telemetry.indexOf('TOKEN_TELEMETRY:');
+    return markerIdx === -1 ? null : extractBalancedJson(telemetry, markerIdx);
+}
+
 // Parse a telemetry blob into a per-phase breakdown.
 //   - Worker token telemetry: the embedded TOKEN_TELEMETRY (or, for completes,
 //     COMPLETE_TOKEN_TELEMETRY) JSON carries a `phases` object with real
@@ -54,26 +63,22 @@ export function parsePhaseBreakdown(telemetry) {
     const result = { tokenPhases: [], wallPhases: [] };
     if (!telemetry || typeof telemetry !== 'string') return result;
 
-    let markerIdx = telemetry.indexOf('COMPLETE_TOKEN_TELEMETRY:');
-    if (markerIdx === -1) markerIdx = telemetry.indexOf('TOKEN_TELEMETRY:');
-    if (markerIdx !== -1) {
-        const tokenJson = extractBalancedJson(telemetry, markerIdx);
-        const phases = tokenJson && tokenJson.phases;
-        if (phases && typeof phases === 'object') {
-            for (const [phase, v] of Object.entries(phases)) {
-                const input = Number(v.input) || 0;
-                const output = Number(v.output) || 0;
-                const cacheWrite = Number(v.cache_write) || 0;
-                const cacheRead = Number(v.cache_read) || 0;
-                result.tokenPhases.push({
-                    phase, input, output, cacheWrite, cacheRead,
-                    turnCount: Number(v.turn_count) || 0,
-                    // Per-phase wall is carried alongside the token costs in the
-                    // same JSON; surfaced for the stats Phase Cost Leaderboard.
-                    wall: Number(v.wall_seconds) || 0,
-                    total: input + output + cacheWrite + cacheRead,
-                });
-            }
+    const tokenJson = tokenTelemetryJson(telemetry);
+    const phases = tokenJson && tokenJson.phases;
+    if (phases && typeof phases === 'object') {
+        for (const [phase, v] of Object.entries(phases)) {
+            const input = Number(v.input) || 0;
+            const output = Number(v.output) || 0;
+            const cacheWrite = Number(v.cache_write) || 0;
+            const cacheRead = Number(v.cache_read) || 0;
+            result.tokenPhases.push({
+                phase, input, output, cacheWrite, cacheRead,
+                turnCount: Number(v.turn_count) || 0,
+                // Per-phase wall is carried alongside the token costs in the
+                // same JSON; surfaced for the stats Phase Cost Leaderboard.
+                wall: Number(v.wall_seconds) || 0,
+                total: input + output + cacheWrite + cacheRead,
+            });
         }
     }
 
@@ -87,4 +92,36 @@ export function parsePhaseBreakdown(telemetry) {
         }
     }
     return result;
+}
+
+// Which telemetry anchor produced a row (req #4107). Req #4095 moved the
+// swarm_starts / swarm_completes anchor from the turn-2 marker to the skill
+// INVOCATION, so a new-anchor row also counts the skill-load turns (a
+// /swarm-start's cache write goes ~10 K → ~137 K) — the two series must never be
+// averaged together unawares. The row's own blob names its anchor in
+// `invocation_start_source`: `skill_invocation` is the new anchor; anything else
+// (`marker_file`, `swarm_start_marker`, absent, no blob) is legacy. Never the
+// date: a Primary clone that has not synced keeps writing legacy rows.
+export const ANCHOR_NEW = 'new';
+export const ANCHOR_LEGACY = 'legacy';
+export const ANCHOR_ALL = 'all';
+
+export function parseInvocationAnchor(telemetry) {
+    const tokenJson = tokenTelemetryJson(telemetry);
+    return tokenJson && tokenJson.invocation_start_source === 'skill_invocation'
+        ? ANCHOR_NEW
+        : ANCHOR_LEGACY;
+}
+
+// { all, new, legacy } row counts — the anchor control's labels.
+export function countRowsByAnchor(rows) {
+    const counts = { [ANCHOR_ALL]: rows.length, [ANCHOR_NEW]: 0, [ANCHOR_LEGACY]: 0 };
+    for (const row of rows) counts[parseInvocationAnchor(row.telemetry)] += 1;
+    return counts;
+}
+
+// The rows the Stats views aggregate under the selected anchor filter.
+export function filterRowsByAnchor(rows, anchor) {
+    if (anchor !== ANCHOR_NEW && anchor !== ANCHOR_LEGACY) return rows;
+    return rows.filter(row => parseInvocationAnchor(row.telemetry) === anchor);
 }

@@ -23,7 +23,7 @@ import {
     useAllSwarmStartSessions,
     useMachines,
 } from '../hooks/useDataQueries';
-import { useViewPreference } from '../hooks/useViewPreference';
+import { useLinkedViewPreference } from '../hooks/useLinkedViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import { selectRequirementsForSwarmStart } from './requirementsList';
@@ -90,7 +90,7 @@ export default function SwarmStartsPage() {
     }, [machinesData]);
 
     // View toggle (Table | Stats) — req #2686.
-    const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
+    const [view, setView] = useLinkedViewPreference(VIEW_STORAGE_KEY, 'table', ['table', 'stats']);
     const handleViewChange = (_event, newView) => setView(newView);
 
     // req #3265 — delete affordance. This is a CLIENT-SIDE guard only: the
