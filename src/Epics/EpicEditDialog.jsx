@@ -62,17 +62,17 @@ export const notBeforeToInputValue = (naiveUtc) => {
         + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-const inputValueToNotBefore = (localValue) => {
+export const inputValueToNotBefore = (localValue) => {
     if (!localValue) return null;
     const d = new Date(localValue);
     if (Number.isNaN(d.getTime())) return null;
     return d.toISOString().slice(0, 19).replace('T', ' ');
 };
 
-const runOf = (epic) => (VALID_RUN2_MODES.includes(epic?.run) ? epic.run : 'auto');
+export const runOf = (epic) => (VALID_RUN2_MODES.includes(epic?.run) ? epic.run : 'auto');
 // req #3767 — the barrier is the epic's `checkpoint` column. Absent/NULL is the
 // column default (on); the plan canvas passes a boolean, the Epics page 0/1.
-const barrierOf = (epic) => epic?.checkpoint == null || Boolean(Number(epic.checkpoint));
+export const barrierOf = (epic) => epic?.checkpoint == null || Boolean(Number(epic.checkpoint));
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const epicList = (ids, cap = false) => `${cap ? 'E' : 'e'}pic${ids.length === 1 ? '' : 's'} ${ids.join(', ')}`;
@@ -80,7 +80,7 @@ const epicList = (ids, cap = false) => `${cap ? 'E' : 'e'}pic${ids.length === 1 
 // Why the epic cannot be deleted right now, or null. A lock on the epic (its
 // own or inherited) or on any epic whose dependency row the delete rewrites is
 // a 423 at the gateway, so the button says so instead of failing.
-const deleteBlockedReason = (epic, inheritedLock, deletion) => {
+export const deleteBlockedReason = (epic, inheritedLock, deletion) => {
     if (inheritedLock) return `Locked by its ${inheritedLock} — unlock the ${inheritedLock} to delete this epic.`;
     if (epic.locked) return 'Locked — unlock and save to delete this epic.';
     const locked = (deletion.dependents || []).filter((d) => d.locked).map((d) => d.id);
@@ -93,7 +93,7 @@ const deleteBlockedReason = (epic, inheritedLock, deletion) => {
 
 // The requirements seated in the epic: `reqIds` when the caller has them
 // (needed to delete them), else just the count.
-const reqIdsOf = (deletion) => deletion?.reqIds || [];
+export const reqIdsOf = (deletion) => deletion?.reqIds || [];
 const reqCountOf = (deletion) => (deletion?.reqIds ? deletion.reqIds.length : deletion?.reqCount || 0);
 
 // What the delete does, in the confirmation's words.

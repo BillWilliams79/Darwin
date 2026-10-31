@@ -55,6 +55,8 @@ vi.mock('../../../Epics/epicsApi', async (orig) => ({
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import PlanElementEditor from '../PlanElementEditor';
+import { usePlanEditorStore } from '../../../stores/usePlanEditorStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.ResizeObserver) {
@@ -67,6 +69,7 @@ let root;
 let restoreSize;
 
 beforeEach(() => {
+    usePlanEditorStore.setState({ current: null });
     // The canvas restores the camera it last saved for a plan (req #3637), so
     // one test's framing would be the next test's landing without this.
     localStorage.clear();
@@ -118,6 +121,7 @@ function render(levelPref) {
                 <MemoryRouter initialEntries={['/swarm/pipeline/2?mode=plan']}>
                     <PipelinePlanVisualizer plan={plan} model={model} levelPref={levelPref}
                                             pipeline={payload.pipeline} timezone="UTC" />
+<PlanElementEditor />
                     <LocationProbe />
                 </MemoryRouter>
             </QueryClientProvider>
@@ -144,11 +148,11 @@ const clickLast = async (kind) => {
 
 // The editor it opened over the canvas, and the page and camera it left alone.
 const expectEditorOpened = (before) => {
-    const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
+    const dialog = document.querySelector('[data-testid="plan-editor-form-epic"]');
     expect(dialog).not.toBeNull();
-    const id = Number(dialog.textContent.match(/Edit epic (\d+)/)?.[1]);
+    const id = Number(document.querySelector('[data-testid="plan-editor-identity"]').textContent.match(/Epic (\d+)/)?.[1]);
     expect([10, 11, 12, 13, 14, 15, 16, 17]).toContain(id);
-    expect(document.querySelector('[data-testid="epic-title-input"]').value).toBe(`Epic ${id}`);
+    expect(document.querySelector('[data-testid="plan-editor-field-title"]').value).toBe(`Epic ${id}`);
     expect(currentLocation.pathname).toBe('/swarm/pipeline/2');
     expect(transform()).toEqual(before);
 };
@@ -177,15 +181,15 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
         await settle();
         updateEpic.mockClear();
         await clickLast('rect');
-        const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
-        const id = Number(dialog.textContent.match(/Edit epic (\d+)/)[1]);
-        const input = document.querySelector('[data-testid="epic-title-input"]');
+        const dialog = document.querySelector('[data-testid="plan-editor-form-epic"]');
+        const id = Number(document.querySelector('[data-testid="plan-editor-identity"]').textContent.match(/Epic (\d+)/)[1]);
+        const input = document.querySelector('[data-testid="plan-editor-field-title"]');
         act(() => {
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
                 .set.call(input, 'Renamed');
             input.dispatchEvent(new Event('input', { bubbles: true }));
         });
-        act(() => { document.querySelector('[data-testid="epic-save"]').click(); });
+        act(() => { document.querySelector('[data-testid="plan-editor-save"]').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(updateEpic).toHaveBeenCalledWith(undefined, undefined, id,
             { title: 'Renamed', notes: 'NULL', run: 'auto', checkpoint: 1, not_before: 'NULL' });
@@ -198,12 +202,12 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
         await settle();
         deleteEpicFreeingDependents.mockClear();
         await clickLast('rect');
-        const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
-        const id = Number(dialog.textContent.match(/Edit epic (\d+)/)[1]);
-        act(() => { document.querySelector('[data-testid="epic-delete"]').click(); });
-        const consequence = document.querySelector('[data-testid="epic-delete-consequence"]');
+        const dialog = document.querySelector('[data-testid="plan-editor-form-epic"]');
+        const id = Number(document.querySelector('[data-testid="plan-editor-identity"]').textContent.match(/Epic (\d+)/)[1]);
+        act(() => { document.querySelector('[data-testid="plan-editor-delete"]').click(); });
+        const consequence = document.querySelector('[data-testid="plan-editor-delete-consequence"]');
         expect(consequence.textContent).toContain(`Delete epic ${id} "Epic ${id}"?`);
-        act(() => { document.querySelector('[data-testid="epic-delete-confirm"]').click(); });
+        act(() => { document.querySelector('[data-testid="plan-editor-delete-confirm"]').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(deleteEpicFreeingDependents).toHaveBeenCalledWith(undefined, undefined, id,
             id < 17 ? [id + 1] : []);
@@ -230,49 +234,45 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
                         <PipelinePlanVisualizer plan={adaptComposedPipeline(payload)}
                                                 model={buildPlanModel(payload)} levelPref="3"
                                                 pipeline={payload.pipeline} timezone="UTC" />
+<PlanElementEditor />
                         <LocationProbe />
                     </MemoryRouter>
                 </QueryClientProvider>
             );
         });
         await settle();
-        const editorTitle = () => document.querySelector('[data-testid="epic-edit-dialog"]')
-            ?.textContent.match(/Edit epic (\d+)/)?.[1];
+        const editorTitle = () => document.querySelector('[data-testid="plan-editor-form-epic"]')
+            ?.textContent.match(/Epic (\d+)/)?.[1];
         for (const target of document.querySelectorAll('[data-act="rect"][data-stroked="0"]')) {
             act(() => { target.click(); });
             await settle();
             if (editorTitle() === '10') break;
         }
         expect(editorTitle()).toBe('10');
-        const del = document.querySelector('[data-testid="epic-delete"]');
+        const del = document.querySelector('[data-testid="plan-editor-delete"]');
         expect(del.disabled).toBe(true);
         expect(del.getAttribute('aria-label')).toBe(
             'Epic 11 waits on it and is locked — unlock to delete this epic.');
     });
 
-    // The second click of a quick double click on the title area lands on the
-    // dialog's backdrop: it must not close the editor it just opened.
-    it('a backdrop click right after opening is ignored; a later one closes the editor', async () => {
+    // req #4133 — ONE editor at a time: opening another epic's replaces the
+    // first, and ✕ closes it.
+    it('opens one editor at a time: another epic replaces it, and the close button ends it', async () => {
         render('3');
         await settle();
-        const before = transform();
-        act(() => {
-            [...document.querySelectorAll('[data-act="rect"][data-stroked="0"]')].pop().click();
-        });
-        const backdropClick = () => act(() => {
-            const container = document.querySelector('.MuiDialog-container');
-            container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        });
-        backdropClick();
-        const dialog = () => document.querySelector('[data-testid="epic-edit-dialog"]');
-        expect(dialog()).not.toBeNull();
-        expect(dialog().getAttribute('aria-hidden')).not.toBe('true');
-        expect(transform()).toEqual(before);
+        const forms = () => document.querySelectorAll('[data-testid="plan-editor-form-epic"]');
+        const idOf = () => document.querySelector('[data-testid="plan-editor-identity"]').textContent;
+        const targets = () => [...document.querySelectorAll('[data-act="rect"][data-stroked="0"]')];
+        act(() => { targets().pop().click(); });
         await settle();
-        backdropClick();
+        expect(forms()).toHaveLength(1);
+        const first = idOf();
+        act(() => { targets()[0].click(); });
         await settle();
-        expect(dialog()).toBeNull();
+        expect(forms()).toHaveLength(1);
+        expect(idOf()).not.toBe(first);
+        act(() => { document.querySelector('[data-testid="plan-editor-close"]').click(); });
+        expect(forms()).toHaveLength(0);
     });
 
     it('takes no onEpicFocus — an epic click never switches the panel', () => {
@@ -292,6 +292,7 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
                                                 model={buildPlanModel(payload)} levelPref="3"
                                                 pipeline={payload.pipeline} timezone="UTC"
                                                 onEpicFocus={onEpicFocus} />
+<PlanElementEditor />
                     </MemoryRouter>
                 </QueryClientProvider>
             );

@@ -5,8 +5,10 @@
 // dictionaries that put names on ids (machines, plans, initiatives, epics).
 //
 // POLLED, because the acceptance is that the page shows the latest decision
-// EACH CYCLE as new records arrive: the engine publishes once a minute, so the
-// three live tables refetch every POLL_MS. A full decision record is
+// EACH CYCLE as new records arrive: the engine publishes at most once per 60 s
+// (its base interval) and backs off to 300 s when quiet (req #4022), so the
+// live tables refetch every POLL_MS — 30 s, which still shows every cycle at
+// the 60 s base interval (req #4122). A full decision record is
 // content-addressed — its id is the hash of its body — so once read it never
 // changes and is cached for good (`staleTime: Infinity`).
 
@@ -24,7 +26,7 @@ import {
 } from '../../hooks/useDataQueries';
 import { assembleEngines, enginesForPipeline, parseJsonColumn } from './engineModel';
 
-export const POLL_MS = 15000;
+export const POLL_MS = 30000;
 const CLOCK_MS = 5000;
 
 /** A `Date` that moves every `intervalMs`, so ages count up between polls. */

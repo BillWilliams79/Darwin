@@ -32,6 +32,8 @@ import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import { DOUBLE_CLICK_MS, LONG_PRESS_MS } from '../planPressGesture';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import PlanElementEditor from '../PlanElementEditor';
+import { usePlanEditorStore } from '../../../stores/usePlanEditorStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.ResizeObserver) {
@@ -47,6 +49,7 @@ function LocationProbe() {
 }
 
 beforeEach(() => {
+    usePlanEditorStore.setState({ current: null });
     localStorage.clear();
     sessionStorage.clear();
     const w = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
@@ -86,6 +89,7 @@ function render() {
                     <PipelinePlanVisualizer plan={adaptComposedPipeline(payload)}
                                             model={buildPlanModel(payload)} levelPref="3"
                                             pipeline={payload.pipeline} timezone="UTC" />
+<PlanElementEditor />
                     <LocationProbe />
                 </MemoryRouter>
             </QueryClientProvider>
@@ -105,10 +109,10 @@ describe('a single click on an initiative opens its single editor (req #3742)', 
         render();
         press(q('pipeline-viz-initiative-name-5'));
         // Owed once the double-click window closes — not before.
-        expect(q('initiative-edit-dialog')).toBeNull();
+        expect(q('plan-editor-form-initiative')).toBeNull();
         await wait(DOUBLE_CLICK_MS + 50);
-        expect(q('initiative-edit-dialog')).not.toBeNull();
-        expect(q('initiative-title-input').value).toBe('Build');
+        expect(q('plan-editor-form-initiative')).not.toBeNull();
+        expect(q('plan-editor-field-title').value).toBe('Build');
         expect(currentLocation.pathname).toBe('/swarm/pipeline/2');
     });
 
@@ -126,7 +130,7 @@ describe('a single click on an initiative opens its single editor (req #3742)', 
             q('pipeline-viz-initiative-name-5')
                 .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
         });
-        expect(q('initiative-edit-dialog')).not.toBeNull();
+        expect(q('plan-editor-form-initiative')).not.toBeNull();
     });
 
     it('a double click on the name zooms instead, and leaves the page alone', async () => {
@@ -135,7 +139,7 @@ describe('a single click on an initiative opens its single editor (req #3742)', 
         press(name);
         press(name);
         await wait(DOUBLE_CLICK_MS + 50);
-        expect(q('initiative-edit-dialog')).toBeNull();
+        expect(q('plan-editor-form-initiative')).toBeNull();
     });
 
     it('a long press on the name still opens the in-place rename', async () => {
@@ -151,6 +155,6 @@ describe('a single click on an initiative opens its single editor (req #3742)', 
         render();
         press(q('pipeline-viz-initiative-pause-5'));
         await wait(DOUBLE_CLICK_MS + 50);
-        expect(q('initiative-edit-dialog')).toBeNull();
+        expect(q('plan-editor-form-initiative')).toBeNull();
     });
 });
