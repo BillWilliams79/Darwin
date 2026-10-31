@@ -113,7 +113,7 @@ describe('PipelineGroupView — the 3-D viewer chrome', () => {
         const onSetStatus = vi.fn(() => Promise.resolve(true));
         render({ focusId: 1, onSetStatus });
         const chip = q('pipelines-group-status-1');
-        expect(chip.textContent).toBe('Orchestrating');
+        expect(chip.textContent).toBe('Running');
         act(() => { chip.click(); });
         const option = q('pipelines-group-status-1-option-met');
         expect(q('pipelines-group-info').contains(option)).toBe(true);

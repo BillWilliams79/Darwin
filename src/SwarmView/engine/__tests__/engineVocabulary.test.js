@@ -100,7 +100,7 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         expect(detailText('PAUSED', { by: ['initiative'] })).toBe('paused at the initiative');
         // req #3965 — the plan's status, in its label.
         expect(detailText('NOT_ORCHESTRATING', { status: 'orchestration_ready' }))
-            .toBe('the plan is Orchestration Ready');
+            .toBe('the plan is Ready');
         expect(detailText('NOT_ORCHESTRATING', { status: null })).toBe('');
         expect(detailText('MACHINE_PIN', { pinned_to: 'Any', role: 'subscriber' }))
             .toBe('any machine (another engine leads it); this engine is subscriber');

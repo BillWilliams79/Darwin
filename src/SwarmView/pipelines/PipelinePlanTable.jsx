@@ -702,7 +702,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                            ...NOWRAP }}
                                                     data-testid={`pipeline-suppressed-${row.id}`}
                                                     title={(row.suppressedBy || []).includes('pipeline')
-                                                        ? 'This plan is not orchestrating — held until its status is Orchestrating'
+                                                        ? 'This plan is not Running — held until its status is Running'
                                                         : 'This initiative is paused — held, not about to launch'}
                                                 >
                                                     ⏸ held

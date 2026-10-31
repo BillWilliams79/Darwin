@@ -101,12 +101,14 @@ export const ELIGIBLE_MARKER_COLOR = '#4caf50';
 // pipeline_status is the ONE hand-controlled lifecycle in this feature. Since
 // req #3965 its seven values MIRROR the requirement statuses, in the
 // requirement order, each wearing its mirror's chip colours
-// (`requirementStatusChipProps`, statusChipStyles.js):
+// (`requirementStatusChipProps`, statusChipStyles.js). The two orchestration
+// values wear short labels — Ready and Running — so they fit the title bar
+// (req #4105); the stored values are unchanged:
 //
 //   authoring           Authoring            ~ authoring
 //   authorized          Authorized           ~ approved
-//   orchestration_ready Orchestration Ready  ~ swarm_ready
-//   orchestrating       Orchestrating        ~ development
+//   orchestration_ready Ready                ~ swarm_ready
+//   orchestrating       Running              ~ development
 //   met                 Met                  ~ met
 //   wontfix             Won't Fix            ~ wontfix
 //   deferred            Deferred             ~ deferred
@@ -141,8 +143,8 @@ export const DEFAULT_PIPELINE_STATUSES = Object.freeze(
 const PIPELINE_STATUS_LABEL = {
     authoring: 'Authoring',
     authorized: 'Authorized',
-    orchestration_ready: 'Orchestration Ready',
-    orchestrating: 'Orchestrating',
+    orchestration_ready: 'Ready',
+    orchestrating: 'Running',
     met: 'Met',
     wontfix: "Won't Fix",
     deferred: 'Deferred',

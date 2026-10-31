@@ -127,8 +127,8 @@ describe('the plan title (req #3853)', () => {
         const group = node('pipeline-edit-status');
         expect(group.getAttribute('data-value')).toBe('orchestrating');
         expect([...group.querySelectorAll('[data-testid^="pipeline-edit-status-"]')]
-            .map((el) => el.textContent)).toEqual(['Authoring', 'Authorized', 'Orchestration Ready',
-            'Orchestrating', 'Met', "Won't Fix", 'Deferred']);
+            .map((el) => el.textContent)).toEqual(['Authoring', 'Authorized', 'Ready',
+            'Running', 'Met', "Won't Fix", 'Deferred']);
         expect(node('pipeline-edit-status-orchestrating').getAttribute('aria-pressed')).toBe('true');
     });
 

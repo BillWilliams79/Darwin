@@ -116,7 +116,7 @@ describe('PipelineDetail — the status chip and its editor (req #3965)', () => 
         mount('/swarm/pipeline/2');
         const chip = node('pipeline-detail-status');
         expect(chip).not.toBeNull();
-        expect(chip.textContent).toBe('Orchestration Ready');
+        expect(chip.textContent).toBe('Ready');
         // jsdom resolves emotion's injected <style> tags, so getComputedStyle
         // sees the sx-generated CSS class MUI applies.
         const style = getComputedStyle(chip);
@@ -131,7 +131,7 @@ describe('PipelineDetail — the status chip and its editor (req #3965)', () => 
         act(() => { node('pipeline-detail-status').click(); });
         const options = [...document.body.querySelectorAll('[data-testid^="pipeline-detail-status-option-"]')]
             .map((el) => el.textContent);
-        expect(options).toEqual(['Authoring', 'Authorized', 'Orchestration Ready', 'Orchestrating', 'Met',
+        expect(options).toEqual(['Authoring', 'Authorized', 'Ready', 'Running', 'Met',
             "Won't Fix", 'Deferred']);
         await act(async () => { node('pipeline-detail-status-option-orchestrating').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });

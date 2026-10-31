@@ -54,8 +54,8 @@ export default function PlanStatusChip({ pipeline }) {
             onChange={change}
             testId="pipeline-detail-status"
             tooltip={status === ORCHESTRATING_STATUS
-                ? 'Orchestrating — its epics launch. Click to change the status.'
-                : `${pipelineStatusLabel(status)} — only an Orchestrating plan launches work. `
+                ? 'Running — its epics launch. Click to change the status.'
+                : `${pipelineStatusLabel(status)} — only a Running plan launches work. `
                     + 'Click to change the status.'}
         />
     );

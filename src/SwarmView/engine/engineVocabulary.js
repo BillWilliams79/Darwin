@@ -31,7 +31,7 @@ export const VERDICT_OK = 'OK';
 // core.py PLAIN_WORDS, verbatim.
 export const PLAIN_WORDS = {
     ENGINE_HOLD: 'the engine cannot trust this cycle, so everything waits',
-    NOT_ORCHESTRATING: 'the plan is not orchestrating — only an orchestrating plan launches',
+    NOT_ORCHESTRATING: 'the plan is not Running — only a Running plan launches',
     PAUSED: 'someone paused the initiative',
     INITIATIVE_GATE: 'an initiative its initiative waits for still holds open work',
     BARRIER: 'a barrier epic upstream still holds open work',
@@ -58,7 +58,7 @@ export const plainWords = (code) => PLAIN_WORDS[code] || `unrecognised code ${co
 // Short labels for chips. The plain words are the sentence; these are the badge.
 export const CODE_LABELS = {
     ENGINE_HOLD: 'Engine hold',
-    NOT_ORCHESTRATING: 'Not orchestrating',
+    NOT_ORCHESTRATING: 'Plan not Running',
     PAUSED: 'Paused',
     INITIATIVE_GATE: 'Initiative gate',
     BARRIER: 'Barrier',
