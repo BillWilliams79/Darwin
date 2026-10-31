@@ -6,9 +6,10 @@
 // Show more toggle discloses the whole thing. Expanded text is NOT click-to-
 // collapse, so selecting a passage to copy it does not snap it shut.
 //
-// The toggle is ALWAYS rendered, above the text (see CollapseToggle). Overflow is
-// still measured (useOverflow), but only to decide whether clicking the clamped
-// text itself expands it — short text has nothing to disclose.
+// The toggle sits above the text (see CollapseToggle) and is rendered only when
+// the clamped text really hides something (req #4144; it used to be always
+// there). The same overflow measure (useOverflow) decides whether clicking the
+// clamped text itself expands it — short text has nothing to disclose.
 
 import { useRef, useState } from 'react';
 
@@ -33,11 +34,13 @@ const CollapsibleText = ({
 
     return (
         <Box>
-            <CollapseToggle
-                expanded={expanded}
-                onToggle={() => setExpanded(v => !v)}
-                testId={testId ? `${testId}-toggle` : undefined}
-            />
+            {(overflowing || expanded) && (
+                <CollapseToggle
+                    expanded={expanded}
+                    onToggle={() => setExpanded(v => !v)}
+                    testId={testId ? `${testId}-toggle` : undefined}
+                />
+            )}
             <Typography
                 ref={ref}
                 variant={variant}

@@ -4,18 +4,18 @@
 // ── EVERY CARD IS ITS OWN EDITOR (req #3804) ────────────────────────────────
 // The plan's title and goal are text on the card that becomes a field when
 // clicked; Enter / leaving the field saves, Esc puts the stored text back. The
-// status chip under the title sets the plan's status (req #3965 — any of the
-// seven values). The card's menu sets the machine, locks and unlocks, and
+// plan's status is only SHOWN on the card (req #4144 removed the chip that set
+// it — it is set from the plan's own page). The card's menu sets the machine, locks and unlocks, and
 // DELETES the plan (req #3934 — behind a confirmation, refused while the
 // plan is locked or a live orchestrator holds it). The plan itself OPENS from its picture — the card body no longer
 // navigates, because a click on it is now an edit, and the open buttons that
 // stood beside the title and in the menu went in the req #3804 review.
 //
 // ── WHAT THE CARD SAYS (req #3804 review) ───────────────────────────────────
-// Grip, who is orchestrating it, and name, then the plan's STATUS chip (req
-// #3965 — the editor, so it is always there), then ONE plain info block —
+// Grip, who is orchestrating it, and name, then ONE round-cornered info box —
 // initiatives, epics, requirements
-// closed / total (labelled just "requirements"), in large figures — right
+// closed / total (labelled just "requirements"), in large figures — with the
+// plan's STATUS written in its upper left (req #4144), right
 // above the whole plan drawn small, then the goal. No badges for those
 // figures, no machine chip, no "x of y met" line and no progress
 // bar restating the block (the bar went in the last review). The other chip is a state a reader must not
@@ -24,10 +24,6 @@
 // machine, a dashed outline when the holder's claim is stale — carrying only
 // the machine's letter, M or W. The goal sits collapsed to a few lines under
 // the shared Show more toggle (req #3945).
-//
-// The status is written alone: the gateway derives started_at/completed_at
-// from it (Lambda-Rest pipeline_lifecycle.py), and a status write is allowed
-// on a locked plan.
 //
 // ── THE ORDER IS THE READER'S (req #3804) ───────────────────────────────────
 // The grid is one ReorderList: a card lifts from its GRIP, left of its title
@@ -76,7 +72,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 
 import { ReorderList, useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
-import { lockedChipProps, lockedLabel } from '../SwarmView/pipelines/pipelineChipStyles';
+import { lockedChipProps, lockedLabel, pipelineStatusChipProps, pipelineStatusLabel } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { isStale, cardOrchestrationBadges } from '../SwarmView/pipelines/orchestrationHolder';
 import { planDetailPath } from '../SwarmView/pipelines/planEra';
@@ -86,7 +82,6 @@ import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleFie
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 import { NewPipelineTile, NewPipelineDraftCard } from './NewPipelineCard';
 import { pipelineEditFields } from './PipelineEditDialog';
-import PipelineStatusChip from './PipelineStatusChip';
 import useGrabScroll from '../hooks/useGrabScroll';
 
 const EMPTY_SUMMARY = { total: 0, initiatives: 0, initiativeDeps: 0 };
@@ -199,10 +194,14 @@ const GOAL_COLLAPSED_ROWS = 3;
  * as long as it is being edited.
  */
 function GoalText({ testId, ...textProps }) {
-    const { expanded, toggle, attachInput, setFocused, collapsedSx } = useCollapsibleField();
+    const { expanded, showToggle, toggle, attachInput, setFocused, collapsedSx } =
+        useCollapsibleField({ deps: [textProps.value] });
     return (
         <Box>
-            <CollapseToggle expanded={expanded} onToggle={toggle} testId={`${testId}-toggle`} />
+            {/* Only when the collapsed goal hides text (req #4144). */}
+            {showToggle && (
+                <CollapseToggle expanded={expanded} onToggle={toggle} testId={`${testId}-toggle`} />
+            )}
             <InlineText {...textProps} multiline testId={testId}
                         maxRows={expanded ? undefined : GOAL_COLLAPSED_ROWS}
                         collapsed={!expanded}
@@ -277,7 +276,7 @@ function Stat({ value, label, testId }) {
 }
 
 function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, onUpdate,
-    onSetStatus, onDelete, refetchInterval, previewColor, sessionStatus }) {
+    onDelete, refetchInterval, previewColor, sessionStatus }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
     const locked = isLocked(p);
@@ -434,34 +433,37 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                     </Menu>
                 </Box>
 
-                {/* THE STATUS (req #3965) — the plan's status editor, all
-                    seven values. Written alone; allowed on a locked plan. */}
-                <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.25 }}>
-                    <PipelineStatusChip status={p.pipeline_status}
-                                        onChange={(next) => (onSetStatus
-                                            ? onSetStatus(p, next)
-                                            : onUpdate(p, { pipeline_status: next }))}
-                                        testId={`pipelines-card-status-${p.id}`} />
-                </Box>
-
-                {/* THE INFO BLOCK (req #3804 review: "not badges … just a
-                    simple info block") — three figures straight under the
-                    title, the top-line numbers of the plan, right above the
-                    preview. The requirements figure ("197 / 197") is the
-                    widest, so its column is never narrower than the figure
-                    on one line (req #3946); the columns stay equal thirds
-                    whenever that already fits. */}
-                <Box sx={{ display: 'grid',
-                           gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(max-content, 1fr)',
-                           columnGap: 2, mt: 0.5, mb: 1.5 }}
+                {/* THE INFO BOX (req #4144) — a round-cornered rectangle around
+                    the three figures, the plan's STATUS written in its upper
+                    left like a fieldset legend. The status is only SHOWN here:
+                    the old chip that set it from the card was "too much", so
+                    the status is set in the pipeline's edit dialog. The
+                    requirements figure ("197 / 197") is the widest, so its
+                    column is never narrower than the figure on one line (req
+                    #3946); the columns stay equal thirds whenever that already
+                    fits. */}
+                <Box sx={{ position: 'relative', mt: 1.75, mb: 1.5, px: 1.5, pt: 1.75, pb: 1,
+                           border: 1, borderColor: 'divider', borderRadius: 2 }}
                      data-testid={`pipelines-card-info-${p.id}`}>
-                    <Stat value={s.initiatives} testId={`pipelines-card-initiatives-${p.id}`}
-                          label={s.initiatives === 1 ? 'initiative' : 'initiatives'} />
-                    <Stat value={s.total} testId={`pipelines-card-epics-${p.id}`}
-                          label={s.total === 1 ? 'epic' : 'epics'} />
-                    <Stat value={`${reqs.closed} / ${reqs.total}`}
-                          testId={`pipelines-card-requirements-${p.id}`}
-                          label="requirements" />
+                    <Typography component="span" variant="caption"
+                                sx={{ position: 'absolute', top: 0, left: 12, transform: 'translateY(-50%)',
+                                      px: 1, borderRadius: 1, lineHeight: 1.6, fontWeight: 600,
+                                      bgcolor: 'background.paper',
+                                      ...pipelineStatusChipProps(p.pipeline_status).sx }}
+                                data-testid={`pipelines-card-status-${p.id}`}>
+                        {pipelineStatusLabel(p.pipeline_status)}
+                    </Typography>
+                    <Box sx={{ display: 'grid',
+                               gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(max-content, 1fr)',
+                               columnGap: 2 }}>
+                        <Stat value={s.initiatives} testId={`pipelines-card-initiatives-${p.id}`}
+                              label={s.initiatives === 1 ? 'initiative' : 'initiatives'} />
+                        <Stat value={s.total} testId={`pipelines-card-epics-${p.id}`}
+                              label={s.total === 1 ? 'epic' : 'epics'} />
+                        <Stat value={`${reqs.closed} / ${reqs.total}`}
+                              testId={`pipelines-card-requirements-${p.id}`}
+                              label="requirements" />
+                    </Box>
                 </Box>
 
                 {/* THE WHOLE PLAN, SMALL (req #3804) — and the way in: a click
@@ -521,13 +523,11 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
  * @param {Object[]} props.pipelines   the cards to draw, in display order
  * @param {(fromId, toId) => void} props.onReorder   a card dropped on another's place
  * @param {(row, fields, problem?) => Promise<boolean>} props.onUpdate  an in-place edit
- * @param {(row, status) => Promise<boolean>} [props.onSetStatus]  the status chip's write
- *                                            (falls back to onUpdate)
  * @param {(row) => Promise<boolean>} props.onDelete  the menu's confirmed hard delete
  * @param {(title) => Promise<boolean>} props.onCreate  the front card's Enter
  */
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
-    machines, claims = [], onOpen, onUpdate, onSetStatus, onDelete, onReorder,
+    machines, claims = [], onOpen, onUpdate, onDelete, onReorder,
     onCreate, creating = false, hiddenStatusCounts = [],
     refetchInterval, thumbnailRefetchInterval, previewColor, sessionStatus }) {
     const [drafting, setDrafting] = useState(false);
@@ -590,7 +590,6 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         heldLive={claims.some((c) => c.pipeline_fk === p.id && !isStale(c))}
                         onOpen={onOpen}
                         onUpdate={onUpdate}
-                        onSetStatus={onSetStatus}
                         onDelete={onDelete}
                         refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
                         previewColor={previewColor}
