@@ -19,6 +19,9 @@
 
 export const APP_KEYS = ['tasks', 'maps', 'systems', 'swarm', 'swarm-validate'];
 export const AUTH_MODES = ['cognito', 'proxy'];
+// Where Roboto comes from: Google Fonts (darwin.one, unchanged) or the
+// @fontsource/roboto files bundled into the build (internal: no outside host).
+export const FONT_SOURCES = ['google', 'local'];
 
 // darwin.one's values, verbatim from before req #4076.
 export const DEFAULTS = Object.freeze({
@@ -59,6 +62,10 @@ export function resolveProductConfig(env = {}) {
         throw new Error(`VITE_AUTH_MODE must be one of ${AUTH_MODES.join(' | ')}, got '${authMode}'`);
     }
     const apps = parseAppScope(env.VITE_APP_SCOPE);
+    const fontSource = str(env.VITE_FONT_SOURCE) || 'google';
+    if (!FONT_SOURCES.includes(fontSource)) {
+        throw new Error(`VITE_FONT_SOURCE must be one of ${FONT_SOURCES.join(' | ')}, got '${fontSource}'`);
+    }
     // `/api` and `https://host/eng/` both mean the same base; no trailing slash.
     const apiBase = (str(env.VITE_API_BASE) || DEFAULTS.apiBase).replace(/\/+$/, '');
     const db = (v, fallback) => {
@@ -82,6 +89,7 @@ export function resolveProductConfig(env = {}) {
         authMode,
         apps,
         prodBaseUrl,
+        fontSource,
     };
 }
 
@@ -97,6 +105,7 @@ export function productDefines(product) {
     return {
         __PRODUCT__: JSON.stringify(product),
         __PROXY_AUTH__: JSON.stringify(product.authMode === 'proxy'),
+        __LOCAL_FONTS__: JSON.stringify(product.fontSource === 'local'),
         ...Object.fromEntries(Object.entries(APP_FLAG).map(
             ([k, id]) => [id, JSON.stringify(!!product.apps[k])])),
     };

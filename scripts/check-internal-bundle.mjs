@@ -33,7 +33,7 @@ if (!args.includes('--no-build')) {
     { cwd: darwinRoot, stdio: ['ignore', 'ignore', 'inherit'] })
 }
 
-const FORBIDDEN = /amazonaws|cognito|darwin\.one/gi
+const FORBIDDEN = /amazonaws|cognito|darwin\.one|googleapis|gstatic/gi
 const findings = []
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
   e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)])
@@ -65,4 +65,4 @@ if (findings.length) {
   for (const f of findings) console.log(`  ${f}`)
   process.exit(1)
 }
-console.log('status=ok — no amazonaws|cognito|darwin.one anywhere in the build output')
+console.log('status=ok — no amazonaws|cognito|darwin.one|googleapis|gstatic anywhere in the build output')

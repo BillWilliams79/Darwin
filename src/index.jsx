@@ -2,6 +2,10 @@
 // error / network / navigation buffers (req #3815) — see utils/debugCapture.js.
 import './utils/debugCapture';
 import './index.css';
+// req #4076 — Roboto from the build itself when the product says so (internal).
+// A folded constant, so darwin.one's bundle carries neither the import nor the fonts.
+/* global __LOCAL_FONTS__ */
+if (__LOCAL_FONTS__) import('./config/localFonts');
 import AuthenticatedRoute from './Components/AuthenticatedRoute/AuthenticatedRoute';
 
 import React from 'react';

@@ -87,6 +87,14 @@ describe('AuthContext in proxy auth — the API says who you are', () => {
         unmount();
     });
 
+    it('more than one row is "nobody" — never whichever came first', async () => {
+        global.fetch = vi.fn().mockResolvedValue(ok([{ id: 'a' }, { id: 'b' }]));
+        const { ctx, unmount } = await mountAuth();
+        expect(ctx().profile).toBeNull();
+        expect(ctx().idToken).toBeNull();
+        unmount();
+    });
+
     it('an empty profiles list is also "nobody", not a crash', async () => {
         global.fetch = vi.fn().mockResolvedValue(ok([]));
         const { ctx, unmount } = await mountAuth();

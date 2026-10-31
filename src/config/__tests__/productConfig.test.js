@@ -33,6 +33,7 @@ describe('resolveProductConfig — the default product is darwin.one, unchanged'
         expect(p.opsDatabase).toBe('darwin');
         expect(p.buildVizDatabase).toBe('darwin_dev');
         expect(p.prodBaseUrl).toBe('https://www.darwin.one');
+        expect(p.fontSource).toBe('google');
     });
 
     it('signs in with Cognito and carries every application', () => {
@@ -59,6 +60,7 @@ describe('resolveProductConfig — the internal mode (.env.internal)', () => {
         expect(p.opsDatabase).toBe('internal');
         expect(p.buildVizDatabase).toBeNull();
         expect(p.prodBaseUrl).toBe('');
+        expect(p.fontSource).toBe('local');
     });
 
     it('authenticates at the proxy, and carries Topology + Swarm only', () => {
@@ -88,6 +90,9 @@ describe('resolveProductConfig — validation', () => {
     it('refuses an unknown application rather than scoping to nothing', () => {
         expect(() => resolveProductConfig({ VITE_APP_SCOPE: 'systems,topology' })).toThrow(/topology/);
     });
+    it('refuses an unknown font source', () => {
+        expect(() => resolveProductConfig({ VITE_FONT_SOURCE: 'cdn' })).toThrow(/google \| local/);
+    });
     it('refuses an unknown auth mode', () => {
         expect(() => resolveProductConfig({ VITE_AUTH_MODE: 'ldap' })).toThrow(/cognito \| proxy/);
     });
@@ -114,6 +119,7 @@ describe('the scope vocabulary and the folding contract', () => {
         // req #4076 — so each gate must be a top-level identifier.
         const defs = productDefines(resolveProductConfig({ VITE_AUTH_MODE: 'proxy', VITE_APP_SCOPE: 'systems' }));
         expect(defs.__PROXY_AUTH__).toBe('true');
+        expect(defs.__LOCAL_FONTS__).toBe('false');
         expect(defs[APP_FLAG.all]).toBe('false');
         expect(defs[APP_FLAG.systems]).toBe('true');
         expect(defs[APP_FLAG['swarm-validate']]).toBe('false');

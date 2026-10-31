@@ -33,7 +33,10 @@ export function productShell(product) {
   return {
     name: 'product-shell',
     transformIndexHtml(html) {
+      const fontLink = product.fontSource === 'local' ? ''
+        : '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap"/>'
       return html
+        .replaceAll('%PRODUCT_FONT_LINK%', fontLink)
         .replaceAll('%PRODUCT_NAME%', escapeHtml(product.productName))
         .replaceAll('%PRODUCT_DESCRIPTION%', escapeHtml(productDescription(product).toLowerCase()
           .replace(/^./, (c) => c.toUpperCase())))

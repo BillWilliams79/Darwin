@@ -35,11 +35,37 @@ export function parseCredentialsFile(text) {
 }
 
 // `/api/internal/profiles?x=1` → `<upstream>/darwin_dev/profiles?x=1`, or null
-// for anything outside the internal database (nginx answers those 404).
+// for anything outside the internal database (nginx answers those 404) — and
+// null for any dot segment, raw or percent-encoded: `fetch` normalises
+// `darwin_dev/%2e%2e/darwin/…` to `/darwin/…`, which would put the developer's
+// identity on PRODUCTION (code review, req #4076). The resolved target is then
+// re-checked to sit under `<upstream>/darwin_dev/`, whatever the input was.
 export function upstreamUrl(url, { apiBase, database, upstreamBase }) {
   const prefix = `${apiBase}/${database}`
   if (url !== prefix && !url.startsWith(`${prefix}/`) && !url.startsWith(`${prefix}?`)) return null
-  return `${upstreamBase}/${DEV_DATABASE}${url.slice(prefix.length)}`
+  const rest = url.slice(prefix.length)
+  const restPath = rest.split('?')[0]
+  let decoded
+  try { decoded = decodeURIComponent(restPath) } catch { return null }
+  if (decoded.split('/').some(seg => seg === '.' || seg === '..') || decoded.includes('\\')) return null
+  let target
+  try { target = new URL(`${upstreamBase}/${DEV_DATABASE}${rest}`) } catch { return null }
+  const pinned = new URL(`${upstreamBase}/${DEV_DATABASE}`)
+  if (target.origin !== pinned.origin) return null
+  if (target.pathname !== pinned.pathname && !target.pathname.startsWith(`${pinned.pathname}/`)) return null
+  return target.href
+}
+
+// The gateway signs requests with the developer's identity server-side, so a
+// request another site's page makes to localhost would be signed too. Only
+// the dev server's own pages may use it: a cross-site `Origin`/`Sec-Fetch-Site`
+// is refused (a same-origin GET may carry neither, which is fine).
+export function isCrossSite(headers, host) {
+  const site = headers['sec-fetch-site']
+  if (site && site !== 'same-origin' && site !== 'none') return true
+  const origin = headers.origin
+  if (!origin) return false
+  try { return new URL(origin).host !== host } catch { return true }
 }
 
 function makeTokenProvider(creds) {
@@ -100,6 +126,11 @@ export function proxyAuthDevGateway(command, product, env) {
             return res.end(JSON.stringify('NOT FOUND'))
           }
           return next()
+        }
+        if (isCrossSite(req.headers || {}, req.headers?.host)) {
+          res.statusCode = 403
+          res.setHeader('Content-Type', 'application/json')
+          return res.end(JSON.stringify('FORBIDDEN'))
         }
         try {
           if (!idToken || !upstreamBase) throw new Error('no dev gateway credentials')

@@ -218,7 +218,11 @@ const ProxyAuthContextProvider = ({ children }) => {
             }
             if (!live) return;
             const status = result?.httpStatus?.httpStatus;
-            const me = status === 200 && Array.isArray(result.data) ? proxyProfile(result.data[0]) : null;
+            // Exactly ONE row is "me": the API scopes `profiles` to the caller, so
+            // anything else means the server did not identify a single user, and
+            // becoming whichever row came first would be wrong.
+            const me = status === 200 && Array.isArray(result.data) && result.data.length === 1
+                ? proxyProfile(result.data[0]) : null;
             if (me) {
                 setProfile(me);
                 setIdToken(PROXY_SESSION);

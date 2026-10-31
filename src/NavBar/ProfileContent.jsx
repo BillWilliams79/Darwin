@@ -502,7 +502,11 @@ const ProfileContent = ({ onClose }) => {
             <ExportDialog
                 open={exportDialogOpen}
                 onClose={() => setExportDialogOpen(false)}
-                enabledApps={{ tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }}
+                // A scoped product (req #4076) exports exactly its applications —
+                // in scope means on, out of scope means off, whatever the profile says.
+                enabledApps={APP_SCOPE.all
+                    ? { tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }
+                    : { tasks: APP_SCOPE.tasks, maps: APP_SCOPE.maps, swarm: APP_SCOPE.swarm }}
                 onExport={handleExport}
                 exporting={exporting}
             />
