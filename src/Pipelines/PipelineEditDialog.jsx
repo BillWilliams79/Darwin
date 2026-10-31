@@ -42,11 +42,11 @@ import {
 
 // `''` is the Machine select's "Any" — a MUI select cannot hold a null value
 // (NewPipelineDialog's convention).
-const ANY_MACHINE = '';
+export const ANY_MACHINE = '';
 
 // What the gateway still writes on a locked plan (plan_lock.py) — the Pipelines
 // page's LOCK_FREE_FIELDS, of which this dialog edits one.
-const LOCK_FREE = new Set(['pipeline_status']);
+export const LOCK_FREE = new Set(['pipeline_status']);
 
 /**
  * The partial update a save sends — only the columns that changed — or a

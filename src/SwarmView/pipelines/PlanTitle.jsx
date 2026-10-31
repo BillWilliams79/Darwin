@@ -6,7 +6,7 @@
 // active epics view." So the name and its counts read exactly as an
 // initiative's name and closure count do on the canvas (req #3580, #3742):
 //
-//   the NAME     quick click ... the plan's single editor (`PipelineEditDialog`)
+//   the NAME     quick click ... the plan's single editor (the Plan Element Editor panel, req #4133)
 //                double click .. zoom straight to the plan's active epics
 //                long press .... rename in place (F2 from the keyboard)
 //                Enter/Space ... the editor, as the quick click
@@ -33,9 +33,9 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { pipelineKeys } from '../../hooks/useDataQueries';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
 import { updatePipeline } from '../../Pipelines/pipelinesApi';
-import PipelineEditDialog from '../../Pipelines/PipelineEditDialog';
+import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker, DOUBLE_CLICK_MS } from './planPressGesture';
+import { createPressTracker } from './planPressGesture';
 import { PLAN_TITLE_ZOOM_HINT } from './pipelineInitiativeZoom';
 
 const LOCKED = 'This pipeline is locked — unlock it first';
@@ -64,11 +64,6 @@ export default function PlanTitle({ pipeline, countsText, variant, machines = []
     // `{ saving, at }` while the in-place rename is open; `at` is the long
     // press's point (the caret goes there), null from F2 (the name is selected).
     const [edit, setEdit] = useState(null);
-    // `key` changes per open so the editor seeds afresh from the stored row.
-    const [editor, setEditor] = useState({ key: 0, open: false });
-    // The second click of a quick double click lands on the dialog's backdrop,
-    // which must not close it at once (the canvas editor's rule).
-    const openedAtRef = useRef(0);
 
     const pressRef = useRef(null);
     if (!pressRef.current) pressRef.current = createPressTracker();
@@ -82,14 +77,10 @@ export default function PlanTitle({ pipeline, countsText, variant, machines = []
             queryKey: pipelineKeys.all(profile.userName) }),
     ]), [queryClient, pipeline?.id, profile?.userName]);
 
-    const openEditor = () => {
-        openedAtRef.current = Date.now();
-        setEditor((ed) => ({ key: ed.key + 1, open: true }));
-    };
-    const closeEditor = (reason) => {
-        if (reason === 'backdropClick' && Date.now() - openedAtRef.current < DOUBLE_CLICK_MS) return;
-        setEditor((ed) => ({ ...ed, open: false }));
-    };
+    // req #4133 — the plan's single editor is the panel, one editor at a time.
+    const openEditor = () => usePlanEditorStore.getState().openEditor({
+        kind: 'pipeline', target: pipeline, machines, onSaved: refresh,
+    });
     const startEdit = (at = null) => {
         if (locked) { showError(LOCKED); return; }
         setEdit({ saving: false, at });
@@ -209,16 +200,6 @@ export default function PlanTitle({ pipeline, countsText, variant, machines = []
                     </Box>
                 )}
             </Typography>
-            {editor.key > 0 && (
-                <PipelineEditDialog
-                    key={editor.key}
-                    open={editor.open}
-                    pipeline={pipeline}
-                    machines={machines}
-                    onClose={closeEditor}
-                    onSaved={refresh}
-                />
-            )}
         </>
     );
 }

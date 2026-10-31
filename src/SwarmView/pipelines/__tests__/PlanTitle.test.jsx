@@ -22,6 +22,8 @@ vi.mock('../../../Pipelines/pipelinesApi', async (orig) => ({
 }));
 
 import PlanTitle from '../PlanTitle';
+import PlanElementEditor from '../PlanElementEditor';
+import { usePlanEditorStore } from '../../../stores/usePlanEditorStore';
 import { LONG_PRESS_MS, DOUBLE_CLICK_MS } from '../planPressGesture';
 import AuthContext from '../../../Context/AuthContext';
 import AppContext from '../../../Context/AppContext';
@@ -42,6 +44,7 @@ function mount({ pipeline = PIPELINE, onZoom = vi.fn(), countsText = '2  -  
                     <AppContext.Provider value={{ darwinUri: 'https://api/darwin' }}>
                         <PlanTitle pipeline={pipeline} countsText={countsText} variant="h5"
                                    onZoom={onZoom} />
+                        <PlanElementEditor />
                     </AppContext.Provider>
                 </AuthContext.Provider>
             </QueryClientProvider>,
@@ -62,6 +65,7 @@ const wait = (ms) => act(() => { vi.advanceTimersByTime(ms); });
 
 beforeEach(() => {
     vi.useFakeTimers();
+    usePlanEditorStore.setState({ current: null });
     showError.mockClear();
     updatePipeline.mockClear();
 });
@@ -89,7 +93,7 @@ describe('the plan title (req #3853)', () => {
         mount();
         tap(node('pipeline-title-name'));
         wait(DOUBLE_CLICK_MS + 10);
-        const input = node('pipeline-edit-title');
+        const input = node('plan-editor-field-title');
         act(() => {
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
                 .set.call(input, 'Renamed plan');
@@ -111,10 +115,10 @@ describe('the plan title (req #3853)', () => {
         mount({ pipeline: { ...PIPELINE, locked: 1, pipeline_status: 'authoring' } });
         tap(node('pipeline-title-name'));
         wait(DOUBLE_CLICK_MS + 10);
-        expect(node('pipeline-edit-title').disabled).toBe(true);
-        expect(node('pipeline-edit-locked')).not.toBeNull();
-        act(() => { node('pipeline-edit-status-orchestration_ready').click(); });
-        await act(async () => { node('pipeline-edit-save').click(); });
+        expect(node('plan-editor-field-title').disabled).toBe(true);
+        expect(node('plan-editor-locked')).not.toBeNull();
+        act(() => { node('plan-editor-status-orchestration_ready').click(); });
+        await act(async () => { node('plan-editor-save').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(updatePipeline).toHaveBeenCalledWith('https://api/darwin', 'tok', 7,
             { pipeline_status: 'orchestration_ready' });
@@ -124,22 +128,22 @@ describe('the plan title (req #3853)', () => {
         mount({ pipeline: { ...PIPELINE, pipeline_status: 'orchestrating' } });
         tap(node('pipeline-title-name'));
         wait(DOUBLE_CLICK_MS + 10);
-        const group = node('pipeline-edit-status');
+        const group = node('plan-editor-status');
         expect(group.getAttribute('data-value')).toBe('orchestrating');
-        expect([...group.querySelectorAll('[data-testid^="pipeline-edit-status-"]')]
+        expect([...group.querySelectorAll('[data-testid^="plan-editor-status-"]')]
             .map((el) => el.textContent)).toEqual(['Authoring', 'Authorized', 'Ready',
             'Running', 'Met', "Won't Fix", 'Deferred']);
-        expect(node('pipeline-edit-status-orchestrating').getAttribute('aria-pressed')).toBe('true');
+        expect(node('plan-editor-status-orchestrating').getAttribute('aria-pressed')).toBe('true');
     });
 
     it('a quick click on the name opens the plan editor, seeded from the row', () => {
         const onZoom = mount();
         tap(node('pipeline-title-name'));
-        expect(node('pipeline-edit-dialog')).toBeNull();      // the double window is open
+        expect(node('plan-editor-form-pipeline')).toBeNull();      // the double window is open
         wait(DOUBLE_CLICK_MS + 10);
-        expect(node('pipeline-edit-dialog')).not.toBeNull();
-        expect(node('pipeline-edit-title').value).toBe('Agent Harness');
-        expect(node('pipeline-edit-description').value).toBe('Why');
+        expect(node('plan-editor-form-pipeline')).not.toBeNull();
+        expect(node('plan-editor-field-title').value).toBe('Agent Harness');
+        expect(node('plan-editor-description').value).toBe('Why');
         expect(onZoom).not.toHaveBeenCalled();
     });
 
@@ -150,7 +154,7 @@ describe('the plan title (req #3853)', () => {
         wait(DOUBLE_CLICK_MS + 10);
         expect(onZoom).toHaveBeenCalledTimes(1);
         expect(onZoom).toHaveBeenCalledWith({ deep: true });
-        expect(node('pipeline-edit-dialog')).toBeNull();
+        expect(node('plan-editor-form-pipeline')).toBeNull();
     });
 
     it('a click on the counts runs the zoom cycle; a double click goes deep', () => {
@@ -223,6 +227,6 @@ describe('the plan title (req #3853)', () => {
         expect(counts.getAttribute('role')).toBeNull();
         expect(node('pipeline-title-name').getAttribute('aria-description')).not.toMatch(/zoom/);
         tap(node('pipeline-title-name'));
-        expect(node('pipeline-edit-dialog')).not.toBeNull();
+        expect(node('plan-editor-form-pipeline')).not.toBeNull();
     });
 });

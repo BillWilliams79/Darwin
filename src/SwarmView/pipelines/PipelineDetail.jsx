@@ -64,6 +64,8 @@ import {
 import { toolbarChipProps } from './pipelineChipStyles';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 import PlanTitle from './PlanTitle';
+import PlanElementEditor from './PlanElementEditor';
+import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
 import PlanStatusChip from './PlanStatusChip';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
@@ -418,6 +420,8 @@ export default function PipelineDetail() {
     const modeOverride = linkView;
     const levelOverride = linkLevel;
     const colorKey = normalizeColorKey(linkColor ?? colorKeyPref);
+    // req #4133 — an editor holds this page's live rows: it leaves with the page or the plan.
+    useEffect(() => () => usePlanEditorStore.getState().closeEditor(), [pipelineId]);
     // A LINK entry is MARKED once its focus is in hand — a replace onto the same
     // URL, which arrives back here as a REWRITE and so keeps the focus.
     useEffect(() => {
@@ -1249,6 +1253,8 @@ export default function PipelineDetail() {
                              engineOverlay={activeMode === 'plan' ? engineOverlay : null}
                              />
             )}
+            {/* req #4133 — the one plan-element editor (pipeline / initiative / epic). */}
+            <PlanElementEditor />
         </Box>
     );
 }
