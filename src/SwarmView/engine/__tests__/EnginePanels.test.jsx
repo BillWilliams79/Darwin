@@ -108,6 +108,22 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-restarts-3')).toBe('restarted 1 time');
     });
 
+    it('names the executor files that changed under a stale executor (req #4137)', () => {
+        const e = engine(1);
+        const healthJson = { ...e.healthJson, executor_code_verdict: 'stale',
+            executor_code_detail: 'executor pid 21430: executor.py changed on disk' };
+        mount(<EngineHealthPanel engine={{ ...e, healthJson }} timezone="UTC" />);
+        expect(text('engine-executor-code-1')).toContain('stale — running code older than the code on disk');
+        expect(text('engine-executor-code-1')).toContain('executor.py changed on disk');
+        // The engine's own verdict is a separate field.
+        expect(text('engine-code-1')).toContain('current — running the code on disk');
+    });
+
+    it('shows no executor verdict for a beat that predates the field', () => {
+        mount(<EngineHealthPanel engine={engine(1)} timezone="UTC" />);
+        expect(text('engine-executor-code-1')).toBe('—');
+    });
+
     it('says nothing about restarts for a beat that predates the count', () => {
         const e = engine(1);
         const { restarts: _omit, ...older } = e.healthJson;
