@@ -59,3 +59,24 @@ describe('pipelineEditFields', () => {
         expect(pipelineEditFields(row, form({ status: 'paused' })).problem).toMatch(/Unknown status/);
     });
 });
+
+// req #4128 — the Lock control and the Sort order field, sent only when changed.
+describe('pipelineEditFields — lock and sort order (req #4128)', () => {
+    const row = { ...ROW, locked: 0, sort_order: 2 };
+    it('an omitted lock or sort order sends nothing', () => {
+        expect(pipelineEditFields(row, form())).toEqual({ fields: {} });
+    });
+    it('a changed lock sends 1/0; an unchanged one nothing', () => {
+        expect(pipelineEditFields(row, form({ locked: true })).fields).toEqual({ locked: 1 });
+        expect(pipelineEditFields({ ...row, locked: 1 }, form({ locked: false })).fields)
+            .toEqual({ locked: 0 });
+        expect(pipelineEditFields(row, form({ locked: false })).fields).toEqual({});
+    });
+    it('a sort order is an integer; blank keeps the place; junk is refused', () => {
+        expect(pipelineEditFields(row, form({ sortOrder: ' 7 ' })).fields).toEqual({ sort_order: 7 });
+        expect(pipelineEditFields(row, form({ sortOrder: '2' })).fields).toEqual({});
+        expect(pipelineEditFields(row, form({ sortOrder: '' })).fields).toEqual({});
+        expect(pipelineEditFields(row, form({ sortOrder: '1.5' })).problem).toMatch(/whole number/);
+        expect(pipelineEditFields(row, form({ sortOrder: '9999999999' })).problem).toMatch(/between/);
+    });
+});

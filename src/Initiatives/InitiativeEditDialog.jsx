@@ -57,7 +57,7 @@ const SORT_ORDER_MAX = 32767;
 // EMPTY, a usable integer, and INVALID. Initiatives have a HARD order (req
 // #3861), so EMPTY never clears the column: a new initiative is appended to its
 // plan, and an edit leaves the stored place as it is.
-const parseSortOrder = (raw) => {
+export const parseSortOrder = (raw) => {
     const t = (raw ?? '').trim();
     if (t === '') return { empty: true };
     const n = Number(t);
@@ -339,7 +339,7 @@ export default function InitiativeEditDialog({
     return (
         <Dialog open={open} onClose={(_e, reason) => !submitting && onClose(reason)}
                 maxWidth="md" fullWidth data-testid="initiative-edit-dialog">
-            <DialogTitle>{initiative ? 'Edit initiative' : 'New initiative'}</DialogTitle>
+            <DialogTitle>{initiative ? `Edit initiative ${initiative.id}` : 'New initiative'}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
                     {/* req #3800 — the NAME is the first field. A greyed-out Pipeline

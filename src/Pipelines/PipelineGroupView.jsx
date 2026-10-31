@@ -16,9 +16,8 @@
 //   ▾ CONTROLS  top-left — View (Clear · Rotate · Default · Top · Front ·
 //               Side) and Calendar (Day · Week · Month); the Full screen
 //               switch just right of the header
-//   ▾ INFO      top-right — the calendar's index (every column and its
-//               pipelines, a click focuses one) with the status key; a focused
-//               pipeline's facts and its place in the calendar instead
+//   ▾ STATUS KEY / PLAN  top-right — the status key; a focused
+//               pipeline's facts and its place in the calendar above it
 //   ▾ HELP      bottom-right — the gestures, COLLAPSED on every visit: it
 //               teaches what a returning reader already knows, so it stays a
 //               header in the corner until asked for (Topology req #3591)
@@ -95,7 +94,7 @@ const CALENDAR_STORAGE_KEY = 'darwin-pipeline-group-calendar';
 
 export const HELP_TEXT = 'Drag to orbit · right-drag to pan · scroll to zoom · arrows / WASD to move · '
     + 'left to right is time, back to front is sort order within a column · '
-    + 'click a pipeline (here or in Info) to focus it · double-click to zoom in · Esc clears';
+    + 'click a pipeline to focus it · double-click to zoom in · Esc clears';
 
 // The Topology 3-D viewer's panel chrome (systems2/styles.css .tpu3d-toolbar,
 // .tpu3d-info, .tpu3d-help, .tpu3d-head).
@@ -305,59 +304,10 @@ function FocusInfo({ pipeline, column, onOpen, onClose, onSetStatus }) {
     );
 }
 
-/** Info, nothing focused: the calendar's index — every column and its pipelines, back to front. */
-function CalendarIndex({ model, onFocus }) {
-    const c = model.counts;
-    const byId = new Map(model.pipelines.map((p) => [p.id, p]));
-    return (
-        <Box data-testid="pipelines-group-calendar-index">
-            <Typography variant="body2" sx={{ color: VIEWER.hint, mb: 1 }} data-testid="pipelines-group-counts">
-                {c.pipelines} pipeline{c.pipelines === 1 ? '' : 's'} · {c.initiatives} initiatives
-                · {c.epics} epics · {c.requirements} requirements ({c.met} met)
-            </Typography>
-            {model.columns.map((col) => (
-                <Box key={col.key} sx={{ mb: 0.75 }} data-testid={`pipelines-group-column-${col.key}`}>
-                    {col.gapBefore && (
-                        <Typography variant="caption" component="div"
-                                    sx={{ color: VIEWER.head, opacity: 0.7, fontStyle: 'italic' }}>
-                            · {col.gapBefore.label} with nothing ·
-                        </Typography>
-                    )}
-                    <Typography variant="caption" component="div" sx={{ color: '#fff', fontWeight: 700 }}>
-                        {col.label}
-                    </Typography>
-                    {col.pipelineIds.map((id) => {
-                        const p = byId.get(id);
-                        if (!p) return null;
-                        return (
-                            <ButtonBase key={id} onClick={() => onFocus(id)}
-                                        data-testid={`pipelines-group-index-${id}`}
-                                        title={`${whenText(p)} — click to focus`}
-                                        sx={{
-                                            display: 'flex', width: '100%', justifyContent: 'flex-start',
-                                            gap: 0.75, pl: 1, py: '1px', borderRadius: '3px',
-                                            textAlign: 'left', '&:hover': { background: '#19324e' },
-                                        }}>
-                                <Box component="span" sx={{ flex: 1, minWidth: 0, fontSize: 11.5, overflow: 'hidden',
-                                                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {p.title}
-                                </Box>
-                                <Box component="span" sx={{ fontSize: 10.5, color: VIEWER.hint, fontFamily: MONO }}>
-                                    {p.counts.met}/{p.counts.requirements}
-                                </Box>
-                            </ButtonBase>
-                        );
-                    })}
-                </Box>
-            ))}
-        </Box>
-    );
-}
-
-function StatusKey() {
+function StatusKey({ bare = false }) {
     return (
         <Box data-testid="pipelines-group-legend"
-             sx={{ mt: 1, pt: 1, borderTop: `1px solid ${VIEWER.border}` }}>
+             sx={bare ? {} : { mt: 1, pt: 1, borderTop: `1px solid ${VIEWER.border}` }}>
             <Typography variant="caption" sx={{ color: VIEWER.hint, display: 'block', mb: 0.25 }}>
                 Requirement status
             </Typography>
@@ -484,7 +434,7 @@ export default function PipelineGroupView({
 
     useEffect(() => {
         engineRef.current?.setFocus(focusId, { fly: true });
-        // A pipeline focused from the scene opens Info, where its facts are.
+        // A pipeline focused from the scene opens the panel, where its facts are.
         if (focusId != null) setInfoOpen(true);
     }, [focusId]);
 
@@ -656,13 +606,13 @@ export default function PipelineGroupView({
                     )}
                 </Box>
 
-                {/* ▾ INFO — top-right: the calendar's index, or the focused pipeline. */}
+                {/* ▾ PLAN / STATUS KEY — top-right: the focused pipeline, else just the status key. */}
                 {model && model.pipelines.length > 0 && (
                     <Box data-testid="pipelines-group-info" sx={{
                         ...panelSx, top: 10, right: 10, width: infoOpen ? 300 : 'auto', px: 1.25, py: 1,
                         maxHeight: 'calc(100% - 60px)', display: 'flex', flexDirection: 'column',
                     }}>
-                        <PanelHead name="Info" open={infoOpen} onToggle={() => setInfoOpen((o) => !o)}
+                        <PanelHead name={focused ? 'Plan' : 'Status key'} open={infoOpen} onToggle={() => setInfoOpen((o) => !o)}
                                    testid="pipelines-group-info-collapse" />
                         {infoOpen && (
                             <Box sx={{ overflow: 'auto', minHeight: 0, mt: '7px' }}>
@@ -673,10 +623,8 @@ export default function PipelineGroupView({
                                                    const row = pipelines.find((p) => p.id === id);
                                                    return row ? onSetStatus(row, next) : undefined;
                                                })} />
-                                ) : (
-                                    <CalendarIndex model={model} onFocus={(id) => onFocusChange?.(id)} />
-                                )}
-                                <StatusKey />
+                                ) : null}
+                                <StatusKey bare={!focused} />
                             </Box>
                         )}
                     </Box>

@@ -119,8 +119,8 @@ import { EPIC_RUNNING } from './pipelineViewModel';
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddEpic from './EmptyPlanAddEpic';
-import EpicEditDialog from '../../Epics/EpicEditDialog';
-import InitiativeEditDialog from '../../Initiatives/InitiativeEditDialog';
+import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
+import { reopenFiledRequirement } from '../../RequirementFiler/RequirementFiler';
 import {
     INITIATIVE_DEP_STUB_X, dependencyChoices, initiativeDepConnectors, initiativeWaitText,
 } from './pipelineInitiativeDeps';
@@ -254,7 +254,7 @@ import '../../CalendarFC/swarmVisualizer.css';
 // are the ones req #3581 already imports above.
 import { updateInitiative, createInitiative, reorderInitiatives } from '../../Initiatives/initiativesApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker, LONG_PRESS_MS, DOUBLE_CLICK_MS } from './planPressGesture';
+import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
@@ -3204,51 +3204,56 @@ export default function PipelinePlanVisualizer({
     // edit, so no read is added — and a save re-reads the plan. `key` changes
     // per open so the form seeds afresh; `kind` outlives the close so the exit
     // animation has something to draw.
-    const [planEditor, setPlanEditor] = useState(
-        { key: 0, open: false, kind: null, target: null, deletion: null });
-    // When it opened: the second click of a quick double click on the title
-    // area lands on the dialog's backdrop, which must not close it at once (the
-    // add-epic dialog's `insertOpenedAtRef` rule).
-    const planEditorOpenedAtRef = useRef(0);
+    // req #4133 — the editor is the Plan Element Editor panel (PlanElementEditor.jsx,
+    // mounted by PipelineDetail), one at a time across the whole page.
     const openPlanEditor = useCallback((what, id) => {
-        let target = null;
-        let deletion = null;
         if (what === 'initiative') {
-            target = (model?.initiatives || []).find((e) => e.id === id) || null;
-        } else {
-            const row = rowById.get(id);
-            if (row) {
-                target = {
-                    id: row.id, initiative_fk: row.initiativeId, title: row.title, notes: row.notes,
-                    // A run-mode write still in flight is the mode the epic
-                    // has; seeding the stored one would revert it on Save.
-                    run: runPending.get(row.id) ?? row.run,
-                    not_before: row.timeDeps?.[0] ?? null,
-                    locked: row.locked, lockedBy: row.lockedBy,
-                    checkpoint: row.checkpoint,
-                };
-                // req #3867 — what the editor's Delete frees, from the rows
-                // this canvas holds: the epics waiting on this one. The database
-                // is the backstop for a dependent the composed read did not
-                // carry (a 409, the plan untouched).
-                deletion = {
-                    // req #3967 — the ids, so the Delete can offer to take them too.
-                    reqIds: row.reqIds || [],
-                    dependents: rows
-                        .filter((r) => r.id !== row.id && (r.depIds || []).includes(row.id))
-                        .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
-                };
-            }
+            const target = (model?.initiatives || []).find((e) => e.id === id) || null;
+            if (!target) return;
+            usePlanEditorStore.getState().openEditor({
+                kind: 'initiative', target, onSaved: refreshPlan,
+                pipelineOptions: pipeline ? [{ id: pipeline.id, title: pipeline.title }] : [],
+                // req #3823 — the initiatives it waits for, chosen from this plan's.
+                dependencies: {
+                    choices: dependencyChoices(model?.initiatives || [], target.id, plan.initiativeDeps || []),
+                    rows: (plan.initiativeDepRows || []).filter((r) => r.initiative_fk === target.id),
+                },
+            });
+            return;
         }
-        if (!target) return;
-        planEditorOpenedAtRef.current = Date.now();
-        setPlanEditor((ed) => ({ key: ed.key + 1, open: true, kind: what, target, deletion }));
-    }, [model?.initiatives, rows, rowById, runPending]);
-    const closePlanEditor = useCallback((reason) => {
-        if (reason === 'backdropClick'
-            && Date.now() - planEditorOpenedAtRef.current < DOUBLE_CLICK_MS) return;
-        setPlanEditor((ed) => ({ ...ed, open: false }));
-    }, []);
+        const row = rowById.get(id);
+        if (!row) return;
+        usePlanEditorStore.getState().openEditor({
+            kind: 'epic', onSaved: refreshAfterEpicEditor, initiativeOptions: insertInitiativeOptions,
+            target: {
+                id: row.id, initiative_fk: row.initiativeId, title: row.title, notes: row.notes,
+                // A run-mode write still in flight is the mode the epic
+                // has; seeding the stored one would revert it on Save.
+                run: runPending.get(row.id) ?? row.run,
+                not_before: row.timeDeps?.[0] ?? null,
+                locked: row.locked, lockedBy: row.lockedBy,
+                checkpoint: row.checkpoint,
+            },
+            // req #3867 — what the editor's Delete frees, from the rows this canvas
+            // holds: the epics waiting on this one (the database is the backstop).
+            deletion: {
+                reqIds: row.reqIds || [],   // req #3967 — so the Delete can offer to take them too.
+                dependents: rows
+                    .filter((r) => r.id !== row.id && (r.depIds || []).includes(row.id))
+                    .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
+            },
+        });
+    }, [model?.initiatives, rows, rowById, runPending, refreshPlan, refreshAfterEpicEditor,
+        insertInitiativeOptions, pipeline, plan.initiativeDeps, plan.initiativeDepRows]);
+
+    // req #4133 — a requirement's click opens the Requirement Editor itself (the
+    // panel the Filer lists filed requirements in); that hides a plan element
+    // editor, so one editor is open at a time. Its id links to the requirement page.
+    const openRequirementEditor = useCallback(async (reqId) => {
+        const outcome = await reopenFiledRequirement(reqId, darwinUri, idToken);
+        if (outcome === 'gone') showError(`Requirement ${reqId} no longer exists`);
+        else if (outcome === 'failed') showError(`Requirement ${reqId} could not be read — try again`);
+    }, [darwinUri, idToken, showError]);
 
     // One commit path for every name — initiative, epic and (req #3661) requirement
     // title. An unchanged name closes the editor
@@ -5394,10 +5399,7 @@ export default function PipelinePlanVisualizer({
                       // and reintroducing this field would resurrect exactly
                       // the two-facts-in-two-places shape req #3462's outage
                       // was caused by.
-                      onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
-                          pipeline?.id
-                              ? { state: planExitState(pipeline.id, 'plan') }
-                              : undefined)} />);
+                      onActivate={() => openRequirementEditor(label.reqId)} />);
             if (pull) {
                 rowNodes.push(
                     <Text key={`lbl-${i}-id`} x={reqX} y={reqY} text={idStr}
@@ -6945,35 +6947,6 @@ export default function PipelinePlanVisualizer({
 
             {/* req #3586 — the add-epic dialog. Portalled to the body, so a
                 click inside it never reaches the canvas's own click test. */}
-            {/* req #3742 — the single editor a click on an epic or an initiative opens. */}
-            {planEditor.kind === 'epic' && (
-                <EpicEditDialog
-                    key={`plan-epic-editor-${planEditor.key}`}
-                    open={planEditor.open}
-                    epic={planEditor.target}
-                    deletion={planEditor.deletion}
-                    initiativeOptions={insertInitiativeOptions}
-                    onClose={closePlanEditor}
-                    onSaved={refreshAfterEpicEditor}
-                />
-            )}
-            {planEditor.kind === 'initiative' && (
-                <InitiativeEditDialog
-                    key={`plan-initiative-editor-${planEditor.key}`}
-                    open={planEditor.open}
-                    initiative={planEditor.target}
-                    pipelineOptions={pipeline ? [{ id: pipeline.id, title: pipeline.title }] : []}
-                    // req #3823 — the initiatives it waits for, chosen from this plan's.
-                    dependencies={planEditor.target ? {
-                        choices: dependencyChoices(model?.initiatives || [],
-                            planEditor.target.id, plan.initiativeDeps || []),
-                        rows: (plan.initiativeDepRows || [])
-                            .filter((r) => r.initiative_fk === planEditor.target.id),
-                    } : null}
-                    onClose={closePlanEditor}
-                    onSaved={refreshPlan}
-                />
-            )}
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle data-testid="pipeline-viz-insert-heading">
