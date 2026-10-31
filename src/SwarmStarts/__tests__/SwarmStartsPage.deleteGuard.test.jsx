@@ -20,6 +20,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('react-router-dom', async (importOriginal) => ({
     ...(await importOriginal()),
     useNavigate: () => () => {},
+    useSearchParams: () => [new URLSearchParams(), () => {}],
 }));
 
 vi.mock('@mui/x-data-grid', () => ({

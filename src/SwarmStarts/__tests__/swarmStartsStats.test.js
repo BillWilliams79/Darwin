@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeSwarmStartStats } from '../SwarmStartsStatsView';
+import { countRowsByAnchor, filterRowsByAnchor } from '../../utils/phaseTelemetry';
 
 const mkRow = (overrides = {}) => ({
     arguments: '',
@@ -355,5 +356,58 @@ describe('computeSwarmStartStats — phase cost leaderboard (req #2811, avg-base
             expect(models.Opus).toBe(2);
             expect(efforts.High).toBe(2);
         });
+    });
+});
+
+// Req #4107 — the invocation anchor (req #4095): a new-anchor blob carries a
+// `skill_load` phase and names its anchor in `invocation_start_source`.
+const mkAnchoredTelemetry = (source, phases) =>
+    `TOKEN_TELEMETRY:\n${JSON.stringify({ schema_version: 3, invocation_start_source: source, phases })}\n`;
+
+describe('computeSwarmStartStats — invocation anchor (req #4107)', () => {
+    const newRow = mkRow({
+        tokens_cache_write: 137000, turn_count: 9, wall_seconds: 60, started_at: '2026-10-31T01:00:00',
+        telemetry: mkAnchoredTelemetry('skill_invocation', {
+            skill_load: { input: 1000, output: 500, cache_write: 130000, cache_read: 9000, wall_seconds: 5 },
+            swarm_start: { input: 0, output: 100, cache_write: 7000, cache_read: 0, wall_seconds: 55 },
+        }),
+    });
+    const legacyRow = mkRow({
+        tokens_cache_write: 10000, turn_count: 7, wall_seconds: 40, started_at: '2026-10-29T01:00:00',
+        telemetry: mkAnchoredTelemetry('marker_file', {
+            swarm_start: { input: 0, output: 100, cache_write: 10000, cache_read: 0, wall_seconds: 40 },
+        }),
+    });
+
+    it('the leaderboard carries a skill_load row and its share counts against all phases', () => {
+        const s = computeSwarmStartStats([newRow]);
+        const load = s.phaseAggregate.find(p => p.phase === 'skill_load');
+        expect(load).toBeDefined();
+        expect(load.avgTokens).toBe(140500);
+        expect(s.phaseAggregate[0].phase).toBe('skill_load');
+        expect(load.pctOfTotal).toBeCloseTo(140500 / (140500 + 7100) * 100, 5);
+    });
+
+    it('anchor counts classify by the row blob; a missing or other source is legacy', () => {
+        const noBlob = mkRow({ telemetry: null });
+        const fallback = mkRow({ telemetry: mkAnchoredTelemetry('swarm_start_marker', {}) });
+        expect(countRowsByAnchor([newRow, legacyRow, noBlob, fallback]))
+            .toEqual({ all: 4, new: 1, legacy: 3 });
+    });
+
+    it('filtering by anchor changes every figure', () => {
+        const rows = [newRow, legacyRow];
+        const all = computeSwarmStartStats(filterRowsByAnchor(rows, 'all'));
+        const neu = computeSwarmStartStats(filterRowsByAnchor(rows, 'new'));
+        const old = computeSwarmStartStats(filterRowsByAnchor(rows, 'legacy'));
+        expect([all.total, neu.total, old.total]).toEqual([2, 1, 1]);
+        expect(neu.avgTokensPerInvocation).toBe(137000);
+        expect(old.avgTokensPerInvocation).toBe(10000);
+        expect(all.avgTokensPerInvocation).toBe(73500);
+        expect([neu.avgTurns, old.avgTurns]).toEqual([9, 7]);
+        expect(neu.throughput.map(d => d.date)).toEqual(['2026-10-31']);
+        expect(old.throughput.map(d => d.date)).toEqual(['2026-10-29']);
+        expect(old.phaseAggregate.map(p => p.phase)).toEqual(['swarm_start']);
+        expect(neu.topPatterns[0].avgTokens).toBe(137000);
     });
 });

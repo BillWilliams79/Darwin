@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
 import { useAllSwarmCompletes, useAllSwarmCompleteSessions, useSessions } from '../hooks/useDataQueries';
-import { useViewPreference } from '../hooks/useViewPreference';
+import { useLinkedViewPreference } from '../hooks/useLinkedViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
 import SwarmCompletesStatsView from './SwarmCompletesStatsView';
@@ -91,7 +91,7 @@ export default function SwarmCompletesPage() {
     }, [completeSessions, sessions]);
 
     // View toggle (Table | Stats) — req #2794.
-    const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
+    const [view, setView] = useLinkedViewPreference(VIEW_STORAGE_KEY, 'table', ['table', 'stats']);
     const handleViewChange = (_event, newView) => setView(newView);
 
     // Status filter chip-selector. null = All.

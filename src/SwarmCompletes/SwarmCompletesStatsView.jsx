@@ -8,7 +8,7 @@
 // test can validate the aggregation without rendering recharts. This is a POC
 // — full + aggressive ideation of data points (req #2794); we reduce later.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -29,6 +29,8 @@ import {
 } from 'recharts';
 
 import { parsePhaseBreakdown } from './SwarmCompleteDetail';
+import { ANCHOR_ALL, countRowsByAnchor, filterRowsByAnchor } from '../utils/phaseTelemetry';
+import AnchorFilterToggle from '../SwarmView/AnchorFilterToggle';
 import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { EFFORTS, EFFORT_COLOR, effortLabel, effortDistinctColor } from '../SwarmView/effortChipStyles';
 
@@ -396,7 +398,15 @@ function windowThroughput(series, days) {
 }
 
 export default function SwarmCompletesStatsView({ rows = [] }) {
-    const stats = computeSwarmCompleteStats(rows);
+    // req #4107 — every figure below is computed from the rows of the selected
+    // telemetry anchor, so old- and new-anchor costs never average together
+    // unawares. Defaults to All.
+    const [anchorFilter, setAnchorFilter] = useState(ANCHOR_ALL);
+    // Memoized: each row's blob is parsed for its anchor, so the throughput
+    // range toggle must not re-parse every row (code review req #4107).
+    const anchorCounts = useMemo(() => countRowsByAnchor(rows), [rows]);
+    const visibleRows = useMemo(() => filterRowsByAnchor(rows, anchorFilter), [rows, anchorFilter]);
+    const stats = useMemo(() => computeSwarmCompleteStats(visibleRows), [visibleRows]);
     const [throughputRange, setThroughputRange] = useState(DEFAULT_THROUGHPUT_RANGE);
 
     if (rows.length === 0) {
@@ -411,9 +421,25 @@ export default function SwarmCompletesStatsView({ rows = [] }) {
 
     const rangeDays = THROUGHPUT_RANGES.find(r => r.label === throughputRange)?.days ?? null;
     const throughputData = windowThroughput(stats.throughput, rangeDays);
+    const anchorToggle = (
+        <AnchorFilterToggle value={anchorFilter} counts={anchorCounts}
+                            onChange={setAnchorFilter} testIdPrefix="swarm-completes-stats" />
+    );
+
+    if (visibleRows.length === 0) {
+        return (
+            <Box sx={{ px: 3, pt: 1, maxWidth: STATS_WIDTH }} data-testid="swarm-completes-stats-view">
+                {anchorToggle}
+                <Typography color="text.secondary" data-testid="swarm-completes-stats-anchor-empty">
+                    No completes under this telemetry anchor.
+                </Typography>
+            </Box>
+        );
+    }
 
     return (
         <Box sx={{ px: 3, pt: 1, maxWidth: STATS_WIDTH }} data-testid="swarm-completes-stats-view">
+            {anchorToggle}
             {/* KPI strip — uniform grid columns so cards align on both edges. */}
             <Box sx={{ display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',

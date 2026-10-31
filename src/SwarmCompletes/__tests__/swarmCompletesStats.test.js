@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeSwarmCompleteStats } from '../SwarmCompletesStatsView';
+import { countRowsByAnchor, filterRowsByAnchor } from '../../utils/phaseTelemetry';
 
 const mkRow = (overrides = {}) => ({
     skill_name: 'swarm-complete',
@@ -195,5 +196,65 @@ describe('computeSwarmCompleteStats (req #2794)', () => {
             expect(models.Opus).toBe(2);
             expect(efforts.High).toBe(2);
         });
+    });
+});
+
+// Req #4107 — worker closeouts embed COMPLETE_TOKEN_TELEMETRY; a new-anchor
+// blob (req #4095) carries `skill_load` and `invocation_start_source`.
+const mkCompleteTelemetry = (source, phases) =>
+    `COMPLETE_TOKEN_TELEMETRY:\n${JSON.stringify({ invocation_start_source: source, phases })}`;
+
+describe('computeSwarmCompleteStats — invocation anchor (req #4107)', () => {
+    const newRow = mkRow({
+        tokens_cache_write: 57000, wall_seconds: 300, turn_count: 12, started_at: '2026-10-31T02:00:00',
+        telemetry: mkCompleteTelemetry('skill_invocation', {
+            skill_load: { input: 10, output: 200, cache_write: 33000, cache_read: 1000, wall_seconds: 8 },
+            swarm_start: { input: 0, output: 300, cache_write: 24000, cache_read: 0, wall_seconds: 292 },
+        }),
+    });
+    const legacyRow = mkRow({
+        tokens_cache_write: 24000, wall_seconds: 200, turn_count: 11, started_at: '2026-10-28T02:00:00',
+        telemetry: mkCompleteTelemetry('marker_file', {
+            swarm_start: { input: 0, output: 300, cache_write: 24000, cache_read: 0, wall_seconds: 200 },
+        }),
+    });
+
+    it('the leaderboard carries a skill_load row for new-anchor completes', () => {
+        const s = computeSwarmCompleteStats([newRow]);
+        const load = s.phaseAggregate.find(p => p.phase === 'skill_load');
+        expect(load).toBeDefined();
+        expect(load.completes).toBe(1);
+        expect(s.phaseAggregate.map(p => p.phase)).toContain('swarm_start');
+    });
+
+    it('a real closeout row carries the start blob too; the closeout blob wins', () => {
+        // Production rows (e.g. #1023): the session's TOKEN_TELEMETRY (legacy
+        // anchor, start phases) precedes the closeout's COMPLETE_TOKEN_TELEMETRY.
+        const startBlob = `TOKEN_TELEMETRY:\n${JSON.stringify({
+            invocation_start_source: 'marker_file',
+            phases: { phase_A1_A3: { input: 1, output: 1, cache_write: 1, cache_read: 1 } },
+        })}\n`;
+        const row = mkRow({ telemetry: startBlob + newRow.telemetry });
+        expect(countRowsByAnchor([row])).toEqual({ all: 1, new: 1, legacy: 0 });
+        expect(computeSwarmCompleteStats([row]).phaseAggregate.map(p => p.phase).sort())
+            .toEqual(['skill_load', 'swarm_start']);
+    });
+
+    it('anchor counts read the COMPLETE_TOKEN_TELEMETRY blob', () => {
+        expect(countRowsByAnchor([newRow, legacyRow, mkRow()]))
+            .toEqual({ all: 3, new: 1, legacy: 2 });
+    });
+
+    it('filtering by anchor changes every figure', () => {
+        const rows = [newRow, legacyRow];
+        const neu = computeSwarmCompleteStats(filterRowsByAnchor(rows, 'new'));
+        const old = computeSwarmCompleteStats(filterRowsByAnchor(rows, 'legacy'));
+        const all = computeSwarmCompleteStats(filterRowsByAnchor(rows, 'all'));
+        expect([all.total, neu.total, old.total]).toEqual([2, 1, 1]);
+        expect([neu.avgWall, old.avgWall]).toEqual([300, 200]);
+        expect([neu.avgTurns, old.avgTurns]).toEqual([12, 11]);
+        expect([neu.avgTokensPerComplete, old.avgTokensPerComplete]).toEqual([57000, 24000]);
+        expect(neu.throughput.map(d => d.date)).toEqual(['2026-10-31']);
+        expect(old.phaseAggregate.map(p => p.phase)).toEqual(['swarm_start']);
     });
 });
