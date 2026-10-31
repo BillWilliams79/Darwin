@@ -76,7 +76,7 @@ const TITLE_MAX = 256;
 
 // `''` is the Machine select's "Any" — a MUI select cannot hold a null value
 // (NewPipelineDialog's convention).
-const ANY_MACHINE = '';
+export const ANY_MACHINE = '';
 
 // `pipelines.sort_order` is an INT.
 const SORT_ORDER_MIN = -2147483648;
@@ -102,7 +102,7 @@ export const PIPELINE_STATUS_MEANING = Object.freeze({
 // sort_order is an INT fed by a text input — three answers, not two: EMPTY
 // (keep the stored place), a usable integer, and INVALID (the initiative
 // editor's `parseSortOrder`).
-const parseSortOrder = (raw) => {
+export const parseSortOrder = (raw) => {
     const t = String(raw ?? '').trim();
     if (t === '') return { empty: true };
     const n = Number(t);
@@ -113,7 +113,7 @@ const parseSortOrder = (raw) => {
     return { value: n };
 };
 
-const isLockedRow = (pipeline) => !!Number(pipeline?.locked ?? 0);
+export const isLockedRow = (pipeline) => !!Number(pipeline?.locked ?? 0);
 
 /**
  * The partial update a save sends — only the columns that changed — or a
@@ -189,7 +189,7 @@ export const pipelineDeleteConsequence = (pipeline, deletion) => {
 // Why the plan cannot be deleted right now, or null. The gateway refuses a
 // locked plan (423) and `deletePipeline` refuses one a live orchestrator holds,
 // so the button says so instead of failing.
-const deleteBlockedReason = (pipeline, deletion) => {
+export const pipelineDeleteBlockedReason = (pipeline, deletion) => {
     if (isLockedRow(pipeline)) return 'Locked — unlock and save to delete this pipeline.';
     if (deletion?.lockedInside) {
         return `${deletion.lockedInside} in it is locked — unlock it to delete this pipeline.`;
@@ -261,7 +261,7 @@ export default function PipelineEditDialog({
     const statusValue = statusOptions.includes(status) ? status : '';
 
     const canDelete = !!(pipeline && deletion);
-    const deleteBlocked = canDelete ? deleteBlockedReason(pipeline, deletion) : null;
+    const deleteBlocked = canDelete ? pipelineDeleteBlockedReason(pipeline, deletion) : null;
 
     const handleSubmit = async () => {
         // Enter in the Title field reaches here too, not only the (disabled)

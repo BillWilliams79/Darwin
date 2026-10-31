@@ -45,6 +45,8 @@ import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import { DOUBLE_CLICK_MS } from '../planPressGesture';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import PlanElementEditor from '../PlanElementEditor';
+import { usePlanEditorStore } from '../../../stores/usePlanEditorStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.ResizeObserver) {
@@ -61,6 +63,7 @@ function LocationProbe() {
 }
 
 beforeEach(() => {
+    usePlanEditorStore.setState({ current: null });
     localStorage.clear();
     sessionStorage.clear();
     locations.length = 0;
@@ -102,6 +105,7 @@ function render() {
                     <PipelinePlanVisualizer plan={adaptComposedPipeline(payload)}
                                             model={buildPlanModel(payload)} levelPref="3"
                                             pipeline={payload.pipeline} timezone="UTC" />
+<PlanElementEditor />
                     <LocationProbe />
                 </MemoryRouter>
             </QueryClientProvider>
@@ -127,9 +131,9 @@ describe('a quick click on an epic NAME opens its single editor (req #3742)', ()
         });
         expect(locations[locations.length - 1].pathname).toBe('/swarm/pipeline/2');
         await wait(DOUBLE_CLICK_MS + 50);
-        const dialogs = document.querySelectorAll('[data-testid="epic-edit-dialog"]');
+        const dialogs = document.querySelectorAll('[data-testid="plan-editor-form-epic"]');
         expect(dialogs).toHaveLength(1);
-        expect(dialogs[0].textContent).toContain(`Edit epic ${HIT_EPIC}`);
+        expect(document.querySelector('[data-testid="plan-editor-identity"]').textContent).toContain(`Epic ${HIT_EPIC} -`);
         expect(locations.every((l) => l.pathname === '/swarm/pipeline/2')).toBe(true);
     });
 
@@ -143,6 +147,6 @@ describe('a quick click on an epic NAME opens its single editor (req #3742)', ()
             canvas.dispatchEvent(pointer('pointerup'));
         });
         await wait(DOUBLE_CLICK_MS + 50);
-        expect(document.querySelector('[data-testid="epic-edit-dialog"]')).toBeNull();
+        expect(document.querySelector('[data-testid="plan-editor-form-epic"]')).toBeNull();
     });
 });
