@@ -1,4 +1,5 @@
 import varDump from '../classifier/classifier';
+import { PROXY_AUTH } from '../config/product';
 
 // make this a rest api call library that has no UI side effects.
 // eventually replace with react-router or similar
@@ -21,7 +22,9 @@ const call_rest_api = async (url, method, body, idToken) => {
     };
     fetchInit['body'] = (body) ? JSON.stringify(body) : null;
 
-    const token = idToken || _authToken;
+    // req #4076 — in proxy auth the server authenticates the request (nginx);
+    // the app holds no credential, so it sends none.
+    const token = PROXY_AUTH ? null : (idToken || _authToken);
     if (token) {
         fetchInit['headers']['Authorization'] = token;
     }

@@ -5,6 +5,8 @@ import call_rest_api from '../RestApi/RestApi';
 import { fetchExportData, downloadJson } from '../services/exportService';
 import ExportDialog from './ExportDialog';
 import { DEV_APPS, DEV_APPS_SCOPE, DEV_APP_LABELS, setDevAppsOptOut } from './navConfig';
+import { APP_SCOPE, PROXY_AUTH } from '../config/product';
+import { ProxyNotIdentified } from '../Components/AuthenticatedRoute/AuthenticatedRoute';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
@@ -175,7 +177,9 @@ const ProfileContent = ({ onClose }) => {
         navigate(path, state);
     };
 
-    // Unauthenticated view
+    // Unauthenticated view. Proxy auth (req #4076) has no login or sign-up:
+    // the server authenticates, so no user means it named nobody.
+    if (!idToken && PROXY_AUTH) return <ProxyNotIdentified />;
     if (!idToken) {
         return (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -234,8 +238,9 @@ const ProfileContent = ({ onClose }) => {
                         data-testid="profile-timezone"
                         disableClearable
                         />
-            {/* Applications selector */}
-            <Box>
+            {/* Applications selector — darwin.one only: a scoped product
+                (req #4076) IS its applications, so there is nothing to toggle. */}
+            {APP_SCOPE.all && <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Applications</Typography>
                 {DEV_APPS_SCOPE && (
                     // Req #3790 — this dev server is scoped to its session's
@@ -389,7 +394,7 @@ const ProfileContent = ({ onClose }) => {
                         );
                     })}
                 </Box>
-            </Box>
+            </Box>}
             {/* Appearance selector */}
             <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Appearance</Typography>
@@ -497,18 +502,23 @@ const ProfileContent = ({ onClose }) => {
             <ExportDialog
                 open={exportDialogOpen}
                 onClose={() => setExportDialogOpen(false)}
-                enabledApps={{ tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }}
+                // A scoped product (req #4076) exports exactly its applications —
+                // in scope means on, out of scope means off, whatever the profile says.
+                enabledApps={APP_SCOPE.all
+                    ? { tasks: appTasks === 1, maps: appMaps === 1, swarm: appSwarm === 1 }
+                    : { tasks: APP_SCOPE.tasks, maps: APP_SCOPE.maps, swarm: APP_SCOPE.swarm }}
                 onExport={handleExport}
                 exporting={exporting}
             />
-            <Button
+            {/* Proxy auth (req #4076): the session is the server's, not ours to end. */}
+            {!PROXY_AUTH && <Button
                 variant="outlined"
                 startIcon={<LogoutOutlined />}
                 onClick={() => handleNavigate('/logout')}
                 data-testid="logout-button"
             >
                 Log Out
-            </Button>
+            </Button>}
         </Box>
     );
 };

@@ -27,6 +27,7 @@
 // goes in — query, hash, view state, page options — is redacted on top of that:
 // credential-shaped names dropped, JWT-shaped values replaced (`redact`).
 
+import { PROXY_AUTH } from '../config/product';
 import { slotOffset } from '../Components/AnchoredPanel/usePanelRack';
 import { DEV_APP_GROUPS, DEV_APPS, NAV_GROUPS, appForRoute, isGroupVisible } from '../NavBar/navConfig';
 import { rackPlacement, usePanelRackStore } from '../stores/usePanelRackStore';
@@ -53,7 +54,11 @@ export const VIEW_STATE_KEYS = Object.freeze({
 });
 
 // ── Redaction ───────────────────────────────────────────────────────────────
-const SECRET_NAME = /token|secret|passw|credential|cognito|pkce|jwt|cookie|api[-_]?key|verifier|^auth(orization)?$/i;
+// req #4076 — the auth provider's own name is a credential marker only where
+// that provider is in the build (the internal, proxy-auth bundle names no AWS service).
+const SECRET_NAME = PROXY_AUTH
+    ? /token|secret|passw|credential|pkce|jwt|cookie|api[-_]?key|verifier|^auth(orization)?$/i
+    : /token|secret|passw|credential|cognito|pkce|jwt|cookie|api[-_]?key|verifier|^auth(orization)?$/i;
 /** An OAuth callback's query/hash parameters, on top of SECRET_NAME. */
 const URL_SECRET_PARAM = /^(code|state)$/i;
 const JWT_LIKE = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/;
