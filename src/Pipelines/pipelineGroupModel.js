@@ -58,10 +58,11 @@ export const GROUP = Object.freeze({
     slabH: 0.4,        // platform thickness
     aisle: 7,          // between two platforms
     emptySize: 6,      // the footprint of a plan with nothing drawn on it
-    pedestal: 1.8,     // an epic pedestal's side
+    pedestal: 2.4,     // an epic pedestal's side — roomy enough for a nameplate in front of its stack (req #4130)
     pedestalH: 0.5,    // tall enough that its front face is the epic's nameplate
     cube: 0.5,         // a requirement cube's side
     cubeGap: 0.1,
+    stackShift: -0.35, // the cube stack sits toward the back; the pedestal's front strip carries the epic's name
     perLayer: 3,       // cubes per row of a layer (3 × 3 = 9 per layer)
     arcLift: 1.6,      // how far above the higher pedestal an arc's apex rides
     header: 6,         // the calendar's header strip, behind the first platform row
@@ -176,7 +177,7 @@ function layoutPlan(plan) {
             const layer = Math.floor(i / (per * per));
             const inLayer = i % (per * per);
             req.x = p.x - span / 2 + (inLayer % per) * step + G.cube / 2;
-            req.z = p.z - span / 2 + Math.floor(inLayer / per) * step + G.cube / 2;
+            req.z = p.z + G.stackShift - span / 2 + Math.floor(inLayer / per) * step + G.cube / 2;
             req.y = G.pedestalH + layer * step + G.cube / 2;
         });
         const layers = Math.ceil(reqs.length / (per * per));
@@ -517,7 +518,8 @@ export function frameDistance(b, fovDeg, aspect, { margin = 1.35, min = 2 } = {}
 //   skipped stretch → the floor of its wider aisle
 //   pipeline title  → its platform's top, in the back margin (`GROUP.title`)
 //   initiative      → its strip's top, in the strip's back margin (`GROUP.bandHead`)
-//   epic            → its pedestal's front face, the nameplate (`GROUP.pedestalH`)
+//   epic            → its pedestal's front face AND the strip of its top in front of the cubes (req #4130)
+//   requirement     → the top face of each cube nothing sits on (req #4130)
 //
 // Printed text is part of the world: it foreshortens with the view, a nearer
 // panel hides it, and it is read by moving in (a focus frames one platform).
@@ -584,6 +586,27 @@ export function textPlates(model) {
                 x: p.x + e.x, y: G.slabH + G.pedestalH / 2, z: p.z + e.z + G.pedestal / 2 + 0.004,
                 w: G.pedestal - 0.12, h: G.pedestalH - 0.08, lines: 2, align: 'center',
             }));
+            // Req #4130: the Front view looks down, so the epic's name is also
+            // printed on its pedestal's top, in the strip in front of the cubes.
+            const stripBack = G.stackShift + (G.perLayer * (G.cube + G.cubeGap) - G.cubeGap) / 2;
+            const stripFront = G.pedestal / 2;
+            plates.push(plate({
+                kind: 'epic', text: e.title, pipelineId: p.id, face: 'up',
+                x: p.x + e.x, y: G.slabH + G.pedestalH + SURFACE_LIFT,
+                z: p.z + e.z + (stripBack + stripFront) / 2,
+                w: G.pedestal - 0.2, h: stripFront - stripBack - 0.06, lines: 2, align: 'center',
+            }));
+            // Requirement titles: printed on the top face of every cube nothing
+            // sits on, readable by moving in.
+            const per2 = G.perLayer * G.perLayer;
+            e.reqs.forEach((r, i) => {
+                if (i + per2 < e.reqs.length || !r.title) return;
+                plates.push(plate({
+                    kind: 'req', text: r.title, pipelineId: p.id, face: 'up',
+                    x: p.x + r.x, y: G.slabH + r.y + G.cube / 2 + SURFACE_LIFT, z: p.z + r.z,
+                    w: G.cube - 0.04, h: G.cube - 0.04, lines: 3, align: 'center',
+                }));
+            });
         }
     }
     return plates;
