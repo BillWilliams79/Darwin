@@ -86,7 +86,7 @@ import {
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { useCategories, useMachines, useProjects } from '../hooks/useDataQueries';
+import { pipelineEpicRequirementKeys, useCategories, useMachines, useProjects } from '../hooks/useDataQueries';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
@@ -432,7 +432,7 @@ export default function RequirementEditorPopup() {
     const descriptionCollapsed = useRequirementFilerStore(s => s.descriptionCollapsed);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
         clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
-        setCreating, endCreating, clearSeat, toggleDescriptionCollapsed } = useRequirementFilerStore.getState();
+        setCreating, endCreating, clearSeat, toggleDescriptionCollapsed, discardDeleted } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -453,7 +453,12 @@ export default function RequirementEditorPopup() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     // The capture's per-category details, behind its Details button.
     const [captureOpen, setCaptureOpen] = useState(false);
-    useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); }, [draftKey]);
+    // Delete (req #4152): two presses — the first asks, the second deletes.
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    // Read by save() and the live save: nothing is PUT to a row being deleted.
+    const deletingRef = useRef(false);
+    useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); setConfirmDelete(false); }, [draftKey]);
     const titleRef = useRef(null);
     // The description's own element, as state: racking re-mounts it, and the
     // measure below must follow the new one.
@@ -572,7 +577,7 @@ export default function RequirementEditorPopup() {
         if (savedId == null || saving === draftKey) return undefined;
         const t = setTimeout(() => liveSaveRef.current?.(), LIVE_SAVE_MS);
         return () => clearTimeout(t);
-    }, [draft, savedId, saving, draftKey]);
+    }, [draft, savedId, saving, draftKey, deleting]);
 
     if (!visible) return null;
 
@@ -711,6 +716,7 @@ export default function RequirementEditorPopup() {
     // `live` — called by live saving, which has already judged the draft from the
     // store (this closure's `canSave` may be a hidden render's, stale).
     const save = async (live = false) => {
+        if (deletingRef.current) return;
         if (!live && !canSave) return;
         // A live save only ever PUTs: a closure from before the create landed
         // (the editor it closed renders nothing) must never POST it twice.
@@ -777,9 +783,39 @@ export default function RequirementEditorPopup() {
     // a superset of the changes, never a lost one.
     liveSaveRef.current = () => {
         const st = useRequirementFilerStore.getState();
-        if (st.draftKey !== draftKey || st.draft !== draft || savingRef.current === draftKey) return;
+        if (st.draftKey !== draftKey || st.draft !== draft || savingRef.current === draftKey || deletingRef.current) return;
         if (st.savedId == null || st.orphaned || draftProblem(st.draft)) return;
         if (draftDirty(st.draft, st.savedId, st.saved) && draft !== failedDraftRef.current) save(true);
+    };
+    // DELETE this requirement (req #4152) — the same DELETE the requirement page
+    // sends. Its epic seat CASCADEs (req #3706), so every plan read re-reads. A
+    // refusal (a locked epic, plan or initiative: 423) is said in the editor's
+    // error line and the requirement stays.
+    const deleteRequirement = async () => {
+        if (savedId == null || deletingRef.current || saving === draftKey) return;
+        const key = draftKey;
+        const id = savedId;
+        deletingRef.current = true;
+        setDeleting(true);
+        setFailure(null);
+        try {
+            const res = await call_rest_api(`${darwinUri}/requirements`, 'DELETE', { id }, idToken);
+            if (res?.httpStatus?.httpStatus !== 200) {
+                setFailure({ key, text: errorText(res, 'Requirement not deleted') });
+                return;
+            }
+            queryClient.invalidateQueries({ queryKey: requirementKeys.all(user) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicRequirementKeys.all(user) });
+            queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
+            setConfirmDelete(false);
+            discardDeleted(id);
+        } catch (e) {
+            const locked = e?.httpStatus?.httpStatus === 423 ? e.httpStatus.httpMessage : null;
+            setFailure({ key, text: locked || errorText(e, 'Requirement not deleted') });
+        } finally {
+            deletingRef.current = false;
+            setDeleting(false);
+        }
     };
     // Retry: the live save the last failure stopped.
     const retry = () => { failedDraftRef.current = null; save(); };
@@ -994,35 +1030,64 @@ export default function RequirementEditorPopup() {
                         </Box>
                     )}
                     {/* CREATE (the first save) — or RETRY for a live save that failed — and the
-                        debug capture's line, on one row; the capture's details slide open below. */}
-                    {(savedId == null || (error && canSave) || hasCapture) && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'wrap' }}>
-                            {savedId == null ? (
-                                <Box component="button" type="submit" disabled={!canSave}
-                                     title={orphaned ? 'Start a new requirement' : (problem || 'Create it (⌘↵)')}
-                                     data-testid="requirement-editor-save"
-                                     sx={{ px: '0.9em', py: '0.1em', borderRadius: '999px',
-                                            border: `1px solid ${canSave ? CREATE_GREEN : P.line}`,
-                                            background: canSave ? CREATE_GREEN : 'transparent',
-                                            color: canSave ? '#fff' : P.dim, fontFamily: ACTION_POPUP_MONO,
-                                            fontSize: '1em', fontWeight: 700, cursor: canSave ? 'pointer' : 'default' }}>
-                                    Create
+                        debug capture's line, on one row; the capture's details slide open below.
+                        A filed requirement carries DELETE here too (req #4152). */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'wrap' }}>
+                        {savedId == null ? (
+                            <Box component="button" type="submit" disabled={!canSave}
+                                 title={orphaned ? 'Start a new requirement' : (problem || 'Create it (⌘↵)')}
+                                 data-testid="requirement-editor-save"
+                                 sx={{ px: '0.9em', py: '0.1em', borderRadius: '999px',
+                                        border: `1px solid ${canSave ? CREATE_GREEN : P.line}`,
+                                        background: canSave ? CREATE_GREEN : 'transparent',
+                                        color: canSave ? '#fff' : P.dim, fontFamily: ACTION_POPUP_MONO,
+                                        fontSize: '1em', fontWeight: 700, cursor: canSave ? 'pointer' : 'default' }}>
+                                Create
+                            </Box>
+                        ) : (error && canSave) ? (
+                            <Box component="button" type="button" onClick={retry}
+                                 data-testid="requirement-editor-retry" sx={{ ...TEXT_BUTTON_SX, py: '0.1em' }}>
+                                Retry
+                            </Box>
+                        ) : null}
+                        {savedId != null && (
+                            confirmDelete ? (
+                                <Box component="span" data-testid="requirement-editor-delete-confirm"
+                                     sx={{ display: 'inline-flex', alignItems: 'center', gap: '0.5em' }}>
+                                    <Box component="span" sx={{ color: INVALID }}>Delete {savedId}?</Box>
+                                    <Box component="button" type="button" onClick={deleteRequirement}
+                                         disabled={deleting || saving === draftKey}
+                                         data-testid="requirement-editor-delete-yes"
+                                         sx={{ ...TEXT_BUTTON_SX, py: '0.1em', color: INVALID, borderColor: INVALID }}>
+                                        {deleting ? 'Deleting…' : 'Yes, delete'}
+                                    </Box>
+                                    <Box component="button" type="button" onClick={() => setConfirmDelete(false)}
+                                         disabled={deleting}
+                                         data-testid="requirement-editor-delete-cancel"
+                                         sx={{ ...TEXT_BUTTON_SX, py: '0.1em' }}>
+                                        Cancel
+                                    </Box>
                                 </Box>
-                            ) : (error && canSave) ? (
-                                <Box component="button" type="button" onClick={retry}
-                                     data-testid="requirement-editor-retry" sx={{ ...TEXT_BUTTON_SX, py: '0.1em' }}>
-                                    Retry
+                            ) : (
+                                <Box component="button" type="button" onClick={() => setConfirmDelete(true)}
+                                     disabled={saving === draftKey}
+                                     title="Delete this requirement"
+                                     data-testid="requirement-editor-delete"
+                                     sx={{ ...TEXT_BUTTON_SX, py: '0.1em', display: 'inline-flex', alignItems: 'center',
+                                            gap: '0.3em', '&:hover': { color: INVALID, borderColor: INVALID } }}>
+                                    <DeleteOutlineIcon sx={{ fontSize: '1.2em' }} />
+                                    Delete
                                 </Box>
-                            ) : null}
-                            {hasCapture && (
-                                <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
-                                             canDropAll={captureStage === 'ready' && captureSentDropped == null
-                                                 && saving !== draftKey && !keepsNothing(capture, captureDropped)}
-                                             onDropAll={dropAllCaptureCategories}
-                                             expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
-                            )}
-                        </Box>
-                    )}
+                            )
+                        )}
+                        {hasCapture && (
+                            <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
+                                         canDropAll={captureStage === 'ready' && captureSentDropped == null
+                                             && saving !== draftKey && !keepsNothing(capture, captureDropped)}
+                                         onDropAll={dropAllCaptureCategories}
+                                         expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
+                        )}
+                    </Box>
                     {hasCapture && (
                         <CaptureDetails capture={capture} dropped={captureSentDropped ?? captureDropped}
                                         stage={captureStage} savedId={savedId} expanded={captureOpen}

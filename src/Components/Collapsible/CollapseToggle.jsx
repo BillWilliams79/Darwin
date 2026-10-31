@@ -2,10 +2,10 @@
 // CollapsibleGhostField (req #3572) and the pipeline card goal (req #3945), so
 // every collapse surface reads the same.
 //
-// ALWAYS RENDERED, AT THE TOP RIGHT of the field it controls (user direction
-// during manual review): a toggle that appears only when the text overflows, and
-// below it, makes the control hunt-for-it and moves with the text's length. A
-// fixed spot above the field is where the eye lands before reading.
+// AT THE TOP RIGHT of the field it controls (user direction during manual
+// review) — a fixed spot above the field is where the eye lands before reading.
+// Callers render it ONLY when the collapsed text really hides something
+// (req #4144: a toggle that shows no more is clutter).
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';

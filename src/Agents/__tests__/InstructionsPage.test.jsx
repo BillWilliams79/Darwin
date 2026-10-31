@@ -922,12 +922,28 @@ describe('InstructionsPage — the drill-through from an agent page', () => {
     });
 
     it('opens the target card EXPANDED; every other card stays collapsed (req #3572)', async () => {
-        setHash('#instruction-11');
-        mount();
-        await flush();
+        // The Show more toggle exists only when the collapsed field really hides
+        // text (req #4144), and jsdom does no layout — scrollHeight and clientHeight
+        // are both 0, so nothing ever overflows. Stub them as a clamped long text
+        // measures in a browser (400 tall in an 80 box) so the collapsed card has a
+        // toggle to read. The expanded target keeps its toggle regardless: a pinned
+        // field cannot be measured.
+        const stub = (prop, value) => Object.defineProperty(HTMLElement.prototype, prop, {
+            configurable: true, get: () => value,
+        });
+        stub('scrollHeight', 400);
+        stub('clientHeight', 80);
+        try {
+            setHash('#instruction-11');
+            mount();
+            await flush();
 
-        expect(byTestId('instruction-content-input-11-toggle').textContent).toBe('Show less');
-        expect(byTestId('instruction-content-input-10-toggle').textContent).toBe('Show more');
+            expect(byTestId('instruction-content-input-11-toggle').textContent).toBe('Show less');
+            expect(byTestId('instruction-content-input-10-toggle').textContent).toBe('Show more');
+        } finally {
+            delete HTMLElement.prototype.scrollHeight;
+            delete HTMLElement.prototype.clientHeight;
+        }
     });
 });
 

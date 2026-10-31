@@ -263,6 +263,22 @@ export const useRequirementFilerStore = create(
                     }),
                 });
             },
+            // The requirement `id` was DELETED (req #4152): it leaves the filer's list,
+            // and when the editor holds it the editor lets go of it and closes — its
+            // row is gone, so a live save would PUT into nothing.
+            discardDeleted: (id) => {
+                const patch = { filed: get().filed.filter(f => f.id !== id) };
+                if (get().savedId === id) {
+                    Object.assign(patch, {
+                        // A new key: a save still holding the old one writes nothing back.
+                        draftKey: get().draftKey + 1,
+                        draft: null, savedId: null, saved: null, editorShow: false, restoredDraft: false,
+                        orphaned: false, focusPending: false, reopened: false,
+                        capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
+                    });
+                }
+                set(patch);
+            },
             markOrphaned: (key) => { if (get().draftKey === key) set({ orphaned: true }); },
         }),
         {

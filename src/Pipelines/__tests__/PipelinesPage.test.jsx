@@ -256,7 +256,19 @@ const blur = (el) => act(() => { el.dispatchEvent(new FocusEvent('focusout', { b
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 const switchToTable = () => click(node('view-toggle-table'));
 
+// jsdom does no layout: scrollHeight and clientHeight are both 0, so no goal
+// ever "overflows" and (req #4144) the Show more toggle would never render.
+// Stub the two getters — tall content in a short box is what a long goal
+// measures as in a browser; `goalOverflows = false` models a short one.
+let goalOverflows = true;
+const stubLayout = (prop, fn) => Object.defineProperty(HTMLElement.prototype, prop, {
+    configurable: true, get: fn,
+});
+
 beforeEach(() => {
+    goalOverflows = true;
+    stubLayout('scrollHeight', () => (goalOverflows ? 400 : 80));
+    stubLayout('clientHeight', () => 80);
     navigations.length = 0;
     restCalls.length = 0;
     restRespond = null;
@@ -303,6 +315,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    delete HTMLElement.prototype.scrollHeight;
+    delete HTMLElement.prototype.clientHeight;
     act(() => { mountedRoots.forEach(r => r.unmount()); });
     document.body.innerHTML = '';
     vi.restoreAllMocks();
@@ -846,35 +860,17 @@ describe('PipelinesPage2 status editor (Table view)', () => {
     });
 });
 
-describe('PipelinesPage2 status editor (Cards view)', () => {
-    it('writes the status alone and says when the filter now hides the plan', async () => {
+describe('PipelinesPage2 status (Cards view, req #4144)', () => {
+    it('shows the status in the info box and offers no control to change it', () => {
         mount();
-        click(node('pipelines-card-status-7'));
-        await act(async () => { node('pipelines-card-status-7-option-met').click(); });
-        await flush();
-        expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipelines',
-            method: 'PUT',
-            body: [{ id: 7, pipeline_status: 'met' }],
-        }]);
-        expect(useSnackBarStore.getState().message).toMatch(/now Met — hidden by the status filter/);
-    });
-
-    it('picking the status it already has writes nothing', async () => {
-        mount();
-        click(node('pipelines-card-status-7'));
-        await act(async () => { node('pipelines-card-status-7-option-orchestrating').click(); });
-        await flush();
+        const status = node('pipelines-card-status-7');
+        expect(status.textContent).toBe('Running');
+        expect(node('pipelines-card-info-7').contains(status)).toBe(true);
+        click(status);
+        expect(node('pipelines-card-status-7-menu')).toBeNull();
         expect(restCalls).toEqual([]);
     });
 });
-
-// THE 'description dialog (Table view)' SUITE IS GONE (req #3365). Its five
-// tests drove `pipelines-description-btn-*`, the Goal column the user removed,
-// and the dialog behind it — which this page no longer defines at all. They are
-// deleted rather than re-pointed: the equivalent dialog on `PipelineDetail.jsx`
-// is a SEPARATE component with its own tests, and pointing these at it would
-// make this file assert another page's behaviour.
 
 // req #3965 — a new plan is born `authoring`; `closed` is gone, and the
 // stamps are the gateway's to derive, so the body carries neither.
@@ -1124,6 +1120,14 @@ describe('PipelinesPage2 — edit in place (req #3804)', () => {
         blur(goal);
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 7, description: 'NULL' }]);
+    });
+
+    // req #4144 — a goal that already fits has nothing to show more of.
+    it('renders no Show more toggle when the goal fits', () => {
+        goalOverflows = false;
+        mount();
+        expect(node('pipelines-card-description-7')).not.toBeNull();
+        expect(node('pipelines-card-description-7-toggle')).toBeNull();
     });
 
     // req #3945 — the goal sits collapsed under the shared Show more toggle.

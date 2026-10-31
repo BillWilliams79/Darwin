@@ -28,6 +28,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     }),
     useMachines: () => ({ data: [{ id: 2, title: 'Mac', sort_order: 1 }, { id: 3, title: 'Old PC', closed: 1 }] }),
     useDevServers: () => ({ data: [] }),
+    pipelineEpicRequirementKeys: { all: (u) => ['pipeline_epic_requirements', u] },
     // The seat's plan layer: plan 2 is active (initiative 30 → epics 300, 301), plan 5
     // is completed (initiative 50 → epic 500).
     useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'orchestrating' },
@@ -893,6 +894,73 @@ describe('Requirement Filer (req #3811)', () => {
         fireEvent.click(toggle());
         expect(desc().getAttribute('data-collapsed')).toBe('0');
         expect(useRequirementFilerStore.getState().descriptionCollapsed).toBe(false);
+    });
+
+    // ── Delete (req #4152) ──────────────────────────────────────────────────
+    const fileOne = async (id = 3999) => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'Doomed');
+        fill('category', '862');
+        rest.mockResolvedValueOnce(ok([{ id, title: 'Doomed' }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await filedThenShown(id);
+    };
+
+    it('a filed requirement can be deleted: asks first, then deletes it and closes the editor (req #4152)', async () => {
+        await fileOne();
+        expect(screen.queryByTestId('requirement-editor-delete-confirm')).toBe(null);
+        fireEvent.click(screen.getByTestId('requirement-editor-delete'));
+        expect(screen.getByTestId('requirement-editor-delete-confirm').textContent).toContain('Delete 3999?');
+        // Cancel sends nothing.
+        fireEvent.click(screen.getByTestId('requirement-editor-delete-cancel'));
+        expect(screen.queryByTestId('requirement-editor-delete-confirm')).toBe(null);
+        expect(rest).toHaveBeenCalledTimes(1);
+
+        fireEvent.click(screen.getByTestId('requirement-editor-delete'));
+        rest.mockResolvedValueOnce(ok({}));
+        fireEvent.click(screen.getByTestId('requirement-editor-delete-yes'));
+        await waitFor(() => expect(screen.queryByTestId('requirement-editor')).toBe(null));
+        const [uri, method, body] = rest.mock.calls[1];
+        expect([uri, method, body]).toEqual(['https://api/darwin_dev/requirements', 'DELETE', { id: 3999 }]);
+        const st = useRequirementFilerStore.getState();
+        expect(st.draft).toBe(null);
+        expect(st.savedId).toBe(null);
+        expect(st.filed.find(f => f.id === 3999)).toBeUndefined();
+    });
+
+    it('a refused delete (locked epic, 423) is said in the editor and the requirement stays (req #4152)', async () => {
+        await fileOne();
+        fireEvent.click(screen.getByTestId('requirement-editor-delete'));
+        rest.mockRejectedValueOnce({ data: [], httpStatus: { httpStatus: 423, httpMessage: 'Epic 7 is locked' } });
+        fireEvent.click(screen.getByTestId('requirement-editor-delete-yes'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent).toContain('Epic 7 is locked'));
+        expect(useRequirementFilerStore.getState().savedId).toBe(3999);
+        expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('3999');
+    });
+
+    it('an edit pending when Delete is confirmed is never PUT to the deleted row (req #4152)', async () => {
+        await fileOne();
+        fill('title', 'Edited just before');
+        fireEvent.click(screen.getByTestId('requirement-editor-delete'));
+        let resolveDelete;
+        rest.mockImplementationOnce(() => new Promise(r => { resolveDelete = r; }));
+        fireEvent.click(screen.getByTestId('requirement-editor-delete-yes'));
+        await new Promise(r => setTimeout(r, 900));
+        resolveDelete(ok({}));
+        await waitFor(() => expect(useRequirementFilerStore.getState().draft).toBe(null));
+        await new Promise(r => setTimeout(r, 900));
+        expect(rest.mock.calls.map(c => c[1])).toEqual(['POST', 'DELETE']);
+        expect(useRequirementFilerStore.getState().filed.find(f => f.id === 3999)).toBeUndefined();
+        expect(useRequirementFilerStore.getState().savedId).toBe(null);
+    });
+
+    it('an unsaved draft has no Delete (req #4152)', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        expect(screen.queryByTestId('requirement-editor-delete')).toBe(null);
     });
 });
 
