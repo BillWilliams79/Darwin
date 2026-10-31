@@ -346,6 +346,19 @@ export function createPipelineGroupScene(container, handlers = {}) {
         return focused ? pipelineBox(focused) : model.bounds;
     }
 
+    // The ROTATE pivot: the middle of the PLANS, not of the floor rectangle
+    // (which includes the calendar's header strip). Presets keep framing the
+    // whole floor; only the orbit centre moves (req #4132).
+    function pivotXZ() {
+        const b = frameBox();
+        const focused = focusId != null;
+        const boxes = focused || !model ? [] : model.pipelines.map(pipelineBox);
+        if (!boxes.length) return [(b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2];
+        const lo = (k) => Math.min(...boxes.map((x) => x[k]));
+        const hi = (k) => Math.max(...boxes.map((x) => x[k]));
+        return [(lo('minX') + hi('maxX')) / 2, (lo('minZ') + hi('maxZ')) / 2];
+    }
+
     function boxCenter(b) {
         return new THREE.Vector3((b.minX + b.maxX) / 2, b.maxY / 3, (b.minZ + b.maxZ) / 2);
     }
@@ -866,6 +879,17 @@ export function createPipelineGroupScene(container, handlers = {}) {
         setFocus,
         preset,
         setRotate(on) {
+            // Rotate turns the view about the CENTRE of what is framed: cursor
+            // zoom and double-click leave the pivot wherever they landed, and
+            // orbiting a far-off point swings a wide field out of view.
+            if (on && !flight && model && model.pipelines.length) {
+                const [px, pz] = pivotXZ();
+                const c = new THREE.Vector3(px, controls.target.y, pz);
+                const shift = c.clone().sub(controls.target);
+                controls.target.copy(c);
+                live().position.add(shift);
+                controls.update();
+            }
             controls.autoRotate = !!on;
             handlers.onRotate?.(!!on);
         },
