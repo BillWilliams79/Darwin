@@ -35,7 +35,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import { GROUP, pipelineBox, textPlates } from './pipelineGroupModel';
+import {
+    GROUP, pipelineBox, textPlates, columnBox, bandBox, epicBox, reqBox, frameDistance,
+} from './pipelineGroupModel';
 import { PLAN_VIZ_PALETTE } from '../SwarmView/pipelines/pipelinePlanLayout';
 
 const P = PLAN_VIZ_PALETTE;
@@ -45,11 +47,11 @@ const LOWLIGHT = 0.88;          // how far a lowlit colour moves toward the floo
 const CLICK_SLOP_PX = 5;
 
 // Topology's axis frames (tpu3d.js TPU3D_AXIS): `dir` points FROM the pivot TO
-// the camera. Top is straight down with the back (−z) up the screen, Front
-// looks at the front (from +z), Side looks across from +x — front to the left.
+// the camera. Front (req #4130: the user's name for the overhead view) is straight
+// down with the back (−z) up the screen, Top looks at the front (from +z), Side looks across from +x — front to the left.
 export const AXIS = Object.freeze({
-    top: { dir: [0, 1, 0] },
-    front: { dir: [0, 0, 1] },
+    top: { dir: [0, 0, 1] },
+    front: { dir: [0, 1, 0] },
     side: { dir: [1, 0, 0] },
 });
 export const PRESETS = ['iso', 'top', 'front', 'side'];
@@ -77,6 +79,7 @@ const PLATE_STYLE = {
     pipeline: { weight: 700, color: P.text },
     initiative: { weight: 600, color: P.text },
     epic: { weight: 600, color: '#ffffff' },
+    req: { weight: 600, color: '#ffffff', fill: 'rgba(12, 29, 52, 0.8)', border: 'rgba(255,255,255,0.35)' },
 };
 const LINE_PX = 64;             // canvas pixels per line of a plate
 const MAX_CANVAS_PX = 2048;
@@ -116,7 +119,7 @@ function frameOf(plate, H) {
     const style = PLATE_STYLE[plate.kind] || PLATE_STYLE.pipeline;
     const bar = plate.accent ? Math.round(H * 0.14) : 0;
     const gutter = plate.accent ? bar + Math.round(H * 0.25) : 0;
-    const padX = style.fill ? Math.round(H * 0.45) : 0;
+    const padX = style.fill ? Math.round((H / (plate.lines || 1)) * 0.45) : 0;
     return { style, bar, gutter, padX };
 }
 
@@ -258,7 +261,15 @@ export function createPipelineGroupScene(container, handlers = {}) {
     const guardUp = (e) => { down.delete(e.pointerId); };
     // A press or a wheel during a flight takes the camera back where it is;
     // registered ahead of the controls so they receive this same event.
-    const takeOver = () => { if (flight) cancelFlight(); };
+    // The axis frame a press cut short is remembered for a moment: a double
+    // click's second press does this, and its dblclick then lands the frame
+    // it was flying to instead of framing from a half-way perspective camera.
+    let cutShort = null;
+    const takeOver = () => {
+        if (!flight) return;
+        cutShort = pendingOrtho ? { frame: pendingOrtho, at: performance.now() } : null;
+        cancelFlight();
+    };
     el.addEventListener('pointerdown', takeOver);
     el.addEventListener('wheel', takeOver, { passive: true });
     el.addEventListener('pointerdown', guardDown);
@@ -328,14 +339,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
             .addScaledVector(new THREE.Vector3(...frame.dir).normalize(), depth);
         // `up` stays world-up: OrbitControls measures its orbit from the
         // camera's up at construction, so the screen frame comes from where
-        // the camera stands (Top: a hair in front of the pivot → back is up).
+        // the camera stands (Front: a hair in front of the pivot → back is up).
         ortho.up.set(0, 1, 0);
         controls.target.copy(frame.target);
         ortho.lookAt(frame.target);
         frustum();
         controls.object = ortho;
         // OrbitControls keeps the camera a hair off the poles (Spherical.makeSafe);
-        // Top lands there by construction — a hair in front of the pivot.
+        // Front lands there by construction — a hair in front of the pivot.
         controls.update();
     }
 
@@ -388,14 +399,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
         const sy = b.maxY;
         let w;
         let h;
-        if (name === 'top') { w = sx; h = sz; target.y = 0; }
-        else if (name === 'front') { w = sx; h = sy; target.y = sy / 2; }
+        if (name === 'front') { w = sx; h = sz; target.y = 0; }
+        else if (name === 'top') { w = sx; h = sy; target.y = sy / 2; }
         else { w = sz; h = sy; target.y = sy / 2; }
         const margin = 1.12;
         const half = Math.max(2, Math.max(h / 2, w / 2 / persp.aspect) * margin);
         const depth = Math.max(sx, sz, sy) + 50;
-        // Top sits a hair in front of straight-down, as OrbitControls would put it.
-        const dir = name === 'top' ? [0, 1, 1e-4] : a.dir;
+        // Front (overhead) sits a hair in front of straight-down, as OrbitControls would put it.
+        const dir = name === 'front' ? [0, 1, 1e-4] : a.dir;
         return { halfH: half, depth, target, dir };
     }
 
@@ -509,6 +520,8 @@ export function createPipelineGroupScene(container, handlers = {}) {
         root.add(grid);
 
         const platforms = [];
+        // Meshes only a double-click reads (req #4131): date tiles, initiative strips.
+        const frameMeshes = [];
         const byPipeline = new Map();
         const reqRefs = [];
         const epicRefs = [];
@@ -528,6 +541,8 @@ export function createPipelineGroupScene(container, handlers = {}) {
             const tile = new THREE.Mesh(new THREE.PlaneGeometry(c.w + 2 * half - 1, tileD + half), mat);
             tile.rotation.x = -Math.PI / 2;
             tile.position.set(c.x + c.w / 2, 0.005, c.z - G.header + (tileD + half) / 2);
+            tile.userData = { kind: 'date', column: c };
+            frameMeshes.push(tile);
             calendar.add(tile);
         });
         root.add(calendar);
@@ -561,6 +576,8 @@ export function createPipelineGroupScene(container, handlers = {}) {
                 const strip = new THREE.Mesh(new THREE.PlaneGeometry(band.w - 0.4, band.d), mat);
                 strip.rotation.x = -Math.PI / 2;
                 strip.position.set(band.w / 2, G.slabH + 0.01, band.z + band.d / 2);
+                strip.userData = { kind: 'initiative', pipelineId: p.id, band };
+                frameMeshes.push(strip);
                 g.add(strip);
                 entry.materials.push({ m: mat, base: new THREE.Color(band.color), opacity: 0.22 });
             }
@@ -648,7 +665,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
         }
 
         scene.add(root);
-        world = { root, platforms, byPipeline, pedestals, cubes, epicRefs, reqRefs };
+        world = { root, platforms, frameMeshes, byPipeline, pedestals, cubes, epicRefs, reqRefs };
         applyFocus();
     }
 
@@ -745,9 +762,70 @@ export function createPipelineGroupScene(container, handlers = {}) {
         const hit = pick(e.clientX, e.clientY);
         handlers.onFocus?.(hit ? hit.pipeline.id : null);
     };
-    // Double-click zooms toward the point under the pointer (or the floor
-    // there): the pivot moves to it and the camera halves its distance.
+    // Double-click FRAMES the thing under the pointer (req #4131): a date
+    // column, a pipeline, an initiative strip, an epic with its requirements,
+    // one requirement. Anything else (bare floor) zooms toward the point.
+    const frameOf = (clientX, clientY) => {
+        if (!world) return null;
+        const r = el.getBoundingClientRect();
+        ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+        ray.setFromCamera(ndc, live());
+        const targets = [world.cubes, world.pedestals, ...world.platforms, ...world.frameMeshes].filter(Boolean);
+        const hit = ray.intersectObjects(targets, false)[0];
+        if (!hit) return null;
+        const pipelineOf = (id) => model.pipelines.find((p) => p.id === id);
+        const u = hit.object.userData;
+        if (u.kind === 'req') {
+            const ref = world.reqRefs[hit.instanceId];
+            return { box: reqBox(pipelineOf(ref.pipelineId), ref.req), min: 3 };
+        }
+        if (u.kind === 'epic') {
+            const ref = world.epicRefs[hit.instanceId];
+            return { box: epicBox(pipelineOf(ref.pipelineId), ref.epic), min: 4 };
+        }
+        if (u.kind === 'initiative') return { box: bandBox(pipelineOf(u.pipelineId), u.band), min: 5 };
+        if (u.kind === 'date') return { box: columnBox(u.column), min: 5 };
+        return { box: pipelineBox(pipelineOf(u.pipelineId)), min: 5 };
+    };
+    const landCutShort = () => {
+        if (flight && pendingOrtho) {
+            const frame = pendingOrtho;
+            cancelFlight();
+            toOrtho(frame);
+        } else if (cutShort && !isOrtho() && !flight && performance.now() - cutShort.at < 1000) {
+            toOrtho(cutShort.frame);
+        }
+        cutShort = null;
+    };
+    const frameThing = (f) => {
+        const b = f.box;
+        const minY = b.minY || 0;
+        const centre = new THREE.Vector3((b.minX + b.maxX) / 2, (minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2);
+        landCutShort();
+        if (isOrtho()) {
+            const sx = b.maxX - b.minX;
+            const sz = b.maxZ - b.minZ;
+            const sy = b.maxY - minY;
+            // The two axes the screen shows: top = x/z, front = x/y, side = z/y.
+            const w = presetName === 'side' ? sz : sx;
+            const h = presetName === 'top' ? sz : sy;
+            const shift = centre.clone().sub(controls.target);
+            controls.target.add(shift);
+            ortho.position.add(shift);
+            const need = Math.max(Math.max(w / persp.aspect, h) / 2, f.min / 2) * 1.2;
+            ortho.zoom = Math.min(400, Math.max(0.05, halfH / need));
+            ortho.updateProjectionMatrix();
+            controls.update();
+            return;
+        }
+        const dir = persp.position.clone().sub(controls.target).normalize();
+        const dist = Math.min(controls.maxDistance,
+            frameDistance(b, FOV, persp.aspect, { min: Math.max(controls.minDistance, f.min) }));
+        startFlight(centre, centre.clone().addScaledVector(dir, dist));
+    };
     const onDbl = (e) => {
+        const framed = frameOf(e.clientX, e.clientY);
+        if (framed) { frameThing(framed); return; }
         const hit = pick(e.clientX, e.clientY);
         let point = hit?.point;
         if (!point) {
@@ -759,11 +837,7 @@ export function createPipelineGroupScene(container, handlers = {}) {
         }
         // Mid-flight to an axis preset (a click just started one): land it
         // now, so the zoom happens in the view the flight was going to.
-        if (flight && pendingOrtho) {
-            const frame = pendingOrtho;
-            cancelFlight();
-            toOrtho(frame);
-        }
+        landCutShort();
         if (isOrtho()) {
             const z = ortho.zoom;
             const shift = point.clone().sub(controls.target);

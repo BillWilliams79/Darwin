@@ -124,6 +124,14 @@ describe('the plan title (req #3853)', () => {
             { pipeline_status: 'orchestration_ready' });
     });
 
+    // req #4128 — the epic editor's title form: the id is in the heading.
+    it('the editor names the plan by id, as the epic editor does', () => {
+        mount();
+        tap(node('pipeline-title-name'));
+        wait(DOUBLE_CLICK_MS + 10);
+        expect(node('plan-editor-identity').textContent).toContain('Pipeline 7 -');
+    });
+
     it('the editor offers all seven statuses, the stored one selected', () => {
         mount({ pipeline: { ...PIPELINE, pipeline_status: 'orchestrating' } });
         tap(node('pipeline-title-name'));

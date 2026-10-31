@@ -41,8 +41,11 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { PIPELINE_STATUS_VALUES, pipelineStatusChipProps, pipelineStatusLabel } from './pipelineChipStyles';
-import { updatePipeline } from '../../Pipelines/pipelinesApi';
-import { ANY_MACHINE, LOCK_FREE, pipelineEditFields } from '../../Pipelines/PipelineEditDialog';
+import { deletePipeline, updatePipeline } from '../../Pipelines/pipelinesApi';
+import {
+    ANY_MACHINE, LOCK_FREE, PIPELINE_STATUS_MEANING, isLockedRow, pipelineDeleteBlockedReason,
+    pipelineDeleteConsequence, pipelineEditFields,
+} from '../../Pipelines/PipelineEditDialog';
 import {
     REST_NULL, deleteEpicFreeingDependents, deleteRequirements, isRestNullLiteral, updateEpic,
 } from '../../Epics/epicsApi';
@@ -265,53 +268,97 @@ function useWriter(spec) {
 function PipelineBody({ spec }) {
     const { idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
+    const queryClient = useQueryClient();
     const { saving, run, close, showError } = useWriter(spec);
     const pipeline = spec.target;
+    const deletion = spec.deletion;
+    // The row as the editor opened: "changed?" is judged against it, never a live refetch.
+    const [openedRow] = useState(() => ({ ...pipeline }));
     const [title, setTitle] = useState(pipeline?.title || '');
     const [description, setDescription] = useState(pipeline?.description || '');
     const [machineFk, setMachineFk] = useState(pipeline?.machine_fk ?? ANY_MACHINE);
     const [status, setStatus] = useState(pipeline?.pipeline_status ?? null);
-    const [openedStatus] = useState(pipeline?.pipeline_status ?? null);
-    const locked = !!Number(pipeline?.locked ?? 0);
+    const [sortOrder, setSortOrder] = useState(pipeline?.sort_order == null ? '' : String(pipeline.sort_order));
+    const storedLocked = isLockedRow(pipeline);
+    const [formLocked, setFormLocked] = useState(storedLocked);
+    const [confirming, setConfirming] = useState(false);
+    const lockHeld = storedLocked && formLocked;
     const machines = (spec.machines || []).filter((m) => !m.closed || m.id === pipeline?.machine_fk);
-    const { fields, problem } = pipelineEditFields(pipeline, {
-        title, description, machineFk, ...(status != null && status !== openedStatus && { status }) });
+    const editedThenRelocked = lockHeld && (
+        title.trim() !== (openedRow.title ?? '')
+        || description.trim() !== String(openedRow.description ?? '').trim()
+        || machineFk !== (openedRow.machine_fk ?? ANY_MACHINE));
+    const { fields, problem } = pipelineEditFields(openedRow, {
+        title, description, machineFk, sortOrder, locked: formLocked, status });
     const dirty = !problem && Object.keys(fields).length > 0;
+    const deleteBlocked = deletion ? pipelineDeleteBlockedReason(pipeline, deletion) : null;
 
     const save = () => {
+        if (confirming) return;
+        if (editedThenRelocked) { showError('Unlock the pipeline to save these edits, or cancel them.'); return; }
         if (problem) { showError(problem); return; }
         if (!dirty) { close(); return; }
-        if (locked && Object.keys(fields).some((k) => !LOCK_FREE.has(k))) {
+        if (lockHeld && Object.keys(fields).some((k) => !LOCK_FREE.has(k))) {
             showError('This pipeline is locked — unlock it first');
             return;
         }
         run(() => updatePipeline(darwinUri, idToken, pipeline.id, fields), 'Could not save pipeline');
     };
+    const del = async () => {
+        let deleted = false;
+        await run(async () => {
+            await deletePipeline(darwinUri, idToken, pipeline.id);
+            deleted = true;
+            // Its page is still mounted this tick: REMOVE the read, an invalidation would re-fetch a dead plan.
+            queryClient.removeQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+        }, 'Could not delete the pipeline', { goneOnFail: () => false });
+        setConfirming(false);
+        if (deleted) spec.onDeleted?.();
+    };
     return (
         <>
-            <Identity id={pipeline.id} noun="Pipeline" title={title} setTitle={setTitle} disabled={locked}
+            <Identity id={pipeline.id} noun="Pipeline" title={title} setTitle={setTitle} disabled={lockHeld}
                       testid="plan-editor" onEnter={save} />
+            <Row label="Lock">
+                <Chips value={formLocked ? 'locked' : 'unlocked'} testid="plan-editor-lock"
+                       onChange={(v) => setFormLocked(v === 'locked')}
+                       options={[{ value: 'unlocked', label: 'Unlocked' },
+                           { value: 'locked', label: 'Locked', bg: '#ef5350', fg: '#000' }]} />
+            </Row>
             <Row label="Goal" top>
-                <Text multiline value={description} onChange={setDescription} disabled={locked} label="Goal"
+                <Text multiline value={description} onChange={setDescription} disabled={lockHeld} label="Goal"
                       testid="plan-editor-description" />
             </Row>
             <Row label="Machine">
-                <Pick value={machineFk} onChange={setMachineFk} disabled={locked} label="Machine"
+                <Pick value={machineFk} onChange={setMachineFk} disabled={lockHeld} label="Machine"
                       testid="plan-editor-machine"
                       options={[{ value: ANY_MACHINE, label: 'Any' },
                           ...machines.map((m) => ({ value: m.id, label: m.title || `Machine ${m.id}` }))]} />
+            </Row>
+            <Row label="Sort order">
+                <Text type="number" value={sortOrder} onChange={setSortOrder} label="Sort order"
+                      testid="plan-editor-sort-order" placeholder="keep its place" />
             </Row>
             <Row label="Status">
                 <Chips value={status} onChange={setStatus} testid="plan-editor-status"
                        options={PIPELINE_STATUS_VALUES.map((v) => {
                            const sx = pipelineStatusChipProps(v).sx || {};
-                           return { value: v, label: pipelineStatusLabel(v), bg: sx.bgcolor, fg: sx.color };
+                           return { value: v, label: pipelineStatusLabel(v), bg: sx.bgcolor, fg: sx.color,
+                               title: PIPELINE_STATUS_MEANING[v] };
                        })} />
             </Row>
-            {locked && <Box sx={NOTE_SX} data-testid="plan-editor-locked">
-                Locked — its status can still change; unlock it from the plan toolbar to change anything else.
+            {lockHeld && <Box sx={NOTE_SX} data-testid="plan-editor-locked">
+                Locked — its status, sort order and lock can still change; unlock it to change anything else.
             </Box>}
-            <Actions canSave={dirty} saving={saving} onSave={save} testid="plan-editor" />
+            {confirming ? (
+                <Confirm lines={pipelineDeleteConsequence(pipeline, deletion)} busy={saving} testid="plan-editor"
+                         onKeep={() => setConfirming(false)} onConfirm={del}
+                         confirmLabel="Delete pipeline" keepLabel="Keep pipeline" />
+            ) : (
+                <Actions canSave={dirty} saving={saving} onSave={save} testid="plan-editor"
+                         onDelete={deletion ? () => setConfirming(true) : null} deleteBlocked={deleteBlocked}
+                         deleteLabel={`Delete pipeline ${pipeline.id}`} />
+            )}
         </>
     );
 }

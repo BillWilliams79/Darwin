@@ -66,6 +66,7 @@ import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 import PlanTitle from './PlanTitle';
 import PlanElementEditor from './PlanElementEditor';
 import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
+import { isStale } from './orchestrationHolder';
 import PlanStatusChip from './PlanStatusChip';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
@@ -661,6 +662,34 @@ export default function PipelineDetail() {
     // is optional.
     const planReqCounts = plan?.requirementCounts?.overall;
 
+    // req #4128 — the plan editor's Delete, counted from rows this page already
+    // holds (no read added): what goes (initiatives, epics), what stays (its
+    // requirements, unseated) and whether a live orchestrator holds it, which
+    // `deletePipeline` refuses — so the button says so first. Above every
+    // early return: it is a hook.
+    const planDeletion = useMemo(() => {
+        if (!pipeline || !plan) return null;
+        const reqIds = new Set();
+        for (const r of plan.rows || []) {
+            for (const id of [...(r.reqIds || []), ...(r.trackingReqIds || [])]) reqIds.add(id);
+        }
+        return {
+            initiatives: model?.initiatives?.length ?? 0,
+            epics: (plan.rows || []).length,
+            requirements: reqIds.size,
+            orchestrated: orchestrationClaims.some(
+                (c) => c.pipeline_fk === pipeline.id && !isStale(c)),
+            // A locked initiative or epic inside makes `deletePipeline` refuse
+            // (423), so the button names it first.
+            lockedInside: (() => {
+                const ini = (model?.initiatives || []).find((i) => Number(i.locked) === 1);
+                if (ini) return `Initiative ${ini.id}`;
+                const epic = (plan.rows || []).find((r) => r.locked);
+                return epic ? `Epic ${epic.id}` : null;
+            })(),
+        };
+    }, [pipeline, plan, model?.initiatives, orchestrationClaims]);
+
     // The orchestration badges beside the plan's name (req #3809) were REMOVED
     // by req #3908 (user directive): the Engine on/off control at the canvas's
     // bottom right is where an engine is read and driven now.
@@ -1066,7 +1095,9 @@ export default function PipelineDetail() {
                     a rename or editor left open must not commit to the next plan. */}
                 <PlanTitle key={pipeline.id} pipeline={pipeline} countsText={countsText}
                            variant={isMobile ? 'h6' : 'h5'} machines={machines}
-                           onZoom={planMaximizable ? handleTitleZoom : null} />
+                           onZoom={planMaximizable ? handleTitleZoom : null}
+                           deletion={planDeletion}
+                           onDeleted={() => navigate(planListPath())} />
 
                 {/* ── REQUIREMENT LAUNCHER (req #3798) ────────────────────────
                     The Requirements page's title-row "Req #" field, unchanged —
