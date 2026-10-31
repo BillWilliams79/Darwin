@@ -59,6 +59,16 @@ const tap = (el) => act(() => {
     el.dispatchEvent(pointer('pointerup'));
 });
 const wait = (ms) => act(() => { vi.advanceTimersByTime(ms); });
+// A MUI Select: its root carries the testid, the hidden input its value.
+const selected = (id) => node(id).querySelector('input').value;
+const openSelect = (id) => act(() => {
+    node(id).querySelector('[role="combobox"]')
+        .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+});
+const pick = (id, value) => {
+    openSelect(id);
+    act(() => { document.body.querySelector(`li[data-value="${value}"]`).click(); });
+};
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -113,23 +123,30 @@ describe('the plan title (req #3853)', () => {
         wait(DOUBLE_CLICK_MS + 10);
         expect(node('pipeline-edit-title').disabled).toBe(true);
         expect(node('pipeline-edit-locked')).not.toBeNull();
-        act(() => { node('pipeline-edit-status-orchestration_ready').click(); });
+        pick('pipeline-edit-status', 'orchestration_ready');
         await act(async () => { node('pipeline-edit-save').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(updatePipeline).toHaveBeenCalledWith('https://api/darwin', 'tok', 7,
             { pipeline_status: 'orchestration_ready' });
     });
 
+    // req #4128 — the epic editor's title form: the id is in the heading.
+    it('the editor names the plan by id, as the epic editor does', () => {
+        mount();
+        tap(node('pipeline-title-name'));
+        wait(DOUBLE_CLICK_MS + 10);
+        expect(node('pipeline-edit-heading').textContent).toBe('Edit pipeline 7');
+    });
+
     it('the editor offers all seven statuses, the stored one selected', () => {
         mount({ pipeline: { ...PIPELINE, pipeline_status: 'orchestrating' } });
         tap(node('pipeline-title-name'));
         wait(DOUBLE_CLICK_MS + 10);
-        const group = node('pipeline-edit-status');
-        expect(group.getAttribute('data-value')).toBe('orchestrating');
-        expect([...group.querySelectorAll('[data-testid^="pipeline-edit-status-"]')]
-            .map((el) => el.textContent)).toEqual(['Authoring', 'Authorized', 'Ready',
+        expect(selected('pipeline-edit-status')).toBe('orchestrating');
+        openSelect('pipeline-edit-status');
+        expect([...document.querySelectorAll('li[data-testid^="pipeline-edit-status-"]')]
+            .map((el) => el.textContent.split(' — ')[0])).toEqual(['Authoring', 'Authorized', 'Ready',
             'Running', 'Met', "Won't Fix", 'Deferred']);
-        expect(node('pipeline-edit-status-orchestrating').getAttribute('aria-pressed')).toBe('true');
     });
 
     it('a quick click on the name opens the plan editor, seeded from the row', () => {

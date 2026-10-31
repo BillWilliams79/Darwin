@@ -6,7 +6,9 @@
 // active epics view." So the name and its counts read exactly as an
 // initiative's name and closure count do on the canvas (req #3580, #3742):
 //
-//   the NAME     quick click ... the plan's single editor (`PipelineEditDialog`)
+//   the NAME     quick click ... the plan's single editor (`PipelineEditDialog`,
+//                                rewritten to the epic/initiative editors' form by
+//                                req #4128 — its Delete leaves through `onDeleted`)
 //                double click .. zoom straight to the plan's active epics
 //                long press .... rename in place (F2 from the keyboard)
 //                Enter/Space ... the editor, as the quick click
@@ -54,8 +56,12 @@ const hover = {
  * @param {string} props.variant      the header's Typography variant (h5 / h6)
  * @param {Object[]} [props.machines] the machine dictionary, for the editor
  * @param {?function} [props.onZoom]  `({ deep }) => void`, or null with no canvas
+ * @param {?Object} [props.deletion]  the editor's Delete (req #4128): `{ initiatives,
+ *                                    epics, requirements, orchestrated }`, or null for none
+ * @param {function} [props.onDeleted] after the editor deleted the plan
  */
-export default function PlanTitle({ pipeline, countsText, variant, machines = [], onZoom = null }) {
+export default function PlanTitle({ pipeline, countsText, variant, machines = [], onZoom = null,
+    deletion = null, onDeleted }) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -217,6 +223,8 @@ export default function PlanTitle({ pipeline, countsText, variant, machines = []
                     machines={machines}
                     onClose={closeEditor}
                     onSaved={refresh}
+                    deletion={deletion}
+                    onDeleted={onDeleted}
                 />
             )}
         </>
