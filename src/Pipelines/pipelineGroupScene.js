@@ -45,11 +45,11 @@ const LOWLIGHT = 0.88;          // how far a lowlit colour moves toward the floo
 const CLICK_SLOP_PX = 5;
 
 // Topology's axis frames (tpu3d.js TPU3D_AXIS): `dir` points FROM the pivot TO
-// the camera. Top is straight down with the back (−z) up the screen, Front
-// looks at the front (from +z), Side looks across from +x — front to the left.
+// the camera. Front (req #4130: the user's name for the overhead view) is straight
+// down with the back (−z) up the screen, Top looks at the front (from +z), Side looks across from +x — front to the left.
 export const AXIS = Object.freeze({
-    top: { dir: [0, 1, 0] },
-    front: { dir: [0, 0, 1] },
+    top: { dir: [0, 0, 1] },
+    front: { dir: [0, 1, 0] },
     side: { dir: [1, 0, 0] },
 });
 export const PRESETS = ['iso', 'top', 'front', 'side'];
@@ -77,6 +77,7 @@ const PLATE_STYLE = {
     pipeline: { weight: 700, color: P.text },
     initiative: { weight: 600, color: P.text },
     epic: { weight: 600, color: '#ffffff' },
+    req: { weight: 600, color: '#ffffff', fill: 'rgba(12, 29, 52, 0.8)', border: 'rgba(255,255,255,0.35)' },
 };
 const LINE_PX = 64;             // canvas pixels per line of a plate
 const MAX_CANVAS_PX = 2048;
@@ -116,7 +117,7 @@ function frameOf(plate, H) {
     const style = PLATE_STYLE[plate.kind] || PLATE_STYLE.pipeline;
     const bar = plate.accent ? Math.round(H * 0.14) : 0;
     const gutter = plate.accent ? bar + Math.round(H * 0.25) : 0;
-    const padX = style.fill ? Math.round(H * 0.45) : 0;
+    const padX = style.fill ? Math.round((H / (plate.lines || 1)) * 0.45) : 0;
     return { style, bar, gutter, padX };
 }
 
@@ -328,14 +329,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
             .addScaledVector(new THREE.Vector3(...frame.dir).normalize(), depth);
         // `up` stays world-up: OrbitControls measures its orbit from the
         // camera's up at construction, so the screen frame comes from where
-        // the camera stands (Top: a hair in front of the pivot → back is up).
+        // the camera stands (Front: a hair in front of the pivot → back is up).
         ortho.up.set(0, 1, 0);
         controls.target.copy(frame.target);
         ortho.lookAt(frame.target);
         frustum();
         controls.object = ortho;
         // OrbitControls keeps the camera a hair off the poles (Spherical.makeSafe);
-        // Top lands there by construction — a hair in front of the pivot.
+        // Front lands there by construction — a hair in front of the pivot.
         controls.update();
     }
 
@@ -375,14 +376,14 @@ export function createPipelineGroupScene(container, handlers = {}) {
         const sy = b.maxY;
         let w;
         let h;
-        if (name === 'top') { w = sx; h = sz; target.y = 0; }
-        else if (name === 'front') { w = sx; h = sy; target.y = sy / 2; }
+        if (name === 'front') { w = sx; h = sz; target.y = 0; }
+        else if (name === 'top') { w = sx; h = sy; target.y = sy / 2; }
         else { w = sz; h = sy; target.y = sy / 2; }
         const margin = 1.12;
         const half = Math.max(2, Math.max(h / 2, w / 2 / persp.aspect) * margin);
         const depth = Math.max(sx, sz, sy) + 50;
-        // Top sits a hair in front of straight-down, as OrbitControls would put it.
-        const dir = name === 'top' ? [0, 1, 1e-4] : a.dir;
+        // Front (overhead) sits a hair in front of straight-down, as OrbitControls would put it.
+        const dir = name === 'front' ? [0, 1, 1e-4] : a.dir;
         return { halfH: half, depth, target, dir };
     }
 
