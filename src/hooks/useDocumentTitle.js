@@ -14,8 +14,10 @@
 // "Darwin" — or a stale value left by an interleaved effect.
 
 import { useEffect } from 'react';
+import { PRODUCT_NAME } from '../config/product';
 
-export const DEFAULT_DOCUMENT_TITLE = 'Darwin';
+// req #4076 — the product's name (index.html's <title> is the same value).
+export const DEFAULT_DOCUMENT_TITLE = PRODUCT_NAME;
 
 export function useDocumentTitle(title) {
     const text = typeof title === 'string' ? title.trim() : '';

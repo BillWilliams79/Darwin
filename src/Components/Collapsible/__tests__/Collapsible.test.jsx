@@ -65,13 +65,16 @@ describe('CollapsibleText', () => {
         expect(q('t').dataset.collapsed).toBe('true');
     });
 
-    it('always renders the toggle, ABOVE the text — even for text that fits', () => {
+    it('renders the toggle ABOVE overflowing text', () => {
+        render(<CollapsibleText text={'long\n'.repeat(50)} testId="t" />);
+        // DOCUMENT_POSITION_FOLLOWING: the text comes after the toggle.
+        expect(q('t-toggle').compareDocumentPosition(q('t')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('renders NO toggle for text that fits (req #4144)', () => {
         overflow = false;
         render(<CollapsibleText text="short" testId="t" />);
-        const toggle = q('t-toggle');
-        expect(toggle.textContent).toBe('Show more');
-        // DOCUMENT_POSITION_FOLLOWING: the text comes after the toggle.
-        expect(toggle.compareDocumentPosition(q('t')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(q('t-toggle')).toBeNull();
         // Short text is not click-to-expand: there is nothing to disclose.
         expect(q('t').dataset.collapsed).toBe('false');
         expect(q('t').textContent).toBe('short');
@@ -90,6 +93,20 @@ describe('CollapsibleGhostField', () => {
         render(field({ collapsedRows: 3 }));
         expect(q('f-toggle').textContent).toBe('Show more');
         expect(rows().value).toBe('line\n'.repeat(40));
+    });
+
+    it('renders no toggle when the collapsed field hides nothing (req #4144)', () => {
+        overflow = false;
+        render(field({ value: 'short' }));
+        expect(q('f-toggle')).toBeNull();
+    });
+
+    it('a field that starts open and fits loses its toggle once collapsed (req #4144)', () => {
+        overflow = false;
+        render(field({ value: 'short', defaultExpanded: true }));
+        expect(q('f-toggle').textContent).toBe('Show less');
+        click(q('f-toggle'));
+        expect(q('f-toggle')).toBeNull();
     });
 
     it('the toggle pins it open and shut', () => {
@@ -158,9 +175,8 @@ describe('CollapsibleGhostField', () => {
         expect(onCommit).not.toHaveBeenCalled();
     });
 
-    it('always renders the toggle, ABOVE the field — even for a value that fits', () => {
-        overflow = false;
-        render(field({ value: 'short' }));
+    it('renders the toggle ABOVE a field that overflows', () => {
+        render(field());
         const toggle = q('f-toggle');
         expect(toggle.textContent).toBe('Show more');
         expect(toggle.compareDocumentPosition(rows()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -48,6 +48,13 @@ export default function EngineHealthPanel({ engine, timezone }) {
                 {h.code_verdict ? `${h.code_verdict} — ${CODE_VERDICT_WORDS[h.code_verdict]
                     || 'unrecognised verdict'}` : '—'}
             </Field>
+            <Field label="Executor code" testid={`engine-executor-code-${engine.id}`}>
+                {h.executor_code_verdict
+                    ? `${h.executor_code_verdict} — ${CODE_VERDICT_WORDS[h.executor_code_verdict]
+                        || 'unrecognised verdict'}${h.executor_code_verdict !== 'current' && h.executor_code_detail
+                        ? ` (${h.executor_code_detail})` : ''}`
+                    : '—'}
+            </Field>
             <Field label="Degraded" testid={`engine-degraded-${engine.id}`}>
                 {Number.isInteger(h.degraded_count)
                     ? (h.degraded_count === 0 ? 'no failed cycles'

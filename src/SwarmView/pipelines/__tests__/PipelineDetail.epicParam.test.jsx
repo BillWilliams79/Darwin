@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,14 +23,18 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusEpicId, levelPref, epicWidthLevel }) {
+    const Panel = (name) => function ModeStub({ focusEpicId, levelPref, epicWidthLevel, onEpicDeleted }) {
         return <div data-testid={`mode-${name}`}
                     data-epic-width={epicWidthLevel == null ? '' : String(epicWidthLevel)}
                     data-focus={focusEpicId == null ? '' : String(focusEpicId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
                     // observable half of the `?level=` contract is the prop.
-                    data-level={levelPref == null ? '' : String(levelPref)} />;
+                    data-level={levelPref == null ? '' : String(levelPref)}>
+            {/* req #4154 — the plan editor's epic delete reports the id upward. */}
+            <button type="button" data-testid={`mode-${name}-delete-47`} onClick={() => onEpicDeleted?.(47)} />
+            <button type="button" data-testid={`mode-${name}-delete-99`} onClick={() => onEpicDeleted?.(99)} />
+        </div>;
     };
     // A `data-level-link` attribute rode beside it between req #3310 and req
     // #3324, mirroring the `levelPrefFromLink` prop the page passed so the
@@ -86,6 +90,8 @@ import AuthContext from '../../../Context/AuthContext';
 import AppContext from '../../../Context/AppContext';
 
 let mountedRoots = [];
+let currentSearch = '';
+function SearchProbe() { currentSearch = useLocation().search; return null; }
 
 function mount(url) {
     const container = document.createElement('div');
@@ -103,6 +109,7 @@ function mount(url) {
                             <Routes>
                                 <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
                             </Routes>
+                            <SearchProbe />
                         </MemoryRouter>
                     </AuthContext.Provider>
                 </AppContext.Provider>
@@ -139,6 +146,23 @@ afterEach(() => {
     localStorage.clear();
     sessionStorage.clear();
     vi.restoreAllMocks();
+});
+
+describe('PipelineDetail — deleting the focused epic (req #4154)', () => {
+    it('drops the focus when the epic the page landed on is deleted', () => {
+        mount('/swarm/pipeline/2?mode=plan&epic=47');
+        expect(focusOf('plan')).toBe('47');
+        click(node('mode-plan-delete-47'));
+        expect(focusOf('plan')).toBe('');
+        // …and the link's `?epic=` is gone from the URL, the rest of the query kept.
+        expect(currentSearch).toBe('?mode=plan');
+    });
+
+    it('keeps the focus when a different epic is deleted', () => {
+        mount('/swarm/pipeline/2?mode=plan&epic=47');
+        click(node('mode-plan-delete-99'));
+        expect(focusOf('plan')).toBe('47');
+    });
 });
 
 describe('PipelineDetail — ?epic= (req #3140)', () => {

@@ -36,7 +36,7 @@
 // The map keys keep their req #3201 names (`epicStarts`, `bandStarts`) — they
 // are the epic's PLACEMENT time, which is no longer its start.
 //
-// Six decisions, stated in full below, plus a seventh on the enum this file
+// Seven decisions, stated in full below, plus an eighth on the enum this file
 // exports (FUTURE and UNKNOWN are different answers). A DAY is the reader's
 // LOCAL calendar day (`localDayOf`), not the UTC day the stamps are stored in.
 // `memory/pipeline-plan-visualizer.md` § "Deriving a start" carried rules 1
@@ -116,8 +116,31 @@
 //    unstarted gate, which rule 5 must then pull forward, or the layout would
 //    still draw that dependent in FUTURE. It always terminates — each pass only
 //    turns FUTURE epics into TODAY, and there are finitely many.
+// 7. **A not-yet-started epic whose every dependency is FINISHED is the NEXT
+//    work, and sits on TODAY (req #4145, the user's rule).** Rule 6 drags only
+//    the dependents of TODAY's work, so an epic queued behind work that finished
+//    on an EARLIER day stayed FUTURE and was flung past every dated column —
+//    MEASURED on live plan 20: 458 "Microchip Service Access" waits only on 438
+//    "Login Credentials", met the day before, and rendered at the far right,
+//    four columns past the running chain it sits beside. The user: *"the
+//    concept of time is getting in the way again ... being treated as Future
+//    rather than its proper spot ... as the next priority"*. Its gate is open,
+//    so its work can begin now, and now is today (`readyAfterFinishedWork`).
+//    "Its gate is open" is the SERVER's fact, read as sent (`row.gateOpen`, the
+//    composed read's `gate_open`: no dependency holds open work, its own
+//    `not_before` has passed, no barrier upstream and no initiative it waits
+//    for still holds it) — never re-derived here (design rule 13). On top of
+//    it, at least one dependency must have FINISHED work (the DONE colour
+//    state): a gate opened only by EMPTY epics released nothing, so a fresh
+//    plan's empty head epic does not put the plan on today. A dep-less root
+//    and work behind any held gate stay FUTURE, so untouched backlog still
+//    reads as not-yet-begun — unless it hangs off another initiative's finished
+//    work, in which case it is that work's next step and its band's start
+//    becomes today.
+//    Applied once, before rules 5 and 6, whose fixed point then drags its own
+//    queued dependents after it. Like rules 3 to 6 it needs `now`.
 
-import { EPIC_RUNNING, TERMINAL_REQUIREMENT_STATUSES } from './pipelineModel';
+import { EPIC_DONE, EPIC_RUNNING, TERMINAL_REQUIREMENT_STATUSES } from './pipelineModel';
 
 // A status positively asserts "this work has not begun" only if the engine
 // neither calls it finished nor calls it in flight. Today that is `authoring`,
@@ -196,7 +219,7 @@ export function epicTime(row, reqsById) {
 }
 
 /**
- * The TODAY stamp (rules 3 to 6) for `now`, in the same `YYYY-MM-DDTHH:MM:SS` shape the
+ * The TODAY stamp (rules 3 to 7) for `now`, in the same `YYYY-MM-DDTHH:MM:SS` shape the
  * requirement stamps arrive in, or null when `now` is absent or unparseable.
  */
 function nowStamp(now) {
@@ -315,6 +338,33 @@ export function dragFutureDependentsToToday(rows, epicStarts, today) {
 }
 
 /**
+ * Rule 7: every FUTURE epic whose gate the server reports OPEN (`gateOpen`),
+ * with at least one in-set dependency and at least one of them in the DONE
+ * colour state, is placed on TODAY: finished work released it, so it is the
+ * next work, not future work (req #4145). Mutates `epicStarts`.
+ *
+ * @param {Object[]} rows                 PlanRows (needs `depIds`, `state`, `gateOpen`)
+ * @param {Map<number, Object>} epicStarts
+ * @param {?string} today                 nowStamp() output
+ * @returns {boolean} true when any epic moved
+ */
+export function readyAfterFinishedWork(rows, epicStarts, today) {
+    if (today == null) return false;
+    const byId = new Map(rows.filter(Boolean).map((r) => [r.id, r]));
+    let changed = false;
+    for (const r of rows) {
+        if (!r || r.gateOpen !== true) continue;
+        const t = epicStarts.get(r.id);
+        if (!t || t.kind !== TIME_FUTURE) continue;
+        const deps = (r.depIds || []).filter((d) => byId.has(d));
+        if (!deps.some((d) => byId.get(d).state === EPIC_DONE)) continue;
+        epicStarts.set(r.id, { at: today, kind: TIME_DATED });
+        changed = true;
+    }
+    return changed;
+}
+
+/**
  * The calendar DAY a stamp falls on for the person reading the plan:
  * `YYYY-MM-DD` in the browser's LOCAL time zone, or null for no stamp.
  *
@@ -369,7 +419,7 @@ export function localDayOf(at) {
  *
  * @param {Object[]} rows          PlanRows (any order)
  * @param {Object[]} requirements  the plan's requirement rows
- * @param {?(Date|string)} [now]   the render clock, for rules 3 to 6 (empty
+ * @param {?(Date|string)} [now]   the render clock, for rules 3 to 7 (empty
  *                                 epics, running epics, today's gates and
  *                                 today's dependents)
  * @returns {{epicStarts: Map<number, {at: ?string, kind: string}>,
@@ -390,7 +440,9 @@ export function planTimeAxis(rows, requirements, now = null) {
             || runningEpicTime(row, today)
             || epicTime(row, reqsById));
     }
-    // Rules 5 and 6 to a fixed point (header) — both run on every pass.
+    // Rule 7 seeds today with the work its finished gates have released, then
+    // rules 5 and 6 run to a fixed point (header) — both on every pass.
+    readyAfterFinishedWork(safeRows, epicStarts, today);
     for (let moved = true; moved;) {
         const pulled = pullFutureGatesToToday(safeRows, epicStarts, today);
         const dragged = dragFutureDependentsToToday(safeRows, epicStarts, today);

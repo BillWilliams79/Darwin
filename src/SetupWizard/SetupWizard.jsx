@@ -1,4 +1,5 @@
 import '../index.css';
+import { PRODUCT_NAME } from '../config/product';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
@@ -54,7 +55,7 @@ const SetupWizard = () => {
                    minHeight: '60vh', p: 2 }}>
             <Paper elevation={3} sx={{ p: 4, maxWidth: 450, width: '100%' }}>
                 <Typography variant="h5" gutterBottom>
-                    Welcome to Darwin
+                    Welcome to {PRODUCT_NAME}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                     Let's set up your profile. You can change these later in Settings.

@@ -2,6 +2,10 @@
 // error / network / navigation buffers (req #3815) — see utils/debugCapture.js.
 import './utils/debugCapture';
 import './index.css';
+// req #4076 — Roboto from the build itself when the product says so (internal).
+// A folded constant, so darwin.one's bundle carries neither the import nor the fonts.
+/* global __LOCAL_FONTS__ */
+if (__LOCAL_FONTS__) import('./config/localFonts');
 import AuthenticatedRoute from './Components/AuthenticatedRoute/AuthenticatedRoute';
 
 import React from 'react';
@@ -75,6 +79,21 @@ import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
 import CustomerReleasesPage from './CustomerReleases/CustomerReleasesPage';
+import {
+    SCOPE_ALL, HAS_TASKS, HAS_MAPS, HAS_SWARM, HAS_SWARM_VALIDATE as HAS_VALIDATE, PROXY_AUTH,
+} from './config/product';
+import { TOPOLOGY_ON, BUILD_TOOLS_ON } from './NavBar/navConfig';
+
+// req #4076 — which ROUTES this build carries. The product's application scope
+// is a build-time constant (config/product.js), so each `{X && <Route/>}` below
+// folds and the internal build (Topology + Swarm) does not contain the pages it
+// does not route to. darwin.one's scope is "all": every gate is true and the
+// route table is what it was. Proxy auth (internal) has no login, signup,
+// logout or OAuth-callback page — the server authenticates.
+// Setup wizard (timezone onboarding after a first Cognito login), Customers and
+// Customer Releases are darwin.one-only.
+const DARWIN_ONE_ONLY = SCOPE_ALL;
+const COGNITO_PAGES = !PROXY_AUTH;
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -90,59 +109,59 @@ root.render(
               <Routes>
                 <Route path="/"                element= {<App />} >
                     <Route index               element= {<HomePage />} />
-                    <Route path="login"        element= {<LoginPage />} />
-                    <Route path="signup"       element= {<SignupPage />} />
-                    <Route path="logout"       element= {<LogoutPage />} />
-                    <Route path="loggedin"     element= {<LoggedIn />} />
-                    <Route path="taskcards"    element= {<AuthenticatedRoute>
+                    {COGNITO_PAGES && <Route path="login"        element= {<LoginPage />} />}
+                    {COGNITO_PAGES && <Route path="signup"       element= {<SignupPage />} />}
+                    {COGNITO_PAGES && <Route path="logout"       element= {<LogoutPage />} />}
+                    {COGNITO_PAGES && <Route path="loggedin"     element= {<LoggedIn />} />}
+                    {HAS_TASKS && <Route path="taskcards"    element= {<AuthenticatedRoute>
                                                              <TaskPlanView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="calview"      element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_TASKS && <Route path="calview"      element= {<AuthenticatedRoute>
                                                              <CalendarFC />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="areaedit"     element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_TASKS && <Route path="areaedit"     element= {<AuthenticatedRoute>
                                                              <AreaEdit />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="domainedit"   element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_TASKS && <Route path="domainedit"   element= {<AuthenticatedRoute>
                                                              <DomainEdit />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="projectedit"  element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="projectedit"  element= {<AuthenticatedRoute>
                                                              <ProjectEdit />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="categoryedit" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="categoryedit" element= {<AuthenticatedRoute>
                                                              <CategoryEdit />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
                     <Route path="profile"      element= {<Profile />} />
-                    <Route path="swarm"        element= {<AuthenticatedRoute>
+                    {HAS_SWARM && <Route path="swarm"        element= {<AuthenticatedRoute>
                                                              <SwarmView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/requirement/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/requirement/:id" element= {<AuthenticatedRoute>
                                                              <RequirementDetail />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/sessions" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/sessions" element= {<AuthenticatedRoute>
                                                              <SessionsView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-starts" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-starts" element= {<AuthenticatedRoute>
                                                              <SwarmStartsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-starts/:id" element= {<AuthenticatedRoute>
                                                              <SwarmStartDetail />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-undos" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-undos" element= {<AuthenticatedRoute>
                                                              <SwarmUndosPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-undos/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-undos/:id" element= {<AuthenticatedRoute>
                                                              <SwarmUndoDetail />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-completes" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-completes" element= {<AuthenticatedRoute>
                                                              <SwarmCompletesPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/swarm-completes/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/swarm-completes/:id" element= {<AuthenticatedRoute>
                                                              <SwarmCompleteDetail />
-                                                         </AuthenticatedRoute>} />
-<Route path="swarm/session/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+{HAS_SWARM && <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
                     {/* Swarm Orchestration plan routes (req #3114; the single
                         surviving era since req #3356). React Router v6 ranks by
                         SPECIFICITY, so the literal "swarm/pipelines" and the
@@ -160,107 +179,105 @@ root.render(
                         than from literals, because that module remains the one
                         place a plan route is spelled and its own test fails the
                         build on a route literal anywhere else in `src/`. */}
-                    <Route path={planListRoutePath()} element= {<AuthenticatedRoute>
+                    {HAS_SWARM && <Route path={planListRoutePath()} element= {<AuthenticatedRoute>
                                                              <PipelinesPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path={planDetailRoutePath()} element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path={planDetailRoutePath()} element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
                     {/* The plan-layer editors, initiative and epic tiers (req #3393).
                         The pipelines LIST route above already carries the plans
                         themselves; these two are not "plan routes" in
                         planEra.js's sense (they list initiatives/epics, not plans) so
                         they stay literal here. */}
-                    <Route path="swarm/initiatives" element= {<AuthenticatedRoute>
+                    {HAS_SWARM && <Route path="swarm/initiatives" element= {<AuthenticatedRoute>
                                                              <InitiativesPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/epics" element= {<AuthenticatedRoute>
                                                              <EpicsPage />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
                     {/* req #3760 — the orchestration engines, machine-wide. */}
-                    <Route path={ENGINES_ROUTE} element= {<AuthenticatedRoute>
+                    {HAS_SWARM && <Route path={ENGINES_ROUTE} element= {<AuthenticatedRoute>
                                                              <EnginesPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/testcases" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_VALIDATE && <Route path="swarm/testcases" element= {<AuthenticatedRoute>
                                                              <TestCasesPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/testplans" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_VALIDATE && <Route path="swarm/testplans" element= {<AuthenticatedRoute>
                                                              <TestPlansPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/testruns" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_VALIDATE && <Route path="swarm/testruns" element= {<AuthenticatedRoute>
                                                              <TestRunsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/testruns/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_VALIDATE && <Route path="swarm/testruns/:id" element= {<AuthenticatedRoute>
                                                              <TestRunDetail />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="setup"      element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {DARWIN_ONE_ONLY && <Route path="setup"      element= {<AuthenticatedRoute>
                                                              <SetupWizard />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="devservers" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="devservers" element= {<AuthenticatedRoute>
                                                              <DevServersView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="swarm/machines" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="swarm/machines" element= {<AuthenticatedRoute>
                                                              <MachinesView />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
                     {/* Agents registry (req #2998). React Router v6 ranks routes by
                         SPECIFICITY, not declaration order, so the two literal
                         sub-routes outrank "agents/:id" wherever they appear —
                         "instructions"/"documents" can never be matched as an agent
                         id. They are listed first for readability only. */}
-                    <Route path="agents" element= {<AuthenticatedRoute>
+                    {HAS_SWARM && <Route path="agents" element= {<AuthenticatedRoute>
                                                              <AgentsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="agents/instructions" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="agents/instructions" element= {<AuthenticatedRoute>
                                                              <InstructionsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="agents/documents" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="agents/documents" element= {<AuthenticatedRoute>
                                                              <DocumentsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="agents/context" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="agents/context" element= {<AuthenticatedRoute>
                                                              <ContextPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="agents/:id" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_SWARM && <Route path="agents/:id" element= {<AuthenticatedRoute>
                                                              <AgentDetail />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="recurring" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_TASKS && <Route path="recurring" element= {<AuthenticatedRoute>
                                                              <RecurringPlanView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps" element= {<AuthenticatedRoute>
                                                              <MapsPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/import" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps/import" element= {<AuthenticatedRoute>
                                                              <CyclemeterImport />
-                                                         </AuthenticatedRoute>} />
+                                                         </AuthenticatedRoute>} />}
 
-                    <Route path="maps/settings/routes" element= {<AuthenticatedRoute>
+                    {HAS_MAPS && <Route path="maps/settings/routes" element= {<AuthenticatedRoute>
                                                              <MapRouteSettingsView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/settings/partners" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps/settings/partners" element= {<AuthenticatedRoute>
                                                              <MapPartnerSettingsView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/settings/photos" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps/settings/photos" element= {<AuthenticatedRoute>
                                                              <PhotoSettingsView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/photos/:runId" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps/photos/:runId" element= {<AuthenticatedRoute>
                                                              <PhotoBrowser />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="maps/:runId" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {HAS_MAPS && <Route path="maps/:runId" element= {<AuthenticatedRoute>
                                                              <RouteDetailView />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="customers" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {DARWIN_ONE_ONLY && <Route path="customers" element= {<AuthenticatedRoute>
                                                              <CustomersPage />
-                                                         </AuthenticatedRoute>} />
-                    <Route path="customer-releases" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {DARWIN_ONE_ONLY && <Route path="customer-releases" element= {<AuthenticatedRoute>
                                                              <CustomerReleasesPage />
-                                                         </AuthenticatedRoute>} />
-                    {import.meta.env.DEV && <>
-                      <Route path="systems2" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {TOPOLOGY_ON && <Route path="systems2" element= {<AuthenticatedRoute>
                                                              <SystemsPage2 />
-                                                         </AuthenticatedRoute>} />
-                      <Route path="build-visualizer" element= {<AuthenticatedRoute>
+                                                         </AuthenticatedRoute>} />}
+                    {BUILD_TOOLS_ON && <Route path="build-visualizer" element= {<AuthenticatedRoute>
                                                              <BuildVisualizerPage />
-                                                         </AuthenticatedRoute>} />
-                    </>}
+                                                         </AuthenticatedRoute>} />}
                 </Route >
                 <Route path="*"                element= {<Error404 />} />
               </Routes>

@@ -766,10 +766,10 @@ export default function PipelinesPage() {
                         claims={orchestrationClaims}
                         onOpen={open}
                         onUpdate={updateRow}
+                        onSetStatus={setStatus}
                         onDelete={deleteRow}
                         onReorder={reorder}
                         onCreate={createInPlace}
-                        onSetStatus={setStatus}
                         creating={creating}
                         hiddenStatusCounts={hiddenStatusCounts}
                         refetchInterval={LIVE_REFRESH_MS}
