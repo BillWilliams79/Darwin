@@ -769,7 +769,6 @@ export default function PipelinesPage() {
                         onDelete={deleteRow}
                         onReorder={reorder}
                         onCreate={createInPlace}
-                        onSetStatus={setStatus}
                         creating={creating}
                         hiddenStatusCounts={hiddenStatusCounts}
                         refetchInterval={LIVE_REFRESH_MS}
