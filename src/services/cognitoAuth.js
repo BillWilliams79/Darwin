@@ -10,10 +10,14 @@ import {
 } from 'amazon-cognito-identity-js';
 import { AUTH_CONFIG } from '../config/auth';
 
-const userPool = new CognitoUserPool({
+// Built on first use, not at module load (req #4076): a top-level `new` is a
+// side effect the bundler must keep, which pinned the whole Cognito SDK into
+// builds whose routes never sign in (the internal, proxy-auth product).
+let _userPool = null;
+const pool = () => (_userPool ??= new CognitoUserPool({
     UserPoolId: AUTH_CONFIG.userPoolId,
     ClientId: AUTH_CONFIG.clientId,
-});
+}));
 
 /**
  * Sign in with email + password via USER_SRP_AUTH.
@@ -28,7 +32,7 @@ export function signIn(email, password) {
 
         const cognitoUser = new CognitoUser({
             Username: email,
-            Pool: userPool,
+            Pool: pool(),
         });
 
         cognitoUser.authenticateUser(authDetails, {
@@ -54,7 +58,7 @@ export function signIn(email, password) {
 export function signUp(email, password) {
     return new Promise((resolve, reject) => {
         const emailAttr = new CognitoUserAttribute({ Name: 'email', Value: email });
-        userPool.signUp(email, password, [emailAttr], null, (err, result) => {
+        pool().signUp(email, password, [emailAttr], null, (err, result) => {
             if (err) {
                 reject(err);
             } else {
@@ -72,7 +76,7 @@ export function confirmSignUp(email, code) {
     return new Promise((resolve, reject) => {
         const cognitoUser = new CognitoUser({
             Username: email,
-            Pool: userPool,
+            Pool: pool(),
         });
 
         cognitoUser.confirmRegistration(code, true, (err, result) => {
@@ -92,7 +96,7 @@ export function resendVerification(email) {
     return new Promise((resolve, reject) => {
         const cognitoUser = new CognitoUser({
             Username: email,
-            Pool: userPool,
+            Pool: pool(),
         });
 
         cognitoUser.resendConfirmationCode((err, result) => {

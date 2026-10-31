@@ -24,6 +24,7 @@
 // every URL has its credential parameters redacted; and every category's
 // serialized text is scrubbed of anything token-shaped, counting the hits.
 
+import { PROXY_AUTH } from '../config/product';
 import { queryClient } from '../QueryClient/QueryClientSetup';
 import { usePressStore } from '../dnd/pressStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
@@ -70,7 +71,10 @@ export const DEBUG_CATEGORIES = Object.freeze([
 
 /** Storage keys dropped whole — the Cognito SDK leaves its token cache in
  *  localStorage (`CognitoIdentityServiceProvider.<client>.<user>.idToken` …). */
-export const CREDENTIAL_KEY = /token|auth|cognito|secret|password|passwd|credential|session|jwt|cookie|apikey|api_key|pkce|verifier/i;
+// req #4076 — `cognito` only where the Cognito SDK is in the build (see filedFromContext.js).
+export const CREDENTIAL_KEY = PROXY_AUTH
+    ? /token|auth|secret|password|passwd|credential|session|jwt|cookie|apikey|api_key|pkce|verifier/i
+    : /token|auth|cognito|secret|password|passwd|credential|session|jwt|cookie|apikey|api_key|pkce|verifier/i;
 /** A JWS is three dot-separated segments; Cognito's refresh token is a JWE — five. */
 const JWT = /eyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+){2,4}/g;
 export const REDACTED_JWT = '[REDACTED-JWT]';

@@ -5,16 +5,18 @@ import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useCookies } from 'react-cookie';
 import { refreshTokens as refreshTokensApi, parseIdToken } from '../services/tokenService';
 import call_rest_api, { setAuthToken } from '../RestApi/RestApi';
+import { PROXY_AUTH } from '../config/product';
+import { DEFAULT_DARWIN_URI } from './AppContext';
 
 const AuthContext = createContext({});
 
 // 90 days in seconds
 const REFRESH_TOKEN_MAX_AGE = 90 * 24 * 3600;
 
-// Context Provider for Authorization, Login and Profiles.
-// Tokens live in memory (React state). The refresh token cookie
+// Context Provider for Authorization, Login and Profiles — `cognito` auth mode
+// (darwin.one). Tokens live in memory (React state). The refresh token cookie
 // enables silent re-authentication on page reload.
-export const AuthContextProvider = ({ children }) => {
+const CognitoAuthContextProvider = ({ children }) => {
 
     const [cookies, setCookie, removeCookie] = useCookies(['refreshToken', 'idToken', 'accessToken', 'profile']);
 
@@ -173,5 +175,84 @@ export const AuthContextProvider = ({ children }) => {
         </AuthContext.Provider>
     )
 }
+
+// ── req #4076: `proxy` auth mode (the internal product) ─────────────────────
+// The server authenticates: nginx challenges the browser and passes the
+// authenticated user to the API, which maps it to a `profiles` row. So there is
+// no login screen, no token and no logout here — the app asks the API who it is
+// once, by reading `profiles`: Lambda-Rest scopes that table to the caller's own
+// row (PROFILE_TABLE, `id = <sub>`), so an unfiltered GET IS "who am I".
+//
+// `idToken` carries PROXY_SESSION once the server has named a user. It is not a
+// credential and is never sent (RestApi sends no Authorization header in proxy
+// mode); it exists because ~100 components gate on `!!idToken` as "signed in",
+// and keeping that one signal is a smaller change than teaching each a second.
+export const PROXY_SESSION = 'proxy-session';
+
+// The `profile` shape cognito mode builds from the ID token, from the row
+// alone: `profiles.id` IS the user's sub, which is also what darwin.one's
+// Cognito username is (LoginPage fetches `profiles?id=<username>`).
+export function proxyProfile(row) {
+    if (!row?.id) return null;
+    return { ...row, userName: row.id, sub: row.id };
+}
+
+const ProxyAuthContextProvider = ({ children }) => {
+    const [profile, setProfile] = useState(null);
+    const [idToken, setIdToken] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
+    // Why the server did not name a user (HTTP status), for AuthenticatedRoute.
+    const [authError, setAuthError] = useState(null);
+
+    useEffect(() => {
+        let live = true;
+        (async () => {
+            // call_rest_api THROWS `{data, httpStatus}` on any status outside
+            // 2xx (403 = the server mapped this login to no profile); a throw
+            // left unhandled would leave authLoading true and the app spinning.
+            let result;
+            try {
+                result = await call_rest_api(`${DEFAULT_DARWIN_URI}/profiles`, 'GET', '');
+            } catch (err) {
+                result = err;
+            }
+            if (!live) return;
+            const status = result?.httpStatus?.httpStatus;
+            // Exactly ONE row is "me": the API scopes `profiles` to the caller, so
+            // anything else means the server did not identify a single user, and
+            // becoming whichever row came first would be wrong.
+            const me = status === 200 && Array.isArray(result.data) && result.data.length === 1
+                ? proxyProfile(result.data[0]) : null;
+            if (me) {
+                setProfile(me);
+                setIdToken(PROXY_SESSION);
+            } else {
+                setAuthError(status ?? 'unknown');
+            }
+            setAuthLoading(false);
+        })();
+        return () => { live = false; };
+    }, []);
+
+    const noop = useCallback(() => {}, []);
+    return (
+        <AuthContext.Provider value={{
+            idToken, setIdToken,
+            accessToken: null, setAccessToken: noop,
+            profile, setProfile,
+            authLoading,
+            authError,
+            scheduleRefresh: noop,
+            loginWithTokens: noop,
+            logout: noop,
+        }} >
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+// Chosen at BUILD time (PROXY_AUTH is a folded constant), so the bundle carries
+// only one provider — the internal build ships no Cognito token code.
+export const AuthContextProvider = PROXY_AUTH ? ProxyAuthContextProvider : CognitoAuthContextProvider;
 
 export default AuthContext;

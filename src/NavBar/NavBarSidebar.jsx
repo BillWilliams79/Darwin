@@ -6,6 +6,7 @@ import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, isGroupVisible,
 } from './navConfig';
+import { PRODUCT_NAME } from '../config/product';
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
     loadExpandedItems, persistExpandedItems, toggleItemExpanded,
@@ -414,7 +415,7 @@ const NavBarSidebar = () => {
                             boxShadow: rackGlow(rackDrag.color),
                         }),
                     }}>
-                            {/* Bicycle menu trigger + Darwin title (+ header collapse chevron) */}
+                            {/* Bicycle menu trigger + product title (+ header collapse chevron) */}
                             <Box sx={{
                                 px: 1.5,
                                 py: 1.5,
@@ -438,8 +439,9 @@ const NavBarSidebar = () => {
                                 </IconButton>
                                 {showText && (
                                     <Link to="/" style={{ textDecoration: 'none' }}>
-                                        <Typography sx={{ color: 'white', fontSize: 19, fontFamily: 'Roboto', fontWeight: 500 }}>
-                                            Darwin
+                                        <Typography sx={{ color: 'white', fontSize: 19, fontFamily: 'Roboto', fontWeight: 500 }}
+                                                    data-testid="navbar-product-name">
+                                            {PRODUCT_NAME}
                                         </Typography>
                                     </Link>
                                 )}
@@ -559,8 +561,9 @@ const NavBarSidebar = () => {
                         <PROFILE_LINK.icon />
                     </IconButton>
                     <Link to="/" style={{ textDecoration: 'none', marginLeft: 8 }}>
-                        <Typography sx={{ color: 'white', fontSize: 18, fontFamily: 'Roboto', fontWeight: 500 }}>
-                            Darwin
+                        <Typography sx={{ color: 'white', fontSize: 18, fontFamily: 'Roboto', fontWeight: 500 }}
+                                    data-testid="navbar-product-name">
+                            {PRODUCT_NAME}
                         </Typography>
                     </Link>
                 </Toolbar>
