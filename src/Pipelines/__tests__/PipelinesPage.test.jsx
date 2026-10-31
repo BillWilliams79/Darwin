@@ -394,7 +394,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
     // #3965 brought the STATUS back as the card's status editor.
     it('carries a status editor but no machine chip', () => {
         mount();
-        expect(node('pipelines-card-status-7').textContent).toBe('Orchestrating');
+        expect(node('pipelines-card-status-7').textContent).toBe('Running');
         expect(node('pipelines-card-status-8').textContent).toBe('Authoring');
         expect(node('pipelines-card-machine-7')).toBeNull();
         expect(node('pipelines-card-7').textContent).not.toContain('Mac mini');
@@ -553,7 +553,7 @@ describe('PipelinesPage2 — status filter', () => {
         mount();
         DEFAULT_PILLS.forEach((s) => click(node(`pipelines-status-chip-${s}`)));
         expect(node('pipelines-card-7')).toBeNull();
-        expect(node('pipelines-cards-empty').textContent).toContain('Orchestrating (1)');
+        expect(node('pipelines-cards-empty').textContent).toContain('Running (1)');
         expect(node('pipelines-cards-empty').textContent).toContain('Authoring (1)');
     });
 
@@ -564,7 +564,7 @@ describe('PipelinesPage2 — status filter', () => {
             ? 'off' : 'on';
         expect(['authoring', 'authorized', 'orchestration_ready', 'orchestrating', 'met', 'wontfix',
             'deferred'].map(pressed)).toEqual(['on', 'on', 'on', 'on', 'off', 'off', 'off']);
-        expect(node('pipelines-status-chip-orchestration_ready').textContent).toBe('Orchestration Ready');
+        expect(node('pipelines-status-chip-orchestration_ready').textContent).toBe('Ready');
         expect(node('pipelines-status-chip-wontfix').textContent).toBe("Won't Fix");
     });
 
@@ -813,7 +813,7 @@ describe('PipelinesPage2 status editor (Table view)', () => {
         mount();
         switchToTable();
         const chip = node('pipelines-status-7');
-        expect(chip.textContent).toBe('Orchestrating');
+        expect(chip.textContent).toBe('Running');
         click(chip);
         expect(navigations).toEqual([]);
         const options = [...document.body.querySelectorAll('[data-testid^="pipelines-status-7-option-"]')]
