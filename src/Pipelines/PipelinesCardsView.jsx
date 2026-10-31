@@ -4,8 +4,8 @@
 // ── EVERY CARD IS ITS OWN EDITOR (req #3804) ────────────────────────────────
 // The plan's title and goal are text on the card that becomes a field when
 // clicked; Enter / leaving the field saves, Esc puts the stored text back. The
-// plan's status is only SHOWN on the card (req #4144 removed the chip that set
-// it — it is set from the plan's own page). The card's menu sets the machine, locks and unlocks, and
+// plan's status is the coloured legend on the info box (req #4144), and a click
+// on it opens the seven values to set it from (req #4153). The card's menu sets the machine, locks and unlocks, and
 // DELETES the plan (req #3934 — behind a confirmation, refused while the
 // plan is locked or a live orchestrator holds it). The plan itself OPENS from its picture — the card body no longer
 // navigates, because a click on it is now an edit, and the open buttons that
@@ -77,6 +77,7 @@ import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipe
 import { isStale, cardOrchestrationBadges } from '../SwarmView/pipelines/orchestrationHolder';
 import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import OrchestrationBadges from '../SwarmView/pipelines/OrchestrationBadges';
+import { PipelineStatusMenu } from './PipelineStatusChip';
 import CollapseToggle from '../Components/Collapsible/CollapseToggle';
 import { useCollapsibleField } from '../Components/Collapsible/useCollapsibleField';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
@@ -276,7 +277,7 @@ function Stat({ value, label, testId }) {
 }
 
 function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, onUpdate,
-    onDelete, refetchInterval, previewColor, sessionStatus }) {
+    onSetStatus, onDelete, refetchInterval, previewColor, sessionStatus }) {
     const { ref, style, isDragging, handleProps, rowProps } =
         useReorderItem(cardItemId(p), p);
     const locked = isLocked(p);
@@ -292,6 +293,28 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
     const deleteBlock = locked ? 'Locked — unlock it first'
         : heldLive ? 'Being orchestrated — /pipeline-stop it first' : null;
     const menuButtonRef = useRef(null);
+
+    // req #4153 — the info box's status legend is the status control: a click
+    // opens the seven values, as the requirement page's Category opens its
+    // list, and the legend keeps its own shape. A status write is lock-free.
+    const [statusAnchor, setStatusAnchor] = useState(null);
+    const [statusSaving, setStatusSaving] = useState(false);
+    const statusLabel = pipelineStatusLabel(p.pipeline_status);
+    const statusColours = pipelineStatusChipProps(p.pipeline_status).sx;
+    const openStatus = (e) => {
+        e.stopPropagation();
+        if (!statusSaving && onSetStatus) setStatusAnchor(e.currentTarget);
+    };
+    const pickStatus = async (next) => {
+        setStatusAnchor(null);
+        if (next === p.pipeline_status) return;
+        setStatusSaving(true);
+        try {
+            await onSetStatus(p, next);
+        } finally {
+            setStatusSaving(false);
+        }
+    };
 
     // The title, goal and machine go through the plan editor's own rule: only
     // what changed is sent, a blank title is refused, `NULL` is never typed.
@@ -435,9 +458,9 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
 
                 {/* THE INFO BOX (req #4144) — a round-cornered rectangle around
                     the three figures, the plan's STATUS written in its upper
-                    left like a fieldset legend. The status is only SHOWN here:
-                    the old chip that set it from the card was "too much", so
-                    the status is set in the pipeline's edit dialog. The
+                    left like a fieldset legend. The old chip that set it from
+                    the card was "too much" (req #4144); the legend keeps its
+                    shape and a click on it opens the status menu (req #4153). The
                     requirements figure ("197 / 197") is the widest, so its
                     column is never narrower than the figure on one line (req
                     #3946); the columns stay equal thirds whenever that already
@@ -445,14 +468,48 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                 <Box sx={{ position: 'relative', mt: 1.75, mb: 1.5, px: 1.5, pt: 1.75, pb: 1,
                            border: 1, borderColor: 'divider', borderRadius: 2 }}
                      data-testid={`pipelines-card-info-${p.id}`}>
-                    <Typography component="span" variant="caption"
-                                sx={{ position: 'absolute', top: 0, left: 12, transform: 'translateY(-50%)',
-                                      px: 1, borderRadius: 1, lineHeight: 1.6, fontWeight: 600,
-                                      bgcolor: 'background.paper',
-                                      ...pipelineStatusChipProps(p.pipeline_status).sx }}
-                                data-testid={`pipelines-card-status-${p.id}`}>
-                        {pipelineStatusLabel(p.pipeline_status)}
-                    </Typography>
+                    <Tooltip title={statusAnchor || !onSetStatus || statusSaving ? '' : `Status: ${statusLabel} — click to change`}
+                             placement="top" enterDelay={400}>
+                        <Typography component="span" variant="caption"
+                                    {...(onSetStatus && {
+                                        role: 'button', tabIndex: 0, 'aria-haspopup': 'menu',
+                                        'aria-expanded': statusAnchor ? 'true' : 'false',
+                                        'aria-disabled': statusSaving ? 'true' : undefined,
+                                    })}
+                                    aria-label={`Pipeline status: ${statusLabel}`}
+                                    onClick={openStatus}
+                                    // As a native button: Enter opens on keydown, Space on
+                                    // KEYUP — opened on keydown, the Space keyup lands on the
+                                    // menu's focused item and picks it, closing the menu at once.
+                                    onKeyDown={(e) => {
+                                        if (e.key === ' ') e.preventDefault();
+                                        if (e.key === 'Enter' && !e.repeat) { e.preventDefault(); openStatus(e); }
+                                    }}
+                                    onKeyUp={(e) => {
+                                        if (e.key === ' ') { e.preventDefault(); openStatus(e); }
+                                    }}
+                                    sx={{ position: 'absolute', top: 0, left: 12, transform: 'translateY(-50%)',
+                                          px: 1, borderRadius: 1, lineHeight: 1.6, fontWeight: 600,
+                                          bgcolor: 'background.paper',
+                                          ...statusColours,
+                                          cursor: !onSetStatus ? 'default' : statusSaving ? 'progress' : 'pointer',
+                                          userSelect: 'none', outline: 'none',
+                                          opacity: statusSaving ? 0.6 : 1,
+                                          transition: 'filter 120ms, box-shadow 120ms',
+                                          // The same rectangle, lit when it is pointed at or focused.
+                                          '&:hover': { filter: 'brightness(1.15)' },
+                                          '&:focus-visible': { boxShadow: (t) => `0 0 0 2px ${t.palette.primary.main}` },
+                                          ...(statusAnchor && { filter: 'brightness(1.15)' }) }}
+                                    data-status={p.pipeline_status ?? ''}
+                                    data-testid={`pipelines-card-status-${p.id}`}>
+                            {statusLabel}
+                        </Typography>
+                    </Tooltip>
+                    <PipelineStatusMenu anchorEl={statusAnchor} status={p.pipeline_status}
+                                        onPick={pickStatus} onClose={() => setStatusAnchor(null)}
+                                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                                        testId={`pipelines-card-status-${p.id}`} />
                     <Box sx={{ display: 'grid',
                                gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(max-content, 1fr)',
                                columnGap: 2 }}>
@@ -523,11 +580,12 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
  * @param {Object[]} props.pipelines   the cards to draw, in display order
  * @param {(fromId, toId) => void} props.onReorder   a card dropped on another's place
  * @param {(row, fields, problem?) => Promise<boolean>} props.onUpdate  an in-place edit
+ * @param {(row, next) => Promise<boolean>} props.onSetStatus  the status legend's pick (req #4153)
  * @param {(row) => Promise<boolean>} props.onDelete  the menu's confirmed hard delete
  * @param {(title) => Promise<boolean>} props.onCreate  the front card's Enter
  */
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
-    machines, claims = [], onOpen, onUpdate, onDelete, onReorder,
+    machines, claims = [], onOpen, onUpdate, onSetStatus, onDelete, onReorder,
     onCreate, creating = false, hiddenStatusCounts = [],
     refetchInterval, thumbnailRefetchInterval, previewColor, sessionStatus }) {
     const [drafting, setDrafting] = useState(false);
@@ -590,6 +648,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                         heldLive={claims.some((c) => c.pipeline_fk === p.id && !isStale(c))}
                         onOpen={onOpen}
                         onUpdate={onUpdate}
+                        onSetStatus={onSetStatus}
                         onDelete={onDelete}
                         refetchInterval={thumbnailRefetchInterval ?? refetchInterval}
                         previewColor={previewColor}
