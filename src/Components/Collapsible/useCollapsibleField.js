@@ -16,6 +16,13 @@
 // watched, and a blur it caused waits until just after that gesture's click. A
 // keyboard blur (Tab, Escape, Enter) collapses at once.
 //
+// THE TOGGLE ONLY EXISTS WHEN IT WOULD DO SOMETHING (req #4144): `showToggle` is
+// true only when the collapsed field really hides text (measured on the
+// textarea, re-measured on resize and whenever `deps` change — pass the value).
+// A short goal that already fits has nothing to show more of, so the caller
+// renders no toggle. A field pinned open cannot be measured (an
+// expanded box never overflows), so it keeps its toggle until it is collapsed.
+//
 // Returns `attachInput` (the field's inputRef, forwarding to `inputRef`),
 // `setFocused(on)` (call from the field's focus/blur), `toggle` (the toggle's
 // onToggle) and `collapsedSx` (merge into the field's sx: while collapsed the
@@ -24,12 +31,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-export const useCollapsibleField = ({ defaultExpanded = false, inputRef } = {}) => {
+import { useOverflow } from './useOverflow';
+
+export const useCollapsibleField = ({ defaultExpanded = false, inputRef, deps = [] } = {}) => {
     const [pinned, setPinned] = useState(defaultExpanded);
     const [editing, setEditing] = useState(false);
     const expanded = pinned || editing;
 
     const inputEl = useRef(null);
+    const overflowing = useOverflow(inputEl, !expanded, deps);
+    const showToggle = overflowing || pinned;
     const attachInput = (el) => {
         inputEl.current = el;
         if (typeof inputRef === 'function') inputRef(el);
@@ -93,5 +104,5 @@ export const useCollapsibleField = ({ defaultExpanded = false, inputRef } = {}) 
 
     const collapsedSx = expanded ? {} : { '& textarea': { overflow: 'hidden !important' } };
 
-    return { expanded, toggle, attachInput, setFocused, collapsedSx };
+    return { expanded, showToggle, toggle, attachInput, setFocused, collapsedSx };
 };
