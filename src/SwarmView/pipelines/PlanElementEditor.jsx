@@ -10,8 +10,9 @@
 // `<id> - <title>` across the top, native controls, chip rows, one action row —
 // in place of the modal dialogs (PipelineEditDialog / InitiativeEditDialog /
 // EpicEditDialog) the canvas used to open. A requirement's click opens the
-// Requirement Editor itself. ONE editor at a time (usePlanEditorStore): opening
-// one replaces the last, and hides the Requirement Editor.
+// Requirement Editor itself, ATOP this one (req #4116). ONE plan editor at a time
+// (usePlanEditorStore): opening one replaces the last; the Requirement Editor
+// neither closes nor is hidden by it.
 //
 // It writes through the same APIs and the same field rules the dialogs do (their
 // pure helpers are imported, not copied); the dialogs stay for the Epics /
@@ -36,7 +37,7 @@ import {
     pipelineComposeKeys, pipelineEpicKeys, pipelineEpicRequirementKeys, requirementKeys,
 } from '../../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../../NavBar/navConfig';
-import { EDITOR_Z } from '../../RequirementFiler/filerHover';
+import { PLAN_EDITOR_Z } from '../../RequirementFiler/filerHover';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { usePlanEditorStore } from '../../stores/usePlanEditorStore';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -671,7 +672,7 @@ export default function PlanElementEditor() {
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock} open={open} onToggle={toggleOpen}
                        name={NAMES[current.kind]} testid="plan-editor" badgeSlot={false}
-                       rackId={PLAN_EDITOR_RACK_ID} zIndex={EDITOR_Z}
+                       rackId={PLAN_EDITOR_RACK_ID} zIndex={PLAN_EDITOR_Z}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<ActionPopupClose onClick={closeEditor} label="Close the editor"

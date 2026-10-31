@@ -59,6 +59,10 @@ export const AIM_Z = 1290;
 /** The Requirement Filer's stacking: above every other Action Popup and the
  *  outline, so what it is carried over never covers or tints it (req #4044). */
 export const FILER_Z = 1294;
+/** A plan-element editor's (pipeline / initiative / epic): above the other Action
+ *  Popups and below the aim outline, the filer and the Requirement Editor, so the
+ *  Requirement Editor opens ATOP it (req #4116). */
+export const PLAN_EDITOR_Z = 1280;
 /** The aim point's reticle: over the filer it marks the centre of — and,
  *  like the outline, under the editor, so it never floats there alone. */
 export const AIM_POINT_Z = 1295;
