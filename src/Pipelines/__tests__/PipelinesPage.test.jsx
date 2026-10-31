@@ -860,15 +860,74 @@ describe('PipelinesPage2 status editor (Table view)', () => {
     });
 });
 
-describe('PipelinesPage2 status (Cards view, req #4144)', () => {
-    it('shows the status in the info box and offers no control to change it', () => {
+describe('PipelinesPage2 status (Cards view, req #4144 / #4153)', () => {
+    const key = (el, k) => act(() => {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    });
+
+    it('shows the status as the info box legend, closed until it is clicked', () => {
         mount();
         const status = node('pipelines-card-status-7');
         expect(status.textContent).toBe('Running');
         expect(node('pipelines-card-info-7').contains(status)).toBe(true);
-        click(status);
+        expect(status.getAttribute('role')).toBe('button');
+        expect(status.getAttribute('aria-expanded')).toBe('false');
         expect(node('pipelines-card-status-7-menu')).toBeNull();
+    });
+
+    it('opens the seven statuses on a click and writes the one picked, without navigating', async () => {
+        mount();
+        const status = node('pipelines-card-status-7');
+        click(status);
+        expect(status.getAttribute('aria-expanded')).toBe('true');
+        expect(navigations).toEqual([]);
+        const options = [...document.body.querySelectorAll('[data-testid^="pipelines-card-status-7-option-"]')]
+            .map((el) => el.getAttribute('data-testid').replace('pipelines-card-status-7-option-', ''));
+        expect(options).toEqual(['authoring', 'authorized', 'orchestration_ready', 'orchestrating', 'met',
+            'wontfix', 'deferred']);
+        expect(node('pipelines-card-status-7-option-orchestrating').classList.contains('Mui-selected')).toBe(true);
+        await act(async () => { node('pipelines-card-status-7-option-orchestration_ready').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, pipeline_status: 'orchestration_ready' }],
+        }]);
+        expect(navigations).toEqual([]);
+    });
+
+    it('opens from the keyboard too', () => {
+        mount();
+        key(node('pipelines-card-status-7'), 'Enter');
+        expect(node('pipelines-card-status-7-option-met')).not.toBeNull();
+    });
+
+    it('opens on Space and stays open — the keyup does not pick the focused item', async () => {
+        mount();
+        const status = node('pipelines-card-status-7');
+        key(status, ' ');
+        expect(node('pipelines-card-status-7-menu')).toBeNull();
+        act(() => { status.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true })); });
+        expect(node('pipelines-card-status-7-option-met')).not.toBeNull();
+        await flush();
+        expect(status.getAttribute('aria-expanded')).toBe('true');
         expect(restCalls).toEqual([]);
+    });
+
+    it('writes nothing when the current status is picked', async () => {
+        mount();
+        click(node('pipelines-card-status-7'));
+        await act(async () => { node('pipelines-card-status-7-option-orchestrating').click(); });
+        await flush();
+        expect(restCalls).toEqual([]);
+    });
+
+    it('still writes the status of a LOCKED plan (the gateway lock-free set)', async () => {
+        mount();
+        click(node('pipelines-card-status-8'));
+        await act(async () => { node('pipelines-card-status-8-option-authorized').click(); });
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 8, pipeline_status: 'authorized' }]);
     });
 });
 
