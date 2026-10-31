@@ -91,7 +91,7 @@ import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { EDITOR_DEFAULT_HT, useRequirementFilerStore } from '../stores/useRequirementFilerStore';
-import { prodRequirementUrl } from '../utils/prodUrl';
+import { prodRequirementUrl, PROD_HOST } from '../utils/prodUrl';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -748,7 +748,7 @@ export default function RequirementEditorPopup() {
                     // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
                     failOpen({ key, text: `Saved, but its id could not be read back — find it on ${
-                        filesElsewhere ? 'darwin.one/swarm' : '/swarm'}, or start a new requirement.` });
+                        filesElsewhere ? `${PROD_HOST}/swarm` : '/swarm'}, or start a new requirement.` });
                     return;
                 }
             } else {

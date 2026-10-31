@@ -3,13 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="/favicon.ico" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap"/>
+    <!-- Roboto: Google Fonts, or none here when the product bundles it (VITE_FONT_SOURCE=local, req #4076). -->
+    %PRODUCT_FONT_LINK%
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="Darwin" content="Darwin task management" />
+    <meta name="%PRODUCT_NAME%" content="%PRODUCT_DESCRIPTION%" />
     <link rel="apple-touch-icon" href="/logo192.png" />
     <link rel="manifest" href="/manifest.json" />
-    <!-- Keep in step with DEFAULT_DOCUMENT_TITLE in src/hooks/useDocumentTitle.js (req #3970). -->
-    <title>Darwin</title>
+    <!-- The product's name (req #4076): the PRODUCT placeholders are filled at build/serve time
+         from src/config/productConfig.js by devtools/productShell.js — the same value
+         as DEFAULT_DOCUMENT_TITLE in src/hooks/useDocumentTitle.js (req #3970). -->
+    <title>%PRODUCT_NAME%</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

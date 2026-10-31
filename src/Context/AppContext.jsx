@@ -1,4 +1,5 @@
 import { createContext, useState } from 'react';
+import { API_BASE, PRODUCT } from '../config/product';
 
 const AppContext = createContext({});
 
@@ -28,15 +29,17 @@ if (isDev) {
     }
 }
 
-const API_BASE = 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng';
-
+// req #4076 — the API base and the two pinned database segments below come
+// from the product config (config/product.js); darwin.one's values are its
+// defaults, so this file means exactly what it did before. The internal build
+// is same-origin `/api` with one database, `internal`, for all three.
 // `darwinOpsUri` always points at the production `darwin` schema regardless of
 // dev/prod build mode. Operational tables (`dev_servers`, `swarm_sessions`,
 // `swarm_starts`, `swarm_start_sessions`) are written by the MCP daemon
 // (hard-wired to `DB_NAME=darwin`) and are machine-singleton infrastructure —
 // they were never meant to participate in the prod/dev USER-data split that
 // `darwinUri` honors. Req #2697.
-const DARWIN_OPS_URI = `${API_BASE}/darwin`;
+const DARWIN_OPS_URI = `${API_BASE}/${PRODUCT.opsDatabase}`;
 
 // `darwinBuildVizUri` always points at the `darwin_dev` schema regardless of
 // dev/prod build mode. The Build Visualizer is a dev-only design tool whose 5
@@ -52,12 +55,18 @@ const DARWIN_OPS_URI = `${API_BASE}/darwin`;
 // links are hidden): without this pin they would 500 against the now-dropped
 // production tables. Never depends on the prod/dev USER-data split `darwinUri`
 // honors.
-const DARWIN_BUILDVIZ_URI = `${API_BASE}/darwin_dev`;
+// A product with no build-viz database (`none`) gets null — its build-viz
+// pages are out of its application scope, so nothing reads it.
+const DARWIN_BUILDVIZ_URI = PRODUCT.buildVizDatabase ? `${API_BASE}/${PRODUCT.buildVizDatabase}` : null;
+
+/** The user-data URI the provider starts with — also read by AuthContext,
+ *  which sits OUTSIDE this provider and, in proxy auth, asks it who it is. */
+export const DEFAULT_DARWIN_URI = `${API_BASE}/${database}`;
 
 // Context provider for general application data, URI and color schemes
 export const AppContextProvider = ({ children }) => {
 
-    const [darwinUri, setDarwinUri] = useState(`${API_BASE}/${database}`);
+    const [darwinUri, setDarwinUri] = useState(DEFAULT_DARWIN_URI);
 
     return (
         <AppContext.Provider value={{
