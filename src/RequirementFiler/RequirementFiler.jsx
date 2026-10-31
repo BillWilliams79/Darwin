@@ -77,6 +77,7 @@
 // editor opens on a press of the + and never on its own (req #3974), so a dev
 // server landing on the filer never starts a requirement nobody asked for.
 
+import { PRODUCT_NAME } from '../config/product';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -486,7 +487,7 @@ export default function RequirementFiler() {
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID} zIndex={FILER_Z}
                        rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
-                       rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
+                       rackIconLabel={`Requirement — create a new one${filesElsewhere ? ` (filed in production ${PRODUCT_NAME})` : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock} onMoveTrack={onMoveTrack}
                        dockable={!pinned} overhang={pinned}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
@@ -498,7 +499,7 @@ export default function RequirementFiler() {
                                 onPointerMove={aimHover}
                                 onPointerLeave={aimLeave}>
                                <ActionPopupAdd onClick={fileRequirement}
-                                               label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
+                                               label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ` — filed in production ${PRODUCT_NAME}` : ''}`}
                                                testid="requirement-filer-add" />
                            </Box>
                            <PinButton pinned={pinned} onClick={togglePin} open={open} />

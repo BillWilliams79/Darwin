@@ -2,6 +2,7 @@
 // rail and the router cannot disagree about where a plan list lives.
 import { planListPath } from '../SwarmView/pipelines/planEra';
 import { ENGINES_PATH } from '../SwarmView/engine/enginePaths';
+import { APP_SCOPE, SCOPE_ALL, HAS_SYSTEMS } from '../config/product';
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import MapIcon from '@mui/icons-material/Map';
@@ -29,11 +30,19 @@ import RuleIcon from '@mui/icons-material/Rule';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DataUsageIcon from '@mui/icons-material/DataUsage';
 
+// req #4076 — the SYSTEMS group, and the Topology page in it, exist in a DEV
+// build or in a product whose application scope names `systems` (the internal
+// product). darwin.one's scope is "all", so `APP_SCOPE.all` keeps it dev-only
+// there exactly as before. BUILD_TOOLS_ON (Build Visualizer, Customers) stays
+// dev-only in every product.
+export const TOPOLOGY_ON = import.meta.env.DEV || (!SCOPE_ALL && HAS_SYSTEMS);
+export const BUILD_TOOLS_ON = import.meta.env.DEV && SCOPE_ALL;
+
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
     { id: 'tasks', label: 'TASKS' },
     { id: 'maps', label: 'MAPS' },
-    ...(import.meta.env.DEV ? [{ id: 'systems', label: 'SYSTEMS' }] : []),
+    ...(TOPOLOGY_ON ? [{ id: 'systems', label: 'SYSTEMS' }] : []),
     { id: 'swarm', label: 'SWARM' },
     { id: 'agents', label: 'AGENTS' },
     { id: 'swarm-validate', label: 'SWARM VALIDATE' },
@@ -67,8 +76,10 @@ export const NAV_LINKS = [
     { path: '/recurring', label: 'Recurring', icon: RepeatIcon, group: 'tasks' },
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'calendar' },
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
-    ...(import.meta.env.DEV ? [
+    ...(TOPOLOGY_ON ? [
         { path: '/systems2', label: 'AI Architecture', icon: AccountTreeIcon, group: 'systems' },
+    ] : []),
+    ...(BUILD_TOOLS_ON ? [
         { path: '/build-visualizer', label: 'Build Visualizer', icon: TimelineIcon, group: 'systems' },
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
@@ -287,14 +298,32 @@ export const DEV_HOME_ROUTE = import.meta.env.VITE_DEV_DEFAULT_ROUTE
     || (DEV_APPS && NAV_LINKS.find(l => DEV_APPS.has(GROUP_DEV_APP[l.group]))?.path)
     || '/systems2';
 
+// req #4076 — where a scoped product's home route lands: Topology when the
+// product carries it, else its first in-scope page. null for darwin.one,
+// whose home is the first group the profile enables (HomePage).
+export const PRODUCT_HOME_ROUTE = APP_SCOPE.all ? null
+    : (APP_SCOPE.systems ? '/systems2'
+        : NAV_LINKS.find(l => APP_SCOPE[GROUP_DEV_APP[l.group]])?.path ?? '/profile');
+
 // THE visibility predicate for a nav group — the sidebar, the home redirect
 // and any app-scoped widget all ask this one function. Under a dev-server
 // override the session's apps are shown and nothing else, whatever the
 // profile says (darwin_dev's profile row is shared by every dev server, so it
 // cannot carry one session's scope). Otherwise the profile toggle decides,
 // with the per-key default while the row is loading.
-export function isGroupVisible(profile, groupId, devApps = DEV_APPS) {
-    if (devApps) return devApps.has(GROUP_DEV_APP[groupId]);
+//
+// req #4076 — a PRODUCT scope (the internal build: Topology + Swarm) is the
+// outer bound: a group outside it is never shown, whatever the dev scope or
+// profile says. Same app vocabulary as the dev scope, same predicate — no
+// third visibility mechanism. darwin.one's scope is "all", a no-op.
+export function isGroupVisible(profile, groupId, devApps = DEV_APPS, productScope = APP_SCOPE) {
+    const app = GROUP_DEV_APP[groupId];
+    if (!productScope.all && !productScope[app]) return false;
+    // Inside a scoped product its applications are the product, not optional
+    // extras: the profile's darwin.one toggles (Swarm defaults OFF) do not
+    // hide them. A dev scope still narrows.
+    if (devApps) return devApps.has(app);
+    if (!productScope.all) return true;
     const key = GROUP_PROFILE_KEY[groupId];
     if (!key) return true;
     const fallback = GROUP_PROFILE_DEFAULT[key] ?? 1;

@@ -58,6 +58,8 @@
     "dev": "vite",
     "start": "vite",
     "build": "vite build",
+    "build:internal": "vite build --mode internal",
+    "check:internal": "node scripts/check-internal-bundle.mjs",
     "preview": "vite preview",
     "test:e2e": "bash ../scripts/run-e2e.sh",
     "test:unit": "TZ=America/Los_Angeles vitest run src/"
