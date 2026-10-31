@@ -73,20 +73,15 @@ describe('PipelineGroupView — the 3-D viewer chrome', () => {
         expect(q('pipelines-group-calendar-week')).toBeNull();
         expect(q('pipelines-group-fullscreen')).not.toBeNull();     // the switch stays with the header
         act(() => q('pipelines-group-info-collapse').click());
-        expect(q('pipelines-group-calendar-index')).toBeNull();
+        expect(q('pipelines-group-legend')).toBeNull();
     });
 
-    it('Info indexes the calendar: columns in time order, sort order within one', () => {
+    it('unfocused, the panel is just the status key — no duplicate listing', () => {
         render();
-        const index = q('pipelines-group-calendar-index');
-        const titles = [...index.querySelectorAll('[data-testid^="pipelines-group-index-"]')]
-            .map((el) => el.dataset.testid.replace('pipelines-group-index-', ''));
-        expect(titles).toEqual(['2', '3', '1']);       // August first; Oct 25 week by sort order
-        expect(index.textContent).toMatch(/Week of Aug 2/);
-        expect(index.textContent).toMatch(/Week of Oct 25/);
-        expect(index.textContent).toMatch(/11 weeks with nothing/);
-        act(() => q('pipelines-group-index-3').click());
-        expect(onFocusChange).toHaveBeenCalledWith(3);
+        expect(q('pipelines-group-calendar-index')).toBeNull();
+        expect(q('pipelines-group-counts')).toBeNull();
+        expect(q('pipelines-group-legend')).not.toBeNull();
+        expect(q('pipelines-group-info').textContent).toMatch(/Status key/);
     });
 
     it('the Calendar row regroups the columns and is remembered', () => {
@@ -94,7 +89,6 @@ describe('PipelineGroupView — the 3-D viewer chrome', () => {
         expect(q('pipelines-group-stage').dataset.bucket).toBe('week');
         act(() => q('pipelines-group-calendar-month').click());
         expect(q('pipelines-group-stage').dataset.bucket).toBe('month');
-        expect(q('pipelines-group-calendar-index').textContent).toMatch(/October 2026/);
         expect(localStorage.getItem('darwin-pipeline-group-calendar')).toBe('month');
         expect(engine.preset).toHaveBeenCalledWith('iso');   // the new calendar is framed again
     });

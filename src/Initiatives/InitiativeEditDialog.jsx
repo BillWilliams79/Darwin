@@ -339,7 +339,7 @@ export default function InitiativeEditDialog({
     return (
         <Dialog open={open} onClose={(_e, reason) => !submitting && onClose(reason)}
                 maxWidth="md" fullWidth data-testid="initiative-edit-dialog">
-            <DialogTitle>{initiative ? 'Edit initiative' : 'New initiative'}</DialogTitle>
+            <DialogTitle>{initiative ? `Edit initiative ${initiative.id}` : 'New initiative'}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
                     {/* req #3800 — the NAME is the first field. A greyed-out Pipeline

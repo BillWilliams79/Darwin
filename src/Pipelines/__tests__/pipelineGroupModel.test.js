@@ -304,8 +304,9 @@ describe('textPlates', () => {
         expect(of('gap').map((t) => t.text)).toEqual([`· ${model.columns[1].gapBefore.label} ·`]);
         expect(of('pipeline').map((t) => t.text)).toEqual(['Plan 1', 'Plan 2']);
         expect(of('initiative').map((t) => t.text)).toEqual(['Init 0', 'Init 1', 'Init 0', 'Init 1']);
-        expect(of('epic').map((t) => t.text)).toEqual(['E1', 'E2', 'E3', 'E4', 'E1', 'E2', 'E3', 'E4']);
-        expect(plates).toHaveLength(2 + 1 + 2 + 4 + 8);
+        expect(of('epic').filter((t) => t.face === 'front').map((t) => t.text)).toEqual(['E1', 'E2', 'E3', 'E4', 'E1', 'E2', 'E3', 'E4']);
+        expect(of('req').map((t) => t.text).sort()).toEqual(['R900', 'R900', 'R901', 'R901', 'R902', 'R902', 'R903', 'R903']);
+        expect(plates).toHaveLength(2 + 1 + 2 + 4 + 16 + 8);
     });
 
     it('a title lies on its platform\'s top, in the back margin, clear of every strip', () => {
@@ -333,9 +334,37 @@ describe('textPlates', () => {
         }
     });
 
+    it('an epic\'s name is also printed on its pedestal\'s top, clear of the cube stack (req #4130)', () => {
+        for (const p of model.pipelines) {
+            const tops = of('epic').filter((x) => x.pipelineId === p.id && x.face === 'up');
+            expect(tops.length).toBe(p.epics.length);
+            p.epics.forEach((e, i) => {
+                const t = tops[i];
+                expect(t.z - t.h / 2).toBeGreaterThanOrEqual(p.z + e.z + GROUP.stackShift + 0.85);
+                expect(t.z + t.h / 2).toBeLessThanOrEqual(p.z + e.z + GROUP.pedestal / 2);
+            });
+        }
+    });
+
+    it('the cube stack stays on its pedestal (req #4130)', () => {
+        for (const p of model.pipelines) for (const e of p.epics) for (const r of e.reqs) {
+            expect(Math.abs(r.x - p.x - e.x + p.x)).toBeLessThanOrEqual(GROUP.pedestal / 2);
+            expect(r.z - GROUP.cube / 2).toBeGreaterThanOrEqual(p.z + e.z - GROUP.pedestal / 2 - 1e-9);
+        }
+    });
+
+    it('an uncovered cube carries its requirement title on its top (req #4130)', () => {
+        const reqs = of('req');
+        expect(reqs.length).toBeGreaterThan(0);
+        for (const t of reqs) {
+            expect(t.face).toBe('up');
+            expect(t.w).toBeLessThanOrEqual(GROUP.cube);
+        }
+    });
+
     it('an epic\'s name stands on its pedestal\'s front face', () => {
         for (const p of model.pipelines) {
-            const names = of('epic').filter((x) => x.pipelineId === p.id);
+            const names = of('epic').filter((x) => x.pipelineId === p.id && x.face === 'front');
             p.epics.forEach((e, i) => {
                 const t = names[i];
                 expect(t.face).toBe('front');
