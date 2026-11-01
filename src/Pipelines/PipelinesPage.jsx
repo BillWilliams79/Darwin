@@ -276,7 +276,7 @@ export default function PipelinesPage() {
     const timezone = profile?.timezone;
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
-    // req #4063 — what colours the beads of every card's preview.
+    // req #4063 / #4184 — Progress colouring of every card's preview, or the clean look.
     const [previewColorRaw, setPreviewColor] = useViewPreference(
         PREVIEW_COLOR_STORAGE_KEY, DEFAULT_PREVIEW_COLOR);
     const previewColor = normalizePreviewColor(previewColorRaw);
@@ -720,6 +720,12 @@ export default function PipelinesPage() {
                     filters={
                         <Stack direction="row" spacing={1} alignItems="center"
                                sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+                            {/* req #4184 — left to right: Progress, the status
+                                selectors, then "New pipeline" (the header's action). */}
+                            {activeView === 'cards' && (
+                                <PreviewColorChips mode={previewColor}
+                                                   onChange={setPreviewColor} />
+                            )}
                             <ChipFilter
                                 options={pipelineStatusOptions}
                                 selected={statusFilter}
@@ -727,12 +733,6 @@ export default function PipelinesPage() {
                                 testId="pipelines-status-filter"
                                 chipTestIdPrefix="pipelines-status-chip"
                             />
-                            {activeView === 'cards' && (
-                                <PreviewColorChips mode={previewColor}
-                                                   onChange={setPreviewColor}
-                                                   machines={machines}
-                                                   sessionsKnown={sessionStatus != null} />
-                            )}
                         </Stack>
                     }
                     actions={<NewPipelineDialog machines={machines}
@@ -806,7 +806,6 @@ export default function PipelinesPage() {
                         refetchInterval={LIVE_REFRESH_MS}
                         thumbnailRefetchInterval={THUMBNAIL_REFRESH_MS}
                         previewColor={previewColor}
-                        sessionStatus={sessionStatus}
                     />
                 )}
             </Box>

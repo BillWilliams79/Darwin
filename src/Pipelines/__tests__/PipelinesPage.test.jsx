@@ -361,6 +361,20 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-8')).not.toBeNull();
     });
 
+    // req #4184 — header order, left to right: Progress, the status selectors,
+    // then "New pipeline"; Progress is the only colour button.
+    it('orders the header Progress, status selectors, New pipeline', () => {
+        mount();
+        const progress = node('pipelines-preview-color-percent');
+        const filter = node('pipelines-status-filter');
+        const create = node('pipelines-new-button');
+        expect(progress && filter && create).toBeTruthy();
+        const before = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(before(progress, filter)).toBe(true);
+        expect(before(filter, create)).toBe(true);
+        expect(document.querySelectorAll('[data-testid^="pipelines-preview-color-"]:not([data-testid$="help"])')).toHaveLength(1);
+    });
+
     // ── req #3365 — COMPLETENESS IS MEASURED ON REQUIREMENTS ────────────────
     // These two assertions replace, rather than relax, the pair that stood
     // here: "shows the done/open two-state summary" and "shows the met/total
