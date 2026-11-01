@@ -430,7 +430,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
 
     // req #3973 — the holder is a round badge between the grip and the title,
     // carrying only the machine's letter; the bottom chip is gone.
-    it('draws the holder as an M / W badge between the grip and the title', () => {
+    it('draws the holder as a machine-coloured M / W badge right of the status', () => {
         const fresh = new Date().toISOString().slice(0, 19);
         orchestrationClaims = [
             { id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 4,
@@ -446,12 +446,11 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         const sub = node('pipelines-card-holder-7-claim-2');
         expect(sub.textContent).toBe('W');
         expect(sub.getAttribute('data-tone')).toBe('subscriber');
-        // Row one, in order: grip, badge, title.
-        const row = node('pipelines-card-grip-7').parentElement;
-        const order = [...row.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid);
-        const at = (id) => order.indexOf(id);
-        expect(at('pipelines-card-grip-7')).toBeLessThan(at('pipelines-card-holder-7'));
-        expect(at('pipelines-card-holder-7')).toBeLessThan(at('pipelines-card-title-7'));
+        // req #4169 — filled with the machine's colour, and just right of the status.
+        expect(lead.style.backgroundColor || getComputedStyle(lead).backgroundColor).toBeTruthy();
+        const status = node('pipelines-card-status-7');
+        const order = [...status.parentElement.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid);
+        expect(order.indexOf('pipelines-card-status-7')).toBeLessThan(order.indexOf('pipelines-card-holder-7'));
     });
 
     it('draws a stale holder as an outline badge', () => {

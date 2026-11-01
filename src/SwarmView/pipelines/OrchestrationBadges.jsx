@@ -21,6 +21,14 @@ const TONE_SX = {
     [BADGE_SUBSCRIBER]: { bgcolor: '#f57c00', color: '#000', border: '1px solid #f57c00' },
 };
 // Stale: the orchestrator is gone, so the badge is an outline only.
+// req #4169 — a badge carrying a machine `color` is filled with it; the letter
+// takes black or white, whichever contrasts more.
+function inkFor(hex) {
+    const n = parseInt(String(hex).replace('#', ''), 16);
+    const lin = (v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    return L > 0.179 ? '#000' : '#fff';
+}
 const STALE_SX = { bgcolor: 'transparent', color: 'text.secondary', border: '1px dashed', borderColor: 'text.disabled' };
 
 // `size`, `fontSize` and the test ids are the pipelines card's (req #3973): a
@@ -46,6 +54,10 @@ export default function OrchestrationBadges({ badges, size = BADGE_SIZE, fontSiz
                             fontWeight: 700, lineHeight: 1, letterSpacing: 0,
                             userSelect: 'none',
                             ...(TONE_SX[b.tone] || STALE_SX),
+                            ...(b.color && b.tone !== 'stale' && {
+                                bgcolor: b.color, color: inkFor(b.color), border: `1px solid ${b.color}`,
+                            }),
+                            ...(b.color && b.tone === 'stale' && { borderColor: b.color, color: b.color }),
                         }}>
                         {b.text}
                     </Box>
