@@ -3,7 +3,7 @@
 // and never sign a request another site made.
 
 import { describe, it, expect } from 'vitest';
-import { upstreamUrl, isCrossSite, parseCredentialsFile } from '../../../devtools/proxyAuthDevGateway.js';
+import { upstreamUrl, isCrossSite, parseCredentialsFile, internalUpstream } from '../../../devtools/proxyAuthDevGateway.js';
 
 const O = { apiBase: '/api', database: 'internal', upstreamBase: 'https://h.example/eng' };
 
@@ -42,4 +42,29 @@ describe('isCrossSite — only the dev server\'s own pages', () => {
 
 it('parseCredentialsFile reads export lines, quoted or not, and runs nothing', () => {
     expect(parseCredentialsFile('export A=1\nB="two"\n# c\nexport C=\'x y\'\n')).toEqual({ A: '1', B: 'two', C: 'x y' });
+});
+
+// req #4151 — the internal upstream: the real VM gateway, pinned to `internal`.
+describe('internal upstream', () => {
+    const I = { apiBase: '/api', database: 'internal', upstreamBase: 'https://vm.example/api', upstreamDatabase: 'internal' };
+    it('maps onto the VM gateway\'s internal database', () => {
+        expect(upstreamUrl('/api/internal/swarm_sessions?id=1', I)).toBe('https://vm.example/api/internal/swarm_sessions?id=1');
+    });
+    it('still refuses dot segments', () => {
+        expect(upstreamUrl('/api/internal/%2e%2e/darwin/profiles', I)).toBeNull();
+    });
+    const creds = { DARWIN_API_BASE: 'https://vm.example/api/', DARWIN_DATABASE: 'internal',
+        INTERNAL_API_USER: 'u', INTERNAL_API_PASSWORD: 'p', DARWIN_CA_BUNDLE: '/ca.crt' };
+    it('builds the basic-auth header and keeps the CA file', () => {
+        expect(internalUpstream(creds)).toEqual({ upstreamBase: 'https://vm.example/api', upstreamDatabase: 'internal',
+            authorization: 'Basic ' + Buffer.from('u:p').toString('base64'), caFile: '/ca.crt' });
+    });
+    it.each([
+        [{ DARWIN_API_BASE: 'https://k5j0ftr527.execute-api.us-west-1.amazonaws.com/eng' }, /not internal/],
+        [{ DARWIN_API_BASE: 'https://www.darwin.one/api' }, /not internal/],
+        [{ DARWIN_DATABASE: 'darwin_dev' }, /database darwin_dev/],
+        [{ INTERNAL_API_PASSWORD: '' }, /incomplete/],
+    ])('refuses %o', (override, msg) => {
+        expect(() => internalUpstream({ ...creds, ...override })).toThrow(msg);
+    });
 });
