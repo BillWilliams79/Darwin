@@ -116,7 +116,7 @@ import { useViewPreference } from '../hooks/useViewPreference';
 import normalizeView from '../Components/ViewerHeader/normalizeView';
 import ViewerHeader from '../Components/ViewerHeader/ViewerHeader';
 import ChipFilter from '../Components/ChipFilter';
-import { formatDateTime } from '../utils/dateFormat';
+import { formatDateTimeFull } from '../utils/dateFormat';
 import {
     pipelineStatusChipProps,
     pipelineStatusLabel,
@@ -156,6 +156,10 @@ import {
 } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import PipelineStatusChip from './PipelineStatusChip';
+import PipelineMachineCell from './PipelineMachineCell';
+import { pipelineEditFields, ANY_MACHINE } from './PipelineEditDialog';
+import GhostCell from '../Components/GhostField/GhostCell';
+import { ghostTextColumn } from '../Components/GhostField/ghostTextColumn';
 import NewPipelineDialog from './NewPipelineDialog';
 import useCreatePipeline from './useCreatePipeline';
 import { updatePipeline, updatePipelines, deletePipeline, REST_NULL } from './pipelinesApi';
@@ -186,6 +190,12 @@ const VIEWS = [
 // + Lambda request, so the interval is a COST, stated to the user: about 840
 // list calls an hour plus one per card per minute for the thumbnails, only
 // while the tab is visible.
+// req #4170 — the table's Pipeline and Goal fields wrap to this many lines.
+// `rowHeight` is a PRE-DENSITY figure (density="compact" is 0.7), so 82 lands
+// at 57px — room for two wrapped lines (Agents' instructions table, req #3396).
+const TABLE_TEXT_ROWS = 2;
+const TABLE_ROW_HEIGHT = 82;
+
 export const LIVE_REFRESH_MS = 30_000;
 // The thumbnails are one composed read PER CARD, so they refresh at half the
 // rate of the list reads. Neither polls a hidden tab (TanStack's
@@ -467,6 +477,24 @@ export default function PipelinesPage() {
         }
     };
 
+    // req #4170 — the table's text fields go through the plan editor's own rule
+    // (only what changed is sent, a blank title is refused, `NULL` is never typed).
+    const textForm = (row, form) => pipelineEditFields(row, {
+        title: row.title,
+        description: row.description ?? '',
+        machineFk: row.machine_fk ?? ANY_MACHINE,
+        ...form,
+    });
+    const editProblem = (row, form) => textForm(row, form).problem ?? null;
+    // ghostTextColumn's contract: the commit REJECTS on failure so the field
+    // puts the stored text back (updateRow has already shown the reason).
+    const commitText = async (row, form) => {
+        const { fields, problem } = textForm(row, form);
+        if (problem) { showError(problem); throw new Error(problem); }
+        if (!Object.keys(fields).length) return;
+        if (!(await updateRow(row, fields))) throw new Error('save failed');
+    };
+
     // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
     const toggleLock = (row) => updateRow(row, { locked: Number(row.locked) ? 0 : 1 });
 
@@ -560,47 +588,52 @@ export default function PipelinesPage() {
 
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
-        {
-            // 40% NARROWER (req #3365 user directive). It was `flex: 1,
-            // minWidth: 220`, which made it absorb every spare pixel — measured
-            // 460px at a 1600px viewport, more than a third of the grid, for a
-            // value that is one short line. A fixed width is what makes the
-            // reduction stick: leaving `flex` on and lowering `minWidth` would
-            // have changed nothing, because flex re-expands to fill whatever
-            // the columns removed below gave back. 276 = 460 x 0.6, taken from
-            // the measurement rather than picked.
+        // req #4170 — the Pipeline name is an in-place field, not a link: the
+        // app's shared edit-in-place scheme (ghostTextColumn — no dialog, no
+        // Save, blur or Enter commits, a rejected write rolls the text back). The
+        // plan still opens from a click anywhere else in its row.
+        // Fixed width (req #3365's 40% cut stays): `flex` would re-expand it.
+        ghostTextColumn({
             field: 'title', headerName: 'Pipeline', width: 276,
-            renderCell: (params) => (
-                <Tooltip title="Open this plan's visualizer">
-                    <Box
-                        component="span"
-                        role="link"
-                        tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); open(params.row.id); }}
-                        onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-                            e.stopPropagation();
-                            open(params.row.id);
-                        }}
-                        sx={{ cursor: 'pointer', color: 'primary.main', textDecoration: 'underline' }}
-                        data-testid={`pipelines-open-title-${params.row.id}`}
-                    >
-                        {params.value}
-                    </Box>
-                </Tooltip>
-            ),
-        },
+            required: true,
+            multiline: true,
+            commitOnEnter: true,
+            maxRows: TABLE_TEXT_ROWS,
+            normalize: (text) => text.replace(/\s+/g, ' ').trim(),
+            validate: (text, row) => editProblem(row, { title: text }),
+            disabled: (row) => Boolean(Number(row.locked)),
+            onCommit: (row) => (title) => commitText(row, { title }),
+            onErrorChange: () => (err) => { if (err) showError(err); },
+            inputProps: { maxLength: 256 },
+            testId: (row) => `pipelines-title-${row.id}`,
+        }),
         {
             // req #3965 — the plan's status editor (all seven values).
             field: 'pipeline_status', headerName: 'Status', width: 190, sortable: false,
             renderCell: (params) => (
-                <PipelineStatusChip
-                    status={params.value}
-                    onChange={(next) => setStatus(params.row, next)}
-                    testId={`pipelines-status-${params.row.id}`}
-                />
+                <GhostCell>
+                    <PipelineStatusChip
+                        status={params.value}
+                        onChange={(next) => setStatus(params.row, next)}
+                        testId={`pipelines-status-${params.row.id}`}
+                    />
+                </GhostCell>
             ),
         },
+        // req #4170 — the goal, edited in place (the table was the one view
+        // that could not set it). Collapsed to TABLE_TEXT_ROWS lines.
+        ghostTextColumn({
+            field: 'description', headerName: 'Goal', flex: 1, minWidth: 260,
+            multiline: true,
+            commitOnEnter: false,
+            maxRows: TABLE_TEXT_ROWS,
+            validate: (text, row) => editProblem(row, { description: text }),
+            disabled: (row) => Boolean(Number(row.locked)),
+            onCommit: (row) => (description) => commitText(row, { description }),
+            onErrorChange: () => (err) => { if (err) showError(err); },
+            placeholder: 'Goal',
+            testId: (row) => `pipelines-goal-${row.id}`,
+        }),
         {
             // req #3649 — the lock cascades to every initiative and epic in the plan.
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
@@ -620,28 +653,25 @@ export default function PipelinesPage() {
             ),
         },
         {
-            // req #3823 — how many initiative-to-initiative dependencies the plan holds.
-            field: 'initiative_deps', headerName: 'Initiative deps', width: 120, type: 'number',
-            valueGetter: (_v, row) => summaries.get(row.id)?.initiativeDeps ?? 0,
+            // req #4170 — set in place, as the Cards view's card menu does.
+            field: 'machine_fk', headerName: 'Machine', width: 150,
+            valueGetter: (_v, row) => (row.machine_fk == null
+                ? '' : (machineById.get(row.machine_fk)?.title || `#${row.machine_fk}`)),
             renderCell: (params) => (
-                <Box component="span" data-testid={`pipelines-initiative-deps-${params.row.id}`}>
-                    {params.value || '—'}
-                </Box>
+                <PipelineMachineCell
+                    row={params.row}
+                    machines={machines}
+                    locked={Boolean(Number(params.row.locked))}
+                    onPick={(machineFk) => updateRow(params.row,
+                        { machine_fk: machineFk == null ? REST_NULL : machineFk })}
+                />
             ),
         },
         {
-            field: 'machine_fk', headerName: 'Machine', width: 140,
-            valueGetter: (_v, row) => (row.machine_fk == null
-                ? '' : (machineById.get(row.machine_fk)?.title || `#${row.machine_fk}`)),
-            valueFormatter: (value) => value || '—',
-        },
-        {
-            field: 'started_at', headerName: 'Started', width: 150,
-            valueFormatter: (value) => (value ? formatDateTime(value, timezone) : '—'),
-        },
-        {
-            field: 'completed_at', headerName: 'Completed', width: 150,
-            valueFormatter: (value) => (value ? formatDateTime(value, timezone) : '—'),
+            // req #4170 — the whole instant in the reader's timezone, at the
+            // width that shows it. Stamped by the gateway, so display-only.
+            field: 'started_at', headerName: 'Started', width: 250,
+            valueFormatter: (value) => (value ? formatDateTimeFull(value, timezone) : '—'),
         },
         // ── TWO COLUMNS REMOVED (req #3365 user directive) ──────────────────
         //
@@ -751,6 +781,7 @@ export default function PipelinesPage() {
                             slotProps={{ toolbar: { showQuickFilter: true } }}
                             initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
                             pageSizeOptions={[10, 25, 50]}
+                            rowHeight={TABLE_ROW_HEIGHT}
                             disableRowSelectionOnClick
                             onRowClick={(params) => open(params.id)}
                             sx={{ '& .MuiDataGrid-row': { cursor: 'pointer' } }}

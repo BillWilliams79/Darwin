@@ -720,11 +720,14 @@ describe('PipelinesPage2 — Pipeline group view (req #3972)', () => {
 });
 
 describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372)', () => {
-    it('navigates to the 2.0 visualizer from the title', () => {
+    // req #4170 — the Pipeline name is an in-place field, not a link: a click
+    // in it edits and never navigates.
+    it('does NOT navigate when the title field is clicked', () => {
         mount();
         switchToTable();
-        click(node('pipelines-open-title-7'));
-        expect(navigations).toEqual(['/swarm/pipeline/7']);
+        expect(node('pipelines-open-title-7')).toBeNull();
+        click(node('pipelines-title-7'));
+        expect(navigations).toEqual([]);
     });
 
     it('navigates when any other part of the row is clicked', () => {
@@ -737,7 +740,7 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
     it('opening a row never fires a mutation', async () => {
         mount();
         switchToTable();
-        click(node('pipelines-open-title-7'));
+        click(node('grid-row-7'));
         await flush();
         expect(restCalls).toEqual([]);
     });
@@ -763,9 +766,73 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
         expect(node('pipelines-description-btn-7')).toBeNull();
         expect(node('pipelines-open-7')).toBeNull();
         expect(node('pipelines-open-8')).toBeNull();
-        // The title link survives — it is one of the three ways in that made
-        // the fourth redundant.
-        expect(node('pipelines-open-title-7')).not.toBeNull();
+        // The row click survives (req #4170 made the title a field, not a link).
+    });
+
+    // req #4170 — the removed columns are pinned absent, the Goal, Machine and
+    // Started cells present.
+    it('has no Initiative deps or Completed column, and shows Started in full', () => {
+        mount();
+        switchToTable();
+        expect(node('cell-initiative_deps-7')).toBeNull();
+        expect(node('cell-completed_at-7')).toBeNull();
+        expect(node('pipelines-initiative-deps-7')).toBeNull();
+        // Date, time to the second and the zone, in the reader's timezone.
+        expect(node('cell-started_at-7').textContent).toMatch(/2026.*\d{1,2}:\d{2}:\d{2}/);
+        expect(node('cell-started_at-8').textContent).toBe('—');
+        expect(node('pipelines-goal-7')).not.toBeNull();
+        expect(node('pipelines-machine-7')).not.toBeNull();
+    });
+
+    it('renames and re-words the goal in place with one-field PUTs', async () => {
+        mount();
+        switchToTable();
+        const title = node('pipelines-title-7');
+        act(() => { title.focus(); });
+        type(title, 'Plan Seven Renamed');
+        await act(async () => { title.blur(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines', method: 'PUT',
+            body: [{ id: 7, title: 'Plan Seven Renamed' }],
+        }]);
+        restCalls.length = 0;
+        const goal = node('pipelines-goal-7');
+        act(() => { goal.focus(); });
+        type(goal, 'A new goal');
+        await act(async () => { goal.blur(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines', method: 'PUT',
+            body: [{ id: 7, description: 'A new goal' }],
+        }]);
+    });
+
+    it('shows a locked plan\'s title and goal read-only', () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-title-8').disabled).toBe(true);
+        expect(node('pipelines-goal-8').disabled).toBe(true);
+        expect(node('pipelines-title-7').disabled).toBe(false);
+    });
+
+    it('sets the machine in place with a one-field PUT, and refuses it on a locked plan', async () => {
+        mount();
+        switchToTable();
+        click(node('pipelines-machine-7'));
+        await flush();
+        click(node('pipelines-machine-option-7-any'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, machine_fk: 'NULL' }],
+        }]);
+        restCalls.length = 0;
+        click(node('pipelines-machine-8'));
+        await flush();
+        expect(node('pipelines-machine-option-8-any')).toBeNull();
+        expect(restCalls).toEqual([]);
     });
 });
 
