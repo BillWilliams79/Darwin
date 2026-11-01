@@ -5,7 +5,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { fetchExportData, downloadJson } from '../services/exportService';
 import ExportDialog from './ExportDialog';
 import { DEV_APPS, DEV_APPS_SCOPE, DEV_APP_LABELS, setDevAppsOptOut } from './navConfig';
-import { APP_SCOPE, PROXY_AUTH } from '../config/product';
+import { APP_SCOPE, PRODUCT_NAME, PROXY_AUTH } from '../config/product';
 import { ProxyNotIdentified } from '../Components/AuthenticatedRoute/AuthenticatedRoute';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
@@ -163,7 +163,8 @@ const ProfileContent = ({ onClose }) => {
         try {
             const data = await fetchExportData(darwinUri, profile.userName, idToken, profile, selectedApps);
             const date = new Date().toISOString().slice(0, 10);
-            downloadJson(data, `darwin-export-${date}.json`);
+            // The product's own name (req #4077): darwin-export-… on darwin.one.
+            downloadJson(data, `${PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export-${date}.json`);
         } catch (err) {
             showError(err, 'Export failed. Please try again.');
         } finally {
