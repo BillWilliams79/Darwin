@@ -1,52 +1,33 @@
-// previewColor.js — what colours the beads of a pipeline card's preview (req #4063).
+// previewColor.js — what colours the beads of a pipeline card's preview (req #4063,
+// narrowed by req #4184).
 //
-// User directive: *"Set of buttons … that change the color of the things in the
-// preview. Currently it is showing the locking/barrier/priority data. I'd like to
-// have the same ones from the visualizer plus the default. The default is the %
-// complete: 0 dark red, 1 to 25, 26 to 50, 51 to 75, 76 to 99, 100 dark green."*
+// Req #4063 gave the preview six colourings (Progress, the plan visualizer's five
+// scales, and the old Flags view). Req #4184 (user): *"Leave the progress button so
+// we can show the help for it. If you disable progress you would get an all green
+// circle (same as all requirements completed) for every bubble in the preview — so
+// a clean look or progress only — and remove the rest."*
 //
-// SIX MODES. `percent` (the default) and `flags` (what the preview drew before
-// this requirement, kept as a button rather than deleted) are the preview's own.
-// The other five ARE the plan visualizer's colour scales — `REQ_COLOR_SCALES` —
-// and are not re-stated here: this module asks the registry for each
-// requirement's colour, so a scale's hues, order and unknown swatch cannot drift
-// from the plan page.
-//
-// A BEAD IS AN EPIC, and a scale colours REQUIREMENTS. An epic holds several, so a
-// scale-coloured bead is drawn as a PIE of its gating requirements' colours
-// (`beadSlices`) rather than reduced to one — a "dominant colour" would paint an
-// epic with nine met requirements and one running as plain met. PURE: rows and
-// views in, slices out; the component draws them.
-
-import { REQ_COLOR_SCALES, buildReqColorViews } from '../SwarmView/pipelines/pipelinePlanLayout';
+// TWO MODES now. `percent` (the default) is % complete: 0 dark red … 100 dark green.
+// `clean` is what the Progress button's OFF state draws — every bead the 100% green,
+// a quiet preview that says nothing about progress. The five scales, the Flags view,
+// the pie-slice drawing and their key are gone.
 
 export const PERCENT_MODE = 'percent';
-export const FLAGS_MODE = 'flags';
+export const CLEAN_MODE = 'clean';
 export const DEFAULT_PREVIEW_COLOR = PERCENT_MODE;
 
 export const PREVIEW_COLOR_STORAGE_KEY = 'darwin-swarm-pipelines-preview-color';
 
-/** The buttons, in order: the default, the visualizer's five, then the old flags view. */
-export const PREVIEW_COLOR_MODES = [
-    {
-        key: PERCENT_MODE, label: 'Progress', keyTitle: 'Epic = % complete',
-        tip: 'Colour each epic by how much of its work is closed — dark red at 0%, dark green at 100%',
-    },
-    ...REQ_COLOR_SCALES.map((s) => ({
-        key: s.key, label: s.chipLabel,
-        keyTitle: `Epic = ${s.chipLabel.toLowerCase()} of its requirements`,
-        tip: `${s.chipTip.replace(/ — click again for none$/, '')} (an epic is drawn as a pie of its requirements)`,
-        scale: true,
-    })),
-    {
-        key: FLAGS_MODE, label: 'Flags', keyTitle: 'Epic ring = flags',
-        tip: 'Colour each epic by its barrier, lock and run flags (the preview\'s original colouring)',
-    },
-];
+/** The one button: Progress. Its help explains the band colours. */
+export const PROGRESS_BUTTON = {
+    key: PERCENT_MODE, label: 'Progress', keyTitle: 'Epic = % complete',
+    tip: 'Colour each epic by how much of its work is closed — dark red at 0%, dark green at 100%. Click to turn off: every epic is drawn dark green.',
+};
 
-// `Object.hasOwn`-style membership over an array: the value was read from web
-// storage, where 'constructor' is a reachable string.
-export const isPreviewColor = (v) => PREVIEW_COLOR_MODES.some((m) => m.key === v);
+// Membership over the two modes: the value was read from web storage, where
+// 'constructor' is a reachable string. A stored value from the retired modes
+// (a scale key, 'flags') is simply not a mode and falls to the default.
+export const isPreviewColor = (v) => v === PERCENT_MODE || v === CLEAN_MODE;
 export const normalizePreviewColor = (v) => (isPreviewColor(v) ? v : DEFAULT_PREVIEW_COLOR);
 
 // ── PROGRESS ────────────────────────────────────────────────────────────────
@@ -82,55 +63,13 @@ export function percentColor(pct) {
     return (PERCENT_BANDS.find((b) => b.test(pct)) || PERCENT_BANDS[0]).color;
 }
 
-// ── PIES ────────────────────────────────────────────────────────────────────
-/**
- * The pie of a bead: `[{color, frac}]`, fractions summing to 1, slices in the
- * scale's own legend order so two beads with the same mix draw alike. An epic
- * holding no gating requirement has no pie: it returns `[]`, and the caller draws
- * the neutral fill.
- *
- * @param {Object} row    an adapted plan row (`reqIds`, `trackingReqIds`)
- * @param {{colorOf: function(number): string, legend: Object[]}} view  one
- *        scale's view from `buildReqColorViews`
- */
-export function beadSlices(row, view) {
-    const tracking = new Set(row.trackingReqIds || []);
-    const gating = (row.reqIds || []).filter((id) => !tracking.has(id));
-    if (!gating.length || !view) return [];
-    const counts = new Map();
-    for (const id of gating) {
-        const c = view.colorOf(id);
-        counts.set(c, (counts.get(c) || 0) + 1);
-    }
-    const rank = (c) => {
-        const i = view.legend.findIndex((e) => e.color === c);
-        return i < 0 ? view.legend.length : i;
-    };
-    return [...counts.entries()]
-        .sort((a, b) => rank(a[0]) - rank(b[0]))
-        .map(([color, n]) => ({ color, frac: n / gating.length }));
-}
+/** The clean look: every bead wears the 100% colour. */
+export const CLEAN_COLOR = PERCENT_BANDS[PERCENT_BANDS.length - 1].color;
 
-/**
- * The key for a mode: `[{key, color, label}]`. Scale modes list every value the
- * scale can paint — built from the registry over NO requirements, so no
- * "unknown" swatch is invented before a drawn bead wears one.
- */
-export function previewLegend(mode, machines = [], { sessionsKnown = true } = {}) {
-    const none = { key: 'none', color: PERCENT_NONE_COLOR, label: 'no work' };
-    if (mode === PERCENT_MODE) {
-        return [...PERCENT_BANDS.map((b) => ({ key: b.key, color: b.color, label: b.label })), none];
-    }
-    const scale = REQ_COLOR_SCALES.find((s) => s.key === mode);
-    if (!scale) return [];
-    const legend = buildReqColorViews({ requirements: [], machines })[mode]?.legend || [];
-    // Session reads still settling: every bead wears the scale's unknown colour,
-    // so the key names it (the plan page lists it for the same reason).
-    if (mode === 'session' && !sessionsKnown && !legend.some((e) => e.key === 'unknown')) {
-        const unknown = buildReqColorViews({ requirements: [{ id: 0 }], machines,
-            presentReqIds: new Set([0]) })[mode].legend.find((e) => e.key === 'unknown');
-        if (unknown) legend.push(unknown);
-    }
-    // An epic holding no gating work is neutral in every mode.
-    return [...legend, none];
+/** The key for the Progress help: the six bands and the no-work swatch. */
+export function previewLegend() {
+    return [
+        ...PERCENT_BANDS.map((b) => ({ key: b.key, color: b.color, label: b.label })),
+        { key: 'none', color: PERCENT_NONE_COLOR, label: 'no work' },
+    ];
 }
