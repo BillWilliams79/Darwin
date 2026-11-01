@@ -60,8 +60,7 @@ export default function PipelineStatusChip({ status, onChange, testId, disabled 
         e.stopPropagation();
         if (!off) setAnchor(e.currentTarget);
     };
-    const pick = async (e, next) => {
-        e.stopPropagation();
+    const pick = async (next) => {
         setAnchor(null);
         if (next === status) return;
         setSaving(true);
@@ -106,34 +105,60 @@ export default function PipelineStatusChip({ status, onChange, testId, disabled 
                     }}
                 />
             </Tooltip>
-            <Menu
-                anchorEl={anchor}
-                open={!!anchor}
-                onClose={(e) => { e?.stopPropagation?.(); setAnchor(null); }}
-                onClick={stop}
-                // A portalled menu's events still bubble through the REACT tree:
-                // a DataGrid cell would take the arrow keys for its own
-                // navigation. (Modal's own Escape handling runs regardless.)
-                onKeyDown={stop}
-                disablePortal={disablePortal}
-                slotProps={{ list: { dense: true, 'aria-label': 'Pipeline status' } }}
-                data-testid={`${testId}-menu`}
-            >
-                {PIPELINE_STATUS_VALUES.map((value) => {
-                    const selected = value === status;
-                    const c = pipelineStatusChipProps(value).sx;
-                    return (
-                        <MenuItem key={value} selected={selected}
-                                  onClick={(e) => pick(e, value)}
-                                  data-testid={`${testId}-option-${value}`}>
-                            <Box component="span" sx={{ width: 12, height: 12, borderRadius: '50%',
-                                                        bgcolor: c.bgcolor, mr: 1.25, flexShrink: 0 }} />
-                            <ListItemText>{pipelineStatusLabel(value)}</ListItemText>
-                            {selected && <Check fontSize="small" sx={{ ml: 1.5 }} />}
-                        </MenuItem>
-                    );
-                })}
-            </Menu>
+            <PipelineStatusMenu anchorEl={anchor} status={status}
+                                onPick={pick} onClose={() => setAnchor(null)}
+                                disablePortal={disablePortal} testId={testId} />
         </>
+    );
+}
+
+/**
+ * THE MENU of the seven values — the chip's above, and the Cards view's status
+ * legend (req #4153), which keeps its own shape and opens this same list.
+ * Clicks and keys stop propagating here too (see the file header).
+ *
+ * @param {Object} props
+ * @param {Element|null} props.anchorEl         open while set
+ * @param {string} props.status                 the stored value, marked with a check
+ * @param {(next: string) => void} props.onPick a value was picked (the current one included)
+ * @param {() => void} props.onClose            dismissed without a pick
+ * @param {string} props.testId                 the menu is `<testId>-menu`, options `<testId>-option-<value>`
+ * @param {boolean} [props.disablePortal]
+ * @param {Object} [props.anchorOrigin]
+ * @param {Object} [props.transformOrigin]
+ */
+export function PipelineStatusMenu({ anchorEl, status, onPick, onClose, testId,
+    disablePortal = false, anchorOrigin, transformOrigin }) {
+    return (
+        <Menu
+            anchorEl={anchorEl}
+            open={!!anchorEl}
+            onClose={(e) => { e?.stopPropagation?.(); onClose(); }}
+            onClick={stop}
+            // A portalled menu's events still bubble through the REACT tree:
+            // a DataGrid cell would take the arrow keys for its own
+            // navigation. (Modal's own Escape handling runs regardless.)
+            onKeyDown={stop}
+            disablePortal={disablePortal}
+            anchorOrigin={anchorOrigin}
+            transformOrigin={transformOrigin}
+            slotProps={{ list: { dense: true, 'aria-label': 'Pipeline status' } }}
+            data-testid={`${testId}-menu`}
+        >
+            {PIPELINE_STATUS_VALUES.map((value) => {
+                const selected = value === status;
+                const c = pipelineStatusChipProps(value).sx;
+                return (
+                    <MenuItem key={value} selected={selected}
+                              onClick={(e) => { e.stopPropagation(); onPick(value); }}
+                              data-testid={`${testId}-option-${value}`}>
+                        <Box component="span" sx={{ width: 12, height: 12, borderRadius: '50%',
+                                                    bgcolor: c.bgcolor, mr: 1.25, flexShrink: 0 }} />
+                        <ListItemText>{pipelineStatusLabel(value)}</ListItemText>
+                        {selected && <Check fontSize="small" sx={{ ml: 1.5 }} />}
+                    </MenuItem>
+                );
+            })}
+        </Menu>
     );
 }

@@ -439,6 +439,9 @@ export default function PipelinePlanVisualizer({
     // centres and zooms the camera on it, the same handshake `focusInitiativeId`
     // already gets one level up.
     focusEpicId,
+    // req #4154 — told the id of an epic the plan editor just deleted, so the page
+    // can drop it as the focus instead of reporting it "not on this plan".
+    onEpicDeleted,
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
@@ -3224,7 +3227,13 @@ export default function PipelinePlanVisualizer({
         const row = rowById.get(id);
         if (!row) return;
         usePlanEditorStore.getState().openEditor({
-            kind: 'epic', onSaved: refreshAfterEpicEditor, initiativeOptions: insertInitiativeOptions,
+            kind: 'epic', initiativeOptions: insertInitiativeOptions,
+            // req #4154 — a deleted epic that was the page's focus is dropped first, so the
+            // re-read below never renders "That epic isn't on this plan." for the user's own delete.
+            onSaved: (result) => {
+                if (result?.deleted) onEpicDeleted?.(row.id);
+                return refreshAfterEpicEditor(result);
+            },
             target: {
                 id: row.id, initiative_fk: row.initiativeId, title: row.title, notes: row.notes,
                 // A run-mode write still in flight is the mode the epic
@@ -3243,7 +3252,7 @@ export default function PipelinePlanVisualizer({
                     .map((r) => ({ id: r.id, locked: r.effectiveLocked })),
             },
         });
-    }, [model?.initiatives, rows, rowById, runPending, refreshPlan, refreshAfterEpicEditor,
+    }, [model?.initiatives, rows, rowById, runPending, refreshPlan, refreshAfterEpicEditor, onEpicDeleted,
         insertInitiativeOptions, pipeline, plan.initiativeDeps, plan.initiativeDepRows]);
 
     // req #4133 — a requirement's click opens the Requirement Editor itself (the

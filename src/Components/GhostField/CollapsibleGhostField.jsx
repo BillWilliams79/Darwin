@@ -34,19 +34,22 @@ const CollapsibleGhostField = ({
     sx = {},
     ...fieldProps
 }) => {
-    const { expanded, toggle, attachInput, setFocused, collapsedSx } =
-        useCollapsibleField({ defaultExpanded, inputRef });
+    const { expanded, showToggle, toggle, attachInput, setFocused, collapsedSx } =
+        useCollapsibleField({ defaultExpanded, inputRef, deps: [fieldProps.value, collapsedRows] });
 
     const testId = fieldProps.testId;
 
     return (
         <Box>
-            {/* Always present, above the field (see CollapseToggle). */}
-            <CollapseToggle
-                expanded={expanded}
-                onToggle={toggle}
-                testId={testId ? `${testId}-toggle` : undefined}
-            />
+            {/* Above the field (see CollapseToggle) — only when the collapsed
+                field hides text (req #4144). */}
+            {showToggle && (
+                <CollapseToggle
+                    expanded={expanded}
+                    onToggle={toggle}
+                    testId={testId ? `${testId}-toggle` : undefined}
+                />
+            )}
             <GhostTextField
                 {...fieldProps}
                 maxRows={expanded ? maxRows : collapsedRows}

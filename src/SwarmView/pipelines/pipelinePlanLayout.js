@@ -27,8 +27,9 @@
 //   - Chain-aware swim lanes inside each band: an epic takes its first same-initiative
 //     dependency's lane when free, and that lane is RESERVED across the columns
 //     the chain spans, so no unrelated bead sits on an arc's path. When several
-//     dependents want one lane, the earliest-created (lowest epic id) is its
-//     heir and a later branch opens a row beside it (req #3669).
+//     dependents want one lane, the one leading the LONGEST same-band chain is
+//     its heir (req #4145), the earliest-created thread among equals (req
+//     #3669), and every other branch opens a row beside it.
 //   - Requirement ids BELOW the bead: 'horizontal' lays them on one line and the
 //     column grows to fit; 'vertical' stacks one per line and the lane pitch
 //     grows instead. Epic label ABOVE the bead: the epic id, or the epic title
@@ -4197,12 +4198,19 @@ export function computePlanLayout(rows, opts = {}) {
         const occupant = (d, lane) =>
             (used.has(d) ? used.get(d).get(lane) : undefined);
         const free = (d, lane) => occupant(d, lane) === undefined;
+        // A corridor held for source `src` admits the arc a → r when `src` IS
+        // `a` (req #3669's fork) or sits IN THE CHAIN between them — the rule an
+        // in-chain BEAD has always had (the 12→14 arc over 13), applied to the
+        // corridor 13 holds (req #4145 review): the run reads as one line
+        // through its own members. `corridorClear` reads it identically.
+        const reservationAdmits = (srcId, aId, rId) => srcId === aId
+            || (reach(srcId).has(aId) && reach(rId).has(srcId));
         const corridorOk = (a, r, lane) => {
             for (let dd = colOf.get(a.id) + 1; dd < colOf.get(r.id); dd++) {
                 const o = occupant(dd, lane);
                 if (o === undefined) continue;
                 if (isReserved(o)) {
-                    if (reservedBy(o) === a.id) continue;
+                    if (reservationAdmits(reservedBy(o), a.id, r.id)) continue;
                     return false;
                 }
                 if (!(reach(o).has(a.id) && reach(r.id).has(o))) return false;
@@ -4219,7 +4227,7 @@ export function computePlanLayout(rows, opts = {}) {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
-        // ── A LANE HAS ONE HEIR, AND A NEW BRANCH IS NEVER IT (req #3669) ───
+        // ── A LANE HAS ONE HEIR (req #3669; longest thread first, req #4145) ─
         // When two dependents of one epic both want that epic's lane, the one
         // that PLACES first used to win — and placement order is column, then
         // display order, neither of which says which thread was there first.
@@ -4240,10 +4248,12 @@ export function computePlanLayout(rows, opts = {}) {
         // in front of 323). The trunk still reaches its old tail; a new branch
         // reaches only new epics. Ties (a branch that merges back into the
         // trunk) go to the older direct dependent. An epic id is allocated once
-        // and never changes, so adding a branch can never displace the chain
-        // it branches off — whatever the time axis does to the columns or the
-        // derivation does to display order. Every other dependent is a BRANCH
-        // and opens (or re-uses) a row beside its parent.
+        // and never changes, so among EQUALLY LONG threads adding a branch can
+        // never displace the chain it branches off — whatever the time axis
+        // does to the columns or the derivation does to display order. (Since
+        // req #4145 thread LENGTH decides first — below — so a branch that
+        // outgrows its trunk does take the row.) Every other dependent is a
+        // BRANCH and opens (or re-uses) a row beside its parent.
         //
         // Ids are integers from the derivation; the numeric collation keeps a
         // string-id fixture ordering '9' before '10' rather than as text.
@@ -4262,15 +4272,98 @@ export function computePlanLayout(rows, opts = {}) {
             oldestMemo.set(id, best);
             return best;
         };
+        // ── THE LONGEST THREAD IS THE HEIR, CREATION ORDER BREAKS TIES (req #4145)
+        // Creation order alone handed a lane to whichever thread was OLDER,
+        // however short. MEASURED on live plan 20's "File sharing" initiative:
+        // 442 → 438 → 459 → 462 → 460 → 461 is one five-epic run off 438, and
+        // 458 "Microchip Service Access" is a one-epic branch off the same 438.
+        // 458 is the older id, so it inherited 438's row and the whole run
+        // dropped to the bottom of the band — under every other branch. The
+        // user's rule: *"prefer longer directly related epics to stay in the
+        // same lane and push the rest below"*. So the heir is the dependent
+        // that leads the LONGEST same-band chain (epics counted, itself
+        // included); only between equally long threads does req #3669's
+        // creation order decide, which keeps every one of its shapes — the
+        // user's 320 → 321 repro is two threads of two — exactly as it was.
+        // The trade, stated: a branch that grows LONGER than the chain it came
+        // off now takes the row, because it has become the longer thread.
+        const chainMemo = new Map();
+        const chainLen = (id) => {
+            if (chainMemo.has(id)) return chainMemo.get(id);
+            chainMemo.set(id, 1); // cycle guard
+            let best = 0;
+            for (const t of dependentsInBand.get(id) || []) best = Math.max(best, chainLen(t));
+            chainMemo.set(id, 1 + best);
+            return 1 + best;
+        };
+        // Negative when `p` is the better heir: the longer thread, then the
+        // older thread, then the older epic.
+        const heirCmp = (p, q) => {
+            const lp = chainLen(p);
+            const lq = chainLen(q);
+            if (lp !== lq) return lq - lp;
+            const op = oldestIn(p);
+            const oq = oldestIn(q);
+            if (idBefore(op, oq)) return -1;
+            if (idBefore(oq, op)) return 1;
+            if (idBefore(p, q)) return -1;
+            return idBefore(q, p) ? 1 : 0;
+        };
+        // ── AN EPIC IS HEIR TO ONE LANE AT MOST (req #4145) ─────────────────
+        // A card sits on one row, so a MERGE epic that is the best heir of two
+        // dependencies can continue only one of them, and the other's row would
+        // be held for a card that never takes it. Creation order rarely made one
+        // epic the heir twice; thread LENGTH does it whenever the longest thread
+        // runs through a merge. So the merge continues the dependency at the end
+        // of the LONGEST run into it (the same "longer related epics stay in the
+        // same lane" rule, read upstream — initiative #6's 47 → 48 → 53 → 54 main
+        // chain keeps its row against three one-epic roots), the farthest one
+        // (lowest column, the long arc) among equals; every other dependency it
+        // was heir to takes its own next best dependent. Each pass moves one
+        // dependency one candidate down its ranked list, so the loop ends; one
+        // with no candidate left has no heir. The bends this leaves are held
+        // clear by `lateCorridorOk` and the late-corridor reservation below.
+        // The run of same-band epics ENDING at an epic, itself included.
+        const upMemo = new Map();
+        const upLen = (id) => {
+            if (upMemo.has(id)) return upMemo.get(id);
+            upMemo.set(id, 1); // cycle guard
+            let best = 0;
+            for (const a of sameInitiativeDepsOf(byId.get(id))) best = Math.max(best, upLen(a.id));
+            upMemo.set(id, 1 + best);
+            return 1 + best;
+        };
+        const rankedHeirs = new Map();
+        for (const [aid, deps] of dependentsInBand) rankedHeirs.set(aid, [...deps].sort(heirCmp));
+        const heirPick = new Map([...rankedHeirs.keys()].map((aid) => [aid, 0]));
+        for (let conflict = true; conflict;) {
+            conflict = false;
+            const claims = new Map(); // heir id -> dependency ids naming it
+            for (const [aid, ranked] of rankedHeirs) {
+                const h = ranked[heirPick.get(aid)];
+                if (h === undefined) continue;
+                if (!claims.has(h)) claims.set(h, []);
+                claims.get(h).push(aid);
+            }
+            for (const aids of claims.values()) {
+                if (aids.length < 2) continue;
+                conflict = true;
+                const keep = aids.reduce((p, q) => {
+                    const up = upLen(p);
+                    const uq = upLen(q);
+                    if (up !== uq) return uq > up ? q : p;
+                    const cp = colOf.get(p);
+                    const cq = colOf.get(q);
+                    if (cp !== cq) return cq < cp ? q : p;
+                    return idBefore(q, p) ? q : p;
+                });
+                for (const aid of aids) if (aid !== keep) heirPick.set(aid, heirPick.get(aid) + 1);
+            }
+        }
         const heirOf = new Map(); // dependency id -> heir epic id
-        for (const [aid, deps] of dependentsInBand) {
-            heirOf.set(aid, deps.reduce((p, q) => {
-                const op = oldestIn(p);
-                const oq = oldestIn(q);
-                if (idBefore(oq, op)) return q;
-                if (idBefore(op, oq)) return p;
-                return idBefore(q, p) ? q : p;
-            }));
+        for (const [aid, ranked] of rankedHeirs) {
+            const h = ranked[heirPick.get(aid)];
+            if (h !== undefined) heirOf.set(aid, h);
         }
         // An epic tries the lanes it is HEIR to first, so the row held for it
         // is the row it takes rather than one of its other dependencies'.
@@ -4294,6 +4387,29 @@ export function computePlanLayout(rows, opts = {}) {
         // has no subject — and the one invariant it shared with the rest of this
         // predicate, *no two beads on one `(band, column, lane)` cell*, is check
         // (1) and is untouched.
+        // ── A LATE BEND MUST CLEAR THE CORRIDOR AN HEIR WILL STILL RESERVE (req #4145)
+        // `corridorOk` sees only reservations already made, and a reservation is
+        // made when the HEIR places — later, if its column is deeper. A
+        // cross-lane arc accepted because its source lane was clear at placement
+        // time then found that lane reserved for another source when the routes
+        // were drawn, fell back to the early bend, and ran over a whole chain on
+        // its destination row (6 crossings in one plan of the timed fuzz corpus
+        // once thread length picked the heirs). So the late corridor also counts
+        // the span every not-yet-placed heir on that lane will hold: from its
+        // dependency's bead to the heir, unless that dependency IS the arc's own
+        // source (the shared trunk req #3669 allows).
+        const lateCorridorOk = (a, r, lane) => {
+            if (!corridorOk(a, r, lane)) return false;
+            const lo = colOf.get(a.id) + 1;
+            const hi = colOf.get(r.id) - 1;
+            for (const bead of laneBeads.get(lane) || []) {
+                if (reservationAdmits(bead.id, a.id, r.id)) continue;
+                const h = heirOf.get(bead.id);
+                if (h === undefined || h === r.id || laneById.has(h)) continue;
+                if (bead.d + 1 <= hi && lo <= colOf.get(h) - 1) return false;
+            }
+            return true;
+        };
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
             for (const a of sameInitiativeDepsOf(r)) {
@@ -4309,7 +4425,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // a two-dep epic parked where one dep's arc had no clear
                 // corridor on either lane and overdrew two beads.)
                 if (al !== undefined && al !== lane
-                    && !corridorOk(a, r, al) && !corridorOk(a, r, lane)) {
+                    && !lateCorridorOk(a, r, al) && !corridorOk(a, r, lane)) {
                     return false;
                 }
             }
@@ -4592,6 +4708,36 @@ export function computePlanLayout(rows, opts = {}) {
                     }
                 }
             }
+            // ── AND THE CORRIDOR OF EVERY LATE BEND (req #4145) ─────────────
+            // A cross-lane arc whose SOURCE-lane corridor is clear now will be
+            // drawn late along it — but nothing held that corridor, so a LATER
+            // epic could inherit the source lane straight through it, and the
+            // arc, finding a foreign reservation when the routes were drawn,
+            // fell back to the early bend over whatever sat on its destination
+            // row. Holding it for its source closes that, the same way the
+            // straight arc's corridor is held above; arcs out of the same source
+            // still share it (req #3669's fork). NEAREST DEPENDENCY FIRST: when
+            // a merge has two dependencies on one lane (1 → 2, both gating 10),
+            // the corridor goes to the nearer one, and the farther arc runs
+            // along it through its own chain (`reservationAdmits`) — the other
+            // way round, 1's hold blocked 2's own bend and its trunk's next epic
+            // (req #4145 review).
+            const nearestFirst = [...sameInitiativeDepsOf(r)]
+                .sort((p, q) => colOf.get(q.id) - colOf.get(p.id));
+            for (const a of nearestFirst) {
+                const al = laneById.get(a.id);
+                if (al === undefined || al === lane || !lateCorridorOk(a, r, al)) continue;
+                // Each in-chain bead the run passes takes the hold over from
+                // there on, so the cells after it are ITS corridor (its own heir
+                // may still inherit the lane straight) while a → r is admitted
+                // through it by `reservationAdmits` (req #4145 delta review).
+                let holder = a.id;
+                for (let dd = colOf.get(a.id) + 1; dd < d; dd++) {
+                    const o = occupant(dd, al);
+                    if (o !== undefined && !isReserved(o)) holder = o;
+                    take(dd, al, reservedFor(holder));
+                }
+            }
         }
         // Ordinal renumber: fractional inserted lanes become whole rows here.
         // Everything downstream — bandUsed (arc-corridor checks), laneReqs,
@@ -4833,7 +4979,9 @@ export function computePlanLayout(rows, opts = {}) {
             const o = used.has(dd) ? used.get(dd).get(lane) : undefined;
             if (o === undefined) continue;
             if (isReserved(o)) {
-                if (reservedBy(o) === aId) continue;
+                // The placement rule, read identically (`reservationAdmits`).
+                const src = reservedBy(o);
+                if (src === aId || (reach(src).has(aId) && reach(rId).has(src))) continue;
                 return false;
             }
             if (!(reach(o).has(aId) && reach(rId).has(o))) return false;

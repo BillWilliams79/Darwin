@@ -101,7 +101,7 @@ const epic = (id, title) => ({
     id, initiative_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
-function render(levelPref) {
+function render(levelPref, extraProps = {}) {
     // A chain long enough that the whole plan does not already fit the panel at
     // the scale a single epic is framed at — so framing one is a real move.
     const ids = [10, 11, 12, 13, 14, 15, 16, 17];
@@ -120,7 +120,7 @@ function render(levelPref) {
             <QueryClientProvider client={new QueryClient()}>
                 <MemoryRouter initialEntries={['/swarm/pipeline/2?mode=plan']}>
                     <PipelinePlanVisualizer plan={plan} model={model} levelPref={levelPref}
-                                            pipeline={payload.pipeline} timezone="UTC" />
+                                            pipeline={payload.pipeline} timezone="UTC" {...extraProps} />
 <PlanElementEditor />
                     <LocationProbe />
                 </MemoryRouter>
@@ -211,6 +211,20 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(deleteEpicFreeingDependents).toHaveBeenCalledWith(undefined, undefined, id,
             id < 17 ? [id + 1] : []);
+    });
+
+    // req #4154 — the page is told which epic was deleted, so a `?epic=` landing on
+    // it is dropped rather than answered with "That epic isn't on this plan."
+    it('Delete in the editor reports the deleted epic id to the page', async () => {
+        const onEpicDeleted = vi.fn();
+        render('3', { onEpicDeleted });
+        await settle();
+        await clickLast('rect');
+        const id = Number(document.querySelector('[data-testid="plan-editor-identity"]').textContent.match(/Epic (\d+)/)[1]);
+        act(() => { document.querySelector('[data-testid="plan-editor-delete"]').click(); });
+        act(() => { document.querySelector('[data-testid="plan-editor-delete-confirm"]').click(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(onEpicDeleted).toHaveBeenCalledWith(id);
     });
 
     // The lock the gateway checks on a freed edge is the DEPENDENT's whole

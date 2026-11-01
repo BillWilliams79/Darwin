@@ -456,6 +456,21 @@ export default function PipelineDetail() {
         setLevelPref(v);
         replaceLinkParams([FOCUS_LEVEL_PARAM]);
     }, [setLevelPref, replaceLinkParams]);
+    // req #4154 — deleting the epic the page is focused on (a `?epic=` landing) must
+    // not leave it as the focus: the plan no longer carries it, so the canvas would
+    // answer the user's own delete with "That epic isn't on this plan." Drop the
+    // focus held in state AND the link's `?epic=`, so a reload does not resurrect
+    // it. Any other epic's delete leaves the focus alone.
+    // The editor captures this callback when it OPENS and calls it later, so it reads the
+    // LATEST focus and URL through a ref — a stale `location.search` here would write back a
+    // `?level=`/`?color=` the reader dropped while the editor was open.
+    const epicDeletedRef = useRef(null);
+    epicDeletedRef.current = (epicId) => {
+        if (epicId == null || focus.epicId !== epicId) return;
+        setFocus((f) => ({ ...f, epicId: null }));
+        replaceLinkParams([FOCUS_EPIC_PARAM]);
+    };
+    const handleEpicDeleted = useCallback((epicId) => epicDeletedRef.current?.(epicId), []);
     // A manual COLOUR pick clears the link's `?color=` for the level pick's reason.
     const handleColorKeyChange = useCallback((v) => {
         setColorKeyPref(v);
@@ -1250,6 +1265,7 @@ export default function PipelineDetail() {
             {(panelNeedsPlan ? canRenderPlan : !!pipeline) && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusEpicId={focusEpicId}
+                             onEpicDeleted={handleEpicDeleted}
                              focusInitiativeId={focusInitiativeId}
                              costError={!!costError}
                              showReqCounts={showReqCounts}

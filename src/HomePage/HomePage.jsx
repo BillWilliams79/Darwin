@@ -1,5 +1,7 @@
 import AuthContext from '../Context/AuthContext';
-import { NAV_GROUPS, NAV_LINKS, DEV_HOME_ROUTE, isGroupVisible } from '../NavBar/navConfig';
+import { NAV_GROUPS, NAV_LINKS, DEV_HOME_ROUTE, PRODUCT_HOME_ROUTE, isGroupVisible } from '../NavBar/navConfig';
+import { PROXY_AUTH } from '../config/product';
+import { ProxyNotIdentified } from '../Components/AuthenticatedRoute/AuthenticatedRoute';
 
 import React, { useContext, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
@@ -8,7 +10,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 const HomePage = () => {
 
-    const { idToken, authLoading, profile } = useContext(AuthContext);
+    const { idToken, authLoading, profile, authError } = useContext(AuthContext);
 
     const homePath = useMemo(() => {
         if (import.meta.env.DEV) {
@@ -20,6 +22,8 @@ const HomePage = () => {
             // other worktree's dev server, and production, are unaffected.
             return DEV_HOME_ROUTE;
         }
+        // req #4076 — a scoped product (internal: Topology) has a fixed home.
+        if (PRODUCT_HOME_ROUTE) return PRODUCT_HOME_ROUTE;
         // Find first link of first enabled group — the SAME predicate
         // NavBarSidebar filters with (req #2611, #3790), so a default-off app
         // (Swarm Validate) is never treated as enabled while the profile row
@@ -39,6 +43,9 @@ const HomePage = () => {
     if (idToken) {
         return <Navigate to={homePath} replace />;
     }
+
+    // Proxy auth has no sign-in page: no user means the server named nobody.
+    if (PROXY_AUTH) return <ProxyNotIdentified status={authError} />;
 
     return <Navigate to="/profile" replace />;
 }

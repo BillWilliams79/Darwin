@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { useLinkedViewPreference } from '../useLinkedViewPreference';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,20 +17,28 @@ const VIEWS = ['table', 'stats'];
 
 function mountHook(url) {
     const renders = [];
+    let go;
     function Probe() {
         renders.push(useLinkedViewPreference(KEY, 'table', VIEWS));
+        go = useNavigate();
         return null;
     }
-    const router = createMemoryRouter(
-        [{ path: '/swarm/swarm-starts', element: React.createElement(Probe) }],
-        { initialEntries: [url] });
+    // A plain <MemoryRouter>, not createMemoryRouter/RouterProvider: a DATA router builds a
+    // fetch Request (with an AbortSignal) for every navigation, and Node 26's undici rejects
+    // the signal jsdom provides ("Expected signal to be an instance of AbortSignal"). The hook
+    // reads only the location (useSearchParams), so the declarative router exercises the same
+    // in-place navigation without a Request (req #4119).
     const root = createRoot(document.createElement('div'));
-    act(() => { root.render(React.createElement(RouterProvider, { router })); });
+    act(() => {
+        root.render(React.createElement(MemoryRouter, { initialEntries: [url] },
+            React.createElement(Routes, null,
+                React.createElement(Route, { path: '/swarm/swarm-starts', element: React.createElement(Probe) }))));
+    });
     return {
         getView: () => renders[renders.length - 1][0],
         setView: (v) => act(() => { renders[renders.length - 1][1](v); }),
         // In-place navigation: same route, so Probe stays mounted.
-        navigate: (to) => act(() => { router.navigate(to); }),
+        navigate: (to) => act(() => { go(to); }),
         unmount: () => act(() => { root.unmount(); }),
     };
 }

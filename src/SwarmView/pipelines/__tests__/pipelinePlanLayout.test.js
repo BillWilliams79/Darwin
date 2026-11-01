@@ -9440,6 +9440,23 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     // queued dependents tied to it, now STACK in today's columns, and a stack is
     // lanes. Identical under TZ=America/Los_Angeles, UTC and Asia/Kolkata. The no-axis figures cannot move (the rule
     // is time-only) and they did not.
+    //
+    // req #4145 (the heir is the LONGEST thread, creation order among equals; a
+    // merge epic is heir to one lane, the end of its longest run in; a late
+    // bend's corridor is held for its source — nearest dependency first — and
+    // checked against the span an unplaced heir will still reserve; a corridor
+    // held by an in-chain source admits the arc through it), before → after:
+    //   total lanes        1883 → 1885 (with axis)   2111 → 2113 (without)
+    //   arc crossings         2 →    0 (with axis)      0 →    0 (without)
+    //   worst single plan     1 →    0 (with axis)      0 →    0 (without)
+    // Crossings reach ZERO on both axes for the first time. The +2/+2 lanes
+    // (0.1%) are the requirement's own ask: a long chain kept whole on its row
+    // pushes the shorter branches below it instead of sharing it. Thread length
+    // alone, with none of the corridor rules, measured 1891 / 2111 lanes and
+    // 6 / 4 crossings (worst 4 / 4) — the corridor rules are what make it a net
+    // win. The same requirement's time rule 7 (ready work sits on today) reads
+    // the server's `gate_open`, which this corpus's rows do not carry, so it is
+    // not exercised here — `pipelinePlanLayout.chainLane.test.js` covers it.
     it('packs no more lanes, and draws no more spaghetti, than the measured ceiling', () => {
         const tally = {
             bands: 0, lanesAxis: 0, lanesPlain: 0,
@@ -9479,14 +9496,14 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
             'no bead sat on any arc run — is the geometry predicate still wired up?')
             .toBeGreaterThan(100);
 
-        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1883);
-        expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2111);
+        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1885);
+        expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2113);
         expect(tally.crossAxis, 'arc runs over an unrelated bead, with a time axis')
-            .toBeLessThanOrEqual(2);
+            .toBeLessThanOrEqual(0);
         expect(tally.crossPlain, 'arc runs over an unrelated bead, no time axis')
             .toBeLessThanOrEqual(0);
         expect(tally.worstAxis, 'worst single plan, with a time axis')
-            .toBeLessThanOrEqual(1);
+            .toBeLessThanOrEqual(0);
         expect(tally.worstPlain, 'worst single plan, no time axis')
             .toBeLessThanOrEqual(0);
     }, 60000);

@@ -1,9 +1,12 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
+import { resolveProductConfig, productDefines } from './src/config/productConfig.js'
+import { productShell } from './devtools/productShell.js'
+import { proxyAuthDevGateway } from './devtools/proxyAuthDevGateway.js'
 
 function devserverMarker() {
   const markerPath = path.resolve(import.meta.dirname, '.devserver')
@@ -213,7 +216,29 @@ function topologyDevAssets(command) {
   }
 }
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
+  // req #4076 — THE product configuration (name, API base, databases, auth
+  // mode, application scope), resolved ONCE from this build's Vite env and
+  // injected as the `__PRODUCT__` define so every gate on it folds at build
+  // time. `vite build` = darwin.one (every default); `vite build --mode
+  // internal` = Topology (Darwin/.env.internal). A dev server previews a
+  // product mode by naming it in its .env.development.local
+  // (`VITE_DEV_PRODUCT_MODE=internal`): that mode's env files are layered over
+  // the dev env, and each of their keys is re-defined on import.meta.env so the
+  // app reads the product's values, not development's.
+  const darwinRoot = import.meta.dirname
+  let viteEnv = loadEnv(mode, darwinRoot, 'VITE_')
+  const devProductEnv = {}
+  if (command === 'serve' && viteEnv.VITE_DEV_PRODUCT_MODE) {
+    const productModeEnv = loadEnv(viteEnv.VITE_DEV_PRODUCT_MODE, darwinRoot, 'VITE_')
+    const baseEnv = loadEnv('__base__', darwinRoot, 'VITE_')
+    for (const [k, v] of Object.entries(productModeEnv)) {
+      if (baseEnv[k] !== v) devProductEnv[k] = v
+    }
+    viteEnv = { ...viteEnv, ...devProductEnv }
+  }
+  const product = resolveProductConfig(viteEnv)
+
   // Read swarm manifest only in dev server mode — skipped during production builds
   let devReqId = ''
   let devReqTitle = ''
@@ -254,9 +279,16 @@ export default defineConfig(({ command }) => {
   } catch {}
 
   return {
-    plugins: [react(), basicSsl(), devserverMarker(), topologyDevAssets(command)],
+    plugins: [react(), basicSsl(), devserverMarker(), topologyDevAssets(command),
+      productShell(product),
+      // Dev only, and only for a proxy-auth product: stands in for the
+      // internal nginx front door so the product runs on a dev server.
+      proxyAuthDevGateway(command, product, viteEnv)],
     define: {
       global: 'globalThis',
+      ...productDefines(product),
+      ...Object.fromEntries(Object.entries(devProductEnv).map(
+        ([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])),
       'import.meta.env.VITE_DEV_REQ_ID': JSON.stringify(devReqId),
       'import.meta.env.VITE_DEV_REQ_TITLE': JSON.stringify(devReqTitle),
       'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(buildCommit),

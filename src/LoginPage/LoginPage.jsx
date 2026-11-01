@@ -12,6 +12,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
 
 import { signIn } from '../services/cognitoAuth';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../config/product';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { AUTH_CONFIG } from '../config/auth';
@@ -115,11 +116,11 @@ function LoginPage() {
                     <Stack direction="row" alignItems="center" spacing={1}>
                         <PedalBikeIcon sx={{ fontSize: 32, color: ACCENT }} />
                         <Typography sx={{ fontSize: 24, fontWeight: 500, color: '#fff', letterSpacing: '-0.01em' }}>
-                            Darwin
+                            {PRODUCT_NAME}
                         </Typography>
                     </Stack>
                     <Typography sx={{ fontSize: '0.62rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: TEXT_FAINT }}>
-                        Task Management
+                        {PRODUCT_TAGLINE}
                     </Typography>
                 </Stack>
 
