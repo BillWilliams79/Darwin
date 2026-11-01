@@ -40,6 +40,8 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { bounded, capList, cleanUrl, debugCaptureState, DEBUG_CAPTURE_CAPS, networkOccurrences, ser } from '../utils/debugCapture';
 import { focusTimeline, storedFocusLosses } from '../utils/focusLossRecorder';
+import { objectLabel } from './filerPointResolvers';
+import { databaseNote, subjectLabel } from './filerSubject';
 
 export const DEBUG_CAPTURE_VERSION = 1;
 export const DEBUG_BLOCK_BEGIN = `--- Debug capture v${DEBUG_CAPTURE_VERSION} (req #3815) ---`;
@@ -524,19 +526,49 @@ function countNote(key, v) {
     }
 }
 
+/** Text the block carries never holds the block's own grammar (a filer over a
+ *  description holding a Debug capture block would nest a fake one). */
+const blockSafe = (s) => oneLine(s).replace(/-{3,}/g, '—').replace(/Debug capture:/gi, 'Debug capture -');
+
 /** What a floating filer pointed at, as the block names it (req #3829): the
  *  centre's element by its testid path (outermost first) or tag, its text, and
- *  how many more the bundle holds — null when it pointed at nothing. */
+ *  how many more the bundle holds — null when it pointed at nothing. An OBJECT
+ *  a canvas resolved (req #4158) is named by kind, id and title, its canvas
+ *  after it — `epic #385 "Login Credentials" (pipeline-plan-visualizer)` —
+ *  with no text: its title is the text. A specific child of a large container
+ *  is named in that container. */
 export function pointedAtLabel(filedFrom) {
     const all = Array.isArray(filedFrom?.pointedAt) ? filedFrom.pointedAt : [];
     const p = all[0];
     if (!p) return null;
-    const path = Array.isArray(p.testidPath) && p.testidPath.length ? [...p.testidPath].reverse().join(' > ') : (p.tag || '?');
     const more = all.length - 1 + (filedFrom.pointedAtOmitted || 0);
-    // The element's text never carries the block's own grammar (a filer over a
-    // description holding a Debug capture block would nest a fake one).
-    const text = p.text ? oneLine(p.text).replace(/-{3,}/g, '—').replace(/Debug capture:/gi, 'Debug capture -') : '';
+    const testids = Array.isArray(p.testidPath) ? p.testidPath : [];
+    if (p.object && p.object.kind && p.object.id != null) {
+        const where = p.host || p.within || testids[0] || p.tag || '?';
+        return { path: blockSafe(`${objectLabel(p.object)} (${where})`), text: '', more };
+    }
+    const path = testids.length ? [...testids].reverse().join(' > ') : (p.tag || '?');
+    const text = p.text ? blockSafe(p.text) : '';
+    if (p.specific) {
+        return { path: `${p.specific.kind || p.specific.tag || '?'} in ${path}`, text, more };
+    }
     return { path, text, more };
+}
+
+/** The block's location line about the RECORDS (req #4158): the subjects the
+ *  page's address names, titled, and the database their ids belong to — or,
+ *  with none, the database alone. Null with neither. */
+export function subjectLine(filedFrom) {
+    const subjects = Array.isArray(filedFrom?.subject) ? filedFrom.subject : [];
+    const db = filedFrom?.state?.database ?? null;
+    const dbBacked = subjects.filter((x) => x.database);
+    const notes = [...new Set(dbBacked.map((x) => x.database))].map(databaseNote).filter(Boolean);
+    if (!subjects.length) {
+        const note = databaseNote(db);
+        return note ? `Database: ${note}` : null;
+    }
+    const names = subjects.map((x) => `${subjectLabel(x)}${x.database ? '' : ' (not in a database)'}`);
+    return clip(blockSafe(`Subject: ${names.join(' · ')}${notes.length ? ` — ${notes.join('; ')}` : ''}`));
 }
 
 const utf8 = (s) => new TextEncoder().encode(s).length;
@@ -726,6 +758,8 @@ export function formatDebugBlock(capture, dropped, requirementId) {
     const where = cats.filedFrom;
     const lines = [DEBUG_BLOCK_BEGIN];
     if (where?.surface) lines.push(`Surface: ${where.surface}`);
+    const subject = subjectLine(where);
+    if (subject) lines.push(subject);
     if (where?.url?.full) lines.push(`URL: ${where.url.full}`);
     const at = pointedAtLabel(where);
     if (at) {

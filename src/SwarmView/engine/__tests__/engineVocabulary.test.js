@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
     CODE_COLORS, CODE_LABELS, EPIC_CODES, EVENT_CODES, HEALTH_COLORS, HEALTH_STATES, HOLD_CODES,
     SHELL_EVENT_CODES,
-    ITEM_CODES, MISSED_INTERVALS, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, desiredReasonText, detailText, eventText,
+    ASLEEP_CEILING_SECONDS, ITEM_CODES, MISSED_INTERVALS, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, desiredReasonText, detailText, eventText,
     initiativeName, plainWords,
 } from '../engineVocabulary';
 
@@ -65,6 +65,7 @@ describe('engine vocabulary — held to scripts/swarm/engine2/core.py', () => {
         const schema = JSON.parse(fs.readFileSync(HEARTBEAT, 'utf8'));
         expect(MISSING_AFTER_SECONDS).toBe(schema['x-missing-after-seconds']);
         expect(MISSED_INTERVALS).toBe(schema['x-missed-intervals']);
+        expect(ASLEEP_CEILING_SECONDS).toBe(schema['x-asleep-ceiling-seconds']);
         expect(HEALTH_STATES).toEqual(schema['x-health-states']);
     });
 });

@@ -258,6 +258,11 @@ import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
+import { planObjectAt } from './planPointObject';
+import { planFilerSurface } from './planFilerSurface';
+import { registerPointResolver } from '../../RequirementFiler/filerPointResolvers';
+import { registerPageOptions } from '../../RequirementFiler/filedFromContext';
+import { useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import {
     REQ_PILL_FONT, REQ_PILL_FONT_EM, REQ_PILL_H_EM, REQ_PILL_LABEL_PAD_EM, REQ_PILL_STROKE,
     REQ_PILL_STYLE,
@@ -2817,6 +2822,52 @@ export default function PipelinePlanVisualizer({
     // where it actually opens (req #3312). `x` stays at the origin and `y` at
     // the ruler's excess, because that is what `resetView` applies (req #3648).
     const t = transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault };
+
+    // ── WHAT THE REQUIREMENT FILER POINTS AT, AND WHAT IS ON SCREEN (req #4158) ──
+    // The canvas has no DOM, so a pinned filer over an epic named the whole
+    // visualizer. It asks this instead: the epic card (bead at Overview),
+    // requirement row, dependency arc or initiative band under the point, from
+    // the layout the canvas DRAWS (planPointObject.js). And the page reports
+    // what its URL cannot say — the level drawn, the colour key, the open
+    // editor, the camera, the folds — with the deep link that reopens it
+    // (planFilerSurface.js). Both read refs so registering costs one effect.
+    const filerViewRef = useRef(null);
+    filerViewRef.current = {
+        layout: drawLayout, t: liveTransformRef.current || t, level, drawsKind,
+        rowById, reqTitles, pipeline, levelPref, colorKey, palette, epicLabel, reqLabel,
+        collapsed, maximized, hideClosed, hiddenMachines, epicWidthLevel, epicTimeMode,
+        showReqCounts, focusEpicId, focusInitiativeId, reqEdit, initiatives: model?.initiatives,
+    };
+    useEffect(() => registerPointResolver('pipeline-plan-visualizer', (clientX, clientY, host) => {
+        const v = filerViewRef.current;
+        if (!v || !host) return null;
+        // The STAGE's box, not the host's: the host's border sits outside it.
+        const r = stageRef.current?.container()?.getBoundingClientRect() || host.getBoundingClientRect();
+        const o = planObjectAt(v.layout, v.t, { x: clientX - r.left, y: clientY - r.top }, {
+            drawsKind: v.drawsKind, drawsCard: v.drawsKind('epic'), beadHitRadius: BEAD_HIT_RADIUS, level: v.level,
+            epicTitle: (id) => v.rowById.get(id)?.title ?? null,
+            reqTitle: (id) => v.reqTitles.get(id) ?? null,
+        });
+        if (!o) return null;
+        // Clipped to the canvas: a band runs the plan's whole width.
+        const left = Math.max(o.rect.left, 0);
+        const top = Math.max(o.rect.top, 0);
+        const right = Math.min(o.rect.left + o.rect.width, r.width);
+        const bottom = Math.min(o.rect.top + o.rect.height, r.height);
+        return { ...o, rect: { left: r.left + left, top: r.top + top,
+            width: Math.max(0, right - left), height: Math.max(0, bottom - top) } };
+    }), []);
+    useEffect(() => registerPageOptions(() => {
+        const v = filerViewRef.current;
+        if (!v) return null;
+        const editor = usePlanEditorStore.getState().current;
+        const filer = useRequirementFilerStore.getState();
+        return planFilerSurface(v, {
+            pathname: window.location.pathname, search: window.location.search,
+            editor: editor ? { kind: editor.kind, id: editor.target?.id ?? null } : null,
+            requirementEditor: filer.editorShow && filer.savedId != null ? filer.savedId : null,
+        });
+    }), []);
 
     // ── The add-epic marks' geometry (req #3586) ────────────────────────────
     // PLACED once per LAYOUT (at the largest radius, so spacing holds at every

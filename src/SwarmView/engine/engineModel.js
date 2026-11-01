@@ -22,7 +22,7 @@
 
 import { humanDuration, parseUtc } from '../pipelines/orchestrationHolder';
 import {
-    ENGINE_BASE_INTERVAL_SECONDS, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED,
+    ASLEEP_CEILING_SECONDS, ENGINE_BASE_INTERVAL_SECONDS, HEALTH_ASLEEP, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED,
     MISSED_INTERVALS, MISSING_AFTER_SECONDS,
     OUTCOME_PENDING, VERDICT_OK, codeLabel, detailText, eventText, plainWords,
 } from './engineVocabulary';
@@ -69,6 +69,8 @@ export function missingAfter(health) {
  * in precedence:
  *   fresh beat                 'degraded' if it counts failed cycles, else 'ok'
  *   no fresh beat, desired off 'stopped' (off is never 'missing')
+ *   no fresh beat, desired on, actual 'asleep'  'asleep' (req #4155: the host sleeps),
+ *     for ASLEEP_CEILING_SECONDS of `actual_at` — older, 'missing' again
  *   no fresh beat, desired on  'missing'
  * `ageSeconds` is null only when there never was a readable beat.
  */
@@ -83,6 +85,10 @@ export function engineHealth(state, beat, now = new Date()) {
             ageSeconds: age };
     }
     if ((state || {}).desired_state === 'off') return { health: HEALTH_STOPPED, ageSeconds: age };
+    if ((state || {}).actual_state === 'asleep') {
+        const reported = ageSeconds(state.actual_at, now);
+        if (reported != null && reported <= ASLEEP_CEILING_SECONDS) return { health: HEALTH_ASLEEP, ageSeconds: age };
+    }
     return { health: HEALTH_MISSING, ageSeconds: age };
 }
 

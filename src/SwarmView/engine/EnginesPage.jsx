@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography';
 
 import AuthContext from '../../Context/AuthContext';
 import EngineList from './EngineList';
-import { HEALTH_MISSING, HEALTH_OK, HEALTH_DEGRADED } from './engineVocabulary';
+import { HEALTH_ASLEEP, HEALTH_MISSING, HEALTH_OK, HEALTH_DEGRADED } from './engineVocabulary';
 import { useEngineView } from './useEngineView';
 
 export default function EnginesPage() {
@@ -18,6 +18,7 @@ export default function EnginesPage() {
     const count = (pred) => view.engines.filter(pred).length;
     const alive = count((e) => e.health === HEALTH_OK || e.health === HEALTH_DEGRADED);
     const missing = count((e) => e.health === HEALTH_MISSING);
+    const asleep = count((e) => e.health === HEALTH_ASLEEP);
     const off = count((e) => e.off);
     return (
         <Box sx={{ p: { xs: 2, md: 3 }, minWidth: 0 }} data-testid="engines-page">
@@ -26,7 +27,7 @@ export default function EnginesPage() {
                 {!view.isLoading && (
                     <Typography variant="body2" color="text.secondary" data-testid="engines-summary">
                         {view.engines.length} engine{view.engines.length === 1 ? '' : 's'} · {alive} beating
-                        {' '}· {missing} missing · {off} off
+                        {' '}· {missing} missing{asleep ? ` · ${asleep} asleep` : ''} · {off} off
                     </Typography>
                 )}
             </Box>

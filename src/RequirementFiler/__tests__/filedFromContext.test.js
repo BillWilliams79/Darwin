@@ -108,6 +108,8 @@ describe('filedFromContext (req #3813)', () => {
         expect(topologyPageOptions(frame, '?opt=H&filer=1&layout=virgo')).toEqual({
             options: { opt: 'tpu8t-datacenter-3d', title: 'TPU v8t Data Center', frameQuery: '?opt=H&filer=1', storedOpt: 'H' },
             surface: '/systems2?opt=tpu8t-datacenter-3d&layout=virgo',
+            // req #4158 — the view is the page's subject, held in no database.
+            subject: [{ kind: 'topology view', id: 'tpu8t-datacenter-3d', title: 'TPU v8t Data Center', database: null }],
         });
         expect(topologyPageOptions(null, '?opt=H&filer=1').surface).toBe('/systems2?opt=H');
     });

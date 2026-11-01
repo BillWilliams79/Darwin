@@ -10,7 +10,8 @@
 //      executes", so a dead string is a failure too and nobody has to judge;
 //   2. index.html's <title> and manifest.json's names are the product name
 //      (`--name`, default: the build's VITE_PRODUCT_NAME, i.e. Topology);
-//   3. the default build's markers are gone (no `<title>Darwin`).
+//   3. the default build's markers are gone (no `<title>Darwin`);
+//   4. darwin.one's whole-app public/ files (docs/, downloads/) are not shipped.
 // `--no-build` checks an existing DIR (the rename rehearsal builds with an env
 // override and checks with `--name`). Exit 0 = pass, 1 = a finding, 2 = misuse.
 
@@ -18,6 +19,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadEnv } from 'vite'
+import { WHOLE_APP_PUBLIC_PATHS } from '../devtools/productShell.js'
 
 const darwinRoot = path.resolve(import.meta.dirname, '..')
 const args = process.argv.slice(2)
@@ -48,6 +50,11 @@ for (const file of walk(outDir)) {
     findings.push(`${path.relative(outDir, file)}: '${m[0]}' … ${JSON.stringify(text.slice(Math.max(0, at - 60), at + 60))}`)
     if (findings.length > 40) break
   }
+}
+
+// 4. (req #4077) darwin.one's whole-app public/ files are not shipped.
+for (const rel of WHOLE_APP_PUBLIC_PATHS) {
+  if (fs.existsSync(path.join(outDir, rel))) findings.push(`${rel}/ is in the build — a scoped product does not ship it (devtools/productShell.js)`)
 }
 
 const html = fs.readFileSync(path.join(outDir, 'index.html'), 'utf8')

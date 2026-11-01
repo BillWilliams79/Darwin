@@ -16,7 +16,11 @@
 //               database, theme, viewport, the reader's other open Action Popups.
 //   • Popup   — the filer's own rack / dock position and size.
 //   • Pointed at — the page element(s) a floating filer sits over (req #3829,
-//               `pointedAt`; null with `pointedAtReason` when racked).
+//               `pointedAt`; null with `pointedAtReason` when racked) — on a
+//               canvas, the OBJECT drawn there (req #4158, filerPointResolvers.js).
+//   • Subject — the record(s) the page's address names, titled from the React
+//               Query cache, with the database their ids belong to (req #4158,
+//               filerSubject.js).
 //
 // `surface` is `<path>?<query>` exactly as /devops-devserver-start takes a deep
 // link, so a worker opens its dev server on the surface the requirement was
@@ -31,6 +35,9 @@ import { PROXY_AUTH } from '../config/product';
 import { slotOffset } from '../Components/AnchoredPanel/usePanelRack';
 import { DEV_APP_GROUPS, DEV_APPS, NAV_GROUPS, appForRoute, isGroupVisible } from '../NavBar/navConfig';
 import { rackPlacement, usePanelRackStore } from '../stores/usePanelRackStore';
+import { queryClient } from '../QueryClient/QueryClientSetup';
+import { resolveSubjects } from './filerSubject';
+import { hasPointResolver, objectLabel, resolveAt, specificUnder } from './filerPointResolvers';
 
 export const FILED_FROM_VERSION = 1;
 /** The context's size ceiling in the capture, serialized chars. */
@@ -134,9 +141,10 @@ export function routeIds(pathname) {
 let pageOptions = null;
 
 /**
- * A page reports what its URL cannot say — `read()` returns `{ options, surface }`
- * at press time (`surface`: the page's canonical deep link for what is on
- * screen). Returns the unregister function; a later registration replaces an
+ * A page reports what its URL cannot say — `read()` returns `{ options, surface,
+ * subject? }` at press time (`surface`: the page's canonical deep link for what
+ * is on screen; `subject`: records it shows that its address does not name, as
+ * `[{ kind, id, title, database? }]` — req #4158). Returns the unregister function; a later registration replaces an
  * earlier one, and unregistering a replaced one is a no-op.
  */
 export function registerPageOptions(read) {
@@ -403,9 +411,46 @@ export function probeAt(doc, x, y, typingIn = null) {
 /** The element a probe names — the nearest carrying a data-testid. */
 export const namedElement = (hit) => hit.closest?.('[data-testid]') || hit;
 
-/** One element as recorded; `off` — its document's origin in Darwin's viewport. */
-export function elementRecord(hit, off, frame, typingIn) {
+/**
+ * What a probe at (x, y) of Darwin's viewport POINTS AT (req #4158): the named
+ * element, refined. A canvas host with a registered point resolver
+ * (filerPointResolvers.js) answers the OBJECT drawn there — an epic, a
+ * requirement row, an initiative band — and a large DOM container is
+ * descended to the most specific identifiable element under the probe.
+ *
+ * `{ named, key, object?, specific?, rect }` — `key` tells two targets apart
+ * (two objects on one canvas are two targets), `rect` is what an outline
+ * draws, in Darwin's viewport px ({left, top, width, height}).
+ */
+export function pointTarget(probe, x, y) {
+    const { hit, off } = probe;
     const named = namedElement(hit);
+    const testid = named.getAttribute?.('data-testid');
+    const offRect = (r) => ({ left: r.left + off.left, top: r.top + off.top, width: r.width, height: r.height });
+    if (testid && hasPointResolver(testid)) {
+        const object = resolveAt(named, x - off.left, y - off.top);
+        if (object) {
+            const { rect, ...o } = object;
+            return { named, key: `object:${testid}:${o.kind}:${o.id}`, object: o, host: testid,
+                rect: offRect(rect || named.getBoundingClientRect()) };
+        }
+    }
+    const specific = specificUnder(hit, named);
+    if (specific) {
+        return { named, key: specific.el, specific, rect: offRect(specific.el.getBoundingClientRect()) };
+    }
+    return { named, key: named, rect: offRect(named.getBoundingClientRect()) };
+}
+
+const rectRecord = (r) => ({ x: px(r.left), y: px(r.top), w: px(r.width), h: px(r.height) });
+
+/** One element as recorded; `off` — its document's origin in Darwin's viewport.
+ *  `target` — its pointTarget, when the probe point is known: an object a
+ *  canvas resolved is recorded as `object` (its rect, its own label as the
+ *  text, the canvas as `host`), a specific child of a large container as
+ *  `specific` (req #4158). */
+export function elementRecord(hit, off, frame, typingIn, target = null) {
+    const named = target?.named || namedElement(hit);
     const r = named.getBoundingClientRect();
     const role = named.getAttribute('role');
     const ariaLabel = named.getAttribute('aria-label');
@@ -413,7 +458,8 @@ export function elementRecord(hit, off, frame, typingIn) {
         ? { tag: hit.tagName.toLowerCase(), ...(hit.type && hit.tagName === 'INPUT' ? { type: hit.type } : null),
             ...(hit.getAttribute('name') ? { name: hit.getAttribute('name') } : null), copied: fieldCopyable(hit, typingIn) }
         : null;
-    return {
+    const namedRect = { x: px(r.left + off.left), y: px(r.top + off.top), w: px(r.width), h: px(r.height) };
+    const base = {
         tag: named.tagName.toLowerCase(),
         ...(named !== hit ? { hit: hit.tagName.toLowerCase() } : null),
         testidPath: [...testidPath(named), ...(frame?.testidPath || [])].slice(0, POINTED_PATH_MAX),
@@ -421,9 +467,31 @@ export function elementRecord(hit, off, frame, typingIn) {
         ...(role ? { role } : null),
         ...(ariaLabel ? { ariaLabel: redact(ariaLabel.slice(0, POINTED_TEXT_MAX)) } : null),
         ...(field ? { field } : null),
-        text: visibleText(named, POINTED_TEXT_MAX, typingIn),
-        rect: { x: px(r.left + off.left), y: px(r.top + off.top), w: px(r.width), h: px(r.height) },
     };
+    if (target?.object) {
+        const object = redact(target.object);
+        return { ...base, object, host: target.host, text: redact(objectLabel(object)).slice(0, POINTED_TEXT_MAX),
+            rect: rectRecord(target.rect), hostRect: namedRect };
+    }
+    if (target?.specific) {
+        const el = target.specific.el;
+        const text = visibleText(el, POINTED_TEXT_MAX, typingIn);
+        const elLabel = el.getAttribute('aria-label');
+        const title = (elLabel ? redact(elLabel.slice(0, POINTED_TEXT_MAX)) : text) || null;
+        return {
+            ...base,
+            ...(target.specific.id != null
+                ? { object: { kind: target.specific.kind, id: redact(target.specific.id), ...(title ? { title } : null) } }
+                : null),
+            specific: { tag: el.tagName.toLowerCase(), kind: target.specific.kind,
+                ...(elLabel ? { ariaLabel: redact(elLabel.slice(0, POINTED_TEXT_MAX)) } : null) },
+            within: named.getAttribute('data-testid'),
+            text,
+            rect: rectRecord(target.rect),
+            hostRect: namedRect,
+        };
+    }
+    return { ...base, text: visibleText(named, POINTED_TEXT_MAX, typingIn), rect: namedRect };
 }
 
 /** What a floating filer sits over — `{ pointedAt, pointedAtReason? }`, for the
@@ -452,13 +520,14 @@ export function pointedAtNow(self, doc = document, typingIn = null) {
         const probe = probeAt(doc, px0, py0, typingIn);
         if (!probe) continue;
         const { hit, off, frame, typing } = probe;
-        const key = namedElement(hit);
-        if (!byElement.has(key)) byElement.set(key, { points: [], hit, off, frame, typing });
+        const target = pointTarget(probe, px0, py0);
+        const { key } = target;
+        if (!byElement.has(key)) byElement.set(key, { points: [], hit, off, frame, typing, target });
         byElement.get(key).points.push(name);
     }
     if (!byElement.size) return { pointedAt: [], pointedAtReason: POINTED_AT_REASONS.nothing };
     return {
-        pointedAt: [...byElement.values()].map(({ points: p, hit, off, frame, typing }) => ({ points: p, ...elementRecord(hit, off, frame, typing) })),
+        pointedAt: [...byElement.values()].map(({ points: p, hit, off, frame, typing, target }) => ({ points: p, ...elementRecord(hit, off, frame, typing, target) })),
     };
 }
 
@@ -486,9 +555,10 @@ function visibleApps(profile) {
  * @param {?Object} [p.heldRect] {x, y, w, h} — where a pinned filer was let go
  *   half off screen (req #4046): it slid back on, and the place it HOLDS, not
  *   where it now sits, is what it points at
+ * @param {?Object} [p.queryCache] the React Query cache the subject titles come from (req #4158)
  * @param {Date} [p.now]
  */
-export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, heldRect = null, now = new Date() }) {
+export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, heldRect = null, queryCache = queryClient.getQueryCache(), now = new Date() }) {
     const { pathname = '/', search = '', hash = '' } = location || {};
     const page = readPageOptions();
     const app = appForRoute(pathname);
@@ -504,15 +574,19 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
             ? { ...pointedAtNow({ ...self, rect: heldRect }, document, typingIn), pointedAtFrom: 'held', heldRect }
             : pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn))
         : { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
+    const ids = routeIds(pathname);
+    const queryObj = queryObject(search);
     return {
         version: FILED_FROM_VERSION,
         filedAt: now.toISOString(),
         surface: surfaceOf(pathname, search, page?.surface),
+        // What the page was showing, by record (req #4158): never a request.
+        subject: redact(resolveSubjects({ routeIds: ids, query: queryObj, database, queryCache, pageSubjects: page?.subject })),
         url: { full: `${pathname}${query}${cleanHash}`, path: pathname, query, hash: cleanHash },
         options: {
             app,
-            query: queryObject(search),
-            routeIds: routeIds(pathname),
+            query: queryObj,
+            routeIds: ids,
             ...(page?.options ? { page: redact(page.options) } : null),
             viewState: viewState(app),
         },
@@ -580,6 +654,8 @@ export function filedFromNow(args) {
         if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
     }
     return { version: ctx.version, filedAt: ctx.filedAt, surface: ctx.surface.slice(0, 2000),
+        ...(Array.isArray(ctx.subject) ? { subject: ctx.subject } : null),
+        state: { database: ctx.state?.database ?? null },
         url: { full: ctx.url.full.slice(0, 2000) }, omitted: `over the ${FILED_FROM_MAX_CHARS}-char size cap`,
         // A press that recorded no place keeps saying why (req #3958: not pinned, racked …).
         pointedAt: null, pointedAtReason: ctx.pointedAt == null && ctx.pointedAtReason ? ctx.pointedAtReason : POINTED_AT_REASONS.overCap,

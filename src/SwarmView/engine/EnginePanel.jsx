@@ -31,7 +31,7 @@ import {
     historyCells, missingAfter, outcomesByRequirement, parseUtc, recordChanges, recordView, scopeText,
     stampText,
 } from './engineModel';
-import { HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS } from './engineVocabulary';
+import { HEALTH_ASLEEP, HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS } from './engineVocabulary';
 import { ToneChip } from './enginePanelParts';
 import { useEngineRecord, useRequirementTitles } from './useEngineView';
 
@@ -125,6 +125,14 @@ export default function EnginePanel({ engine, names, timezone, now = new Date() 
                 <Alert severity="info" variant="outlined" sx={{ mb: 1.5 }} onClose={() => setAgedOut(false)}
                        data-testid={`engine-aged-out-${engine.id}`}>
                     The cycle you were viewing aged out of the stored history; showing the latest.
+                </Alert>
+            )}
+            {engine.health === HEALTH_ASLEEP && (
+                <Alert severity="info" variant="outlined" sx={{ mb: 1.5 }} data-testid={`engine-asleep-${engine.id}`}>
+                    This machine is asleep. Its supervisor stopped the engine and released its claim
+                    before the host froze, so another machine&apos;s engine for this plan, if one is on, leads.
+                    It starts again when the host wakes. The decision below is its last, not a current one.
+                    {engine.state.actual_detail ? ` (${engine.state.actual_detail})` : ''}
                 </Alert>
             )}
             {engine.health === HEALTH_MISSING && (

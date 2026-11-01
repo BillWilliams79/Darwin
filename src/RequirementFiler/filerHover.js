@@ -51,7 +51,8 @@
 // And the other Action Popups are pickable like any element: only the filer's
 // own two windows are skipped (filedFromContext.js FILER_OWN_POPUPS).
 
-import { namedElement, probeAt } from './filedFromContext';
+import { pointTarget, probeAt } from './filedFromContext';
+import { objectLabel } from './filerPointResolvers';
 
 /** The outline's stacking: above every other Action Popup (AnchoredPanel 1250)
  *  and the navbar lifted for a rack drag, below the filer (req #4044). */
@@ -99,13 +100,22 @@ export function aimAt(rect, doc = document) {
     const { x, y } = aimPoint(rect);
     const probe = probeAt(doc, x, y);
     if (!probe) return null;
-    const el = namedElement(probe.hit);
-    const r = el.getBoundingClientRect();
+    // req #4158 — what the + would record: the object a canvas draws there
+    // (epic, requirement, initiative band …), or the specific child of a large
+    // container, outlined with ITS rect and named by ITS label.
+    const target = pointTarget(probe, x, y);
+    const el = target.named;
+    const testid = el.getAttribute?.('data-testid') || el.tagName?.toLowerCase() || '?';
+    const specificName = target.specific
+        ? `${target.specific.kind}${target.specific.id != null ? ` #${target.specific.id}` : ''} in ${testid}` : null;
     return {
         el, hit: probe.hit, off: probe.off, frame: probe.frame,
         point: { x, y },
-        rect: { left: r.left + probe.off.left, top: r.top + probe.off.top, width: r.width, height: r.height },
-        name: (el.getAttribute?.('data-testid') || el.tagName?.toLowerCase() || '?').slice(0, 100),
+        // A target that moves under a held point is a NEW target (followHeld).
+        key: target.key,
+        ...(target.object ? { object: target.object } : null),
+        rect: target.rect,
+        name: (target.object ? `${objectLabel(target.object)} · ${testid}` : (specificName || testid)).slice(0, 100),
     };
 }
 
