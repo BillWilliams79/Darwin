@@ -362,8 +362,10 @@ export default function RequirementFiler() {
         const h = hoverRef.current;
         h.t = performance.now();
         const target = aimAt(rect);
-        const el = target?.el ?? null;
-        if (el === (h.shown?.el ?? null)) {
+        // What is outlined is a TARGET, not an element (req #4158): two epics on
+        // one plan canvas are two targets, each debounced like two elements.
+        const el = target?.key ?? null;
+        if (el === (h.shown?.key ?? null)) {
             if (target) settleHover(target);      // the same element, where it is drawn now
             else { clearTimeout(h.timer); h.pending = null; }
         } else if (el !== (h.pending?.el ?? null)) {

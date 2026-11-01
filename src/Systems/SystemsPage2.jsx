@@ -36,14 +36,17 @@ export function topologyPageOptions(frame, search) {
         ...(live?.vsTraffic ? [`traffic=${encodeURIComponent(live.vsTraffic)}`] : []),
         ...(live?.vsTraffic && live?.vsStep ? [`step=${encodeURIComponent(live.vsStep)}`] : []),
         ...kept].join('&');
+    const title = doc?.getElementById('main-title')?.textContent?.trim() || doc?.title || null;
     return {
         options: {
             opt,
-            title: doc?.getElementById('main-title')?.textContent?.trim() || doc?.title || null,
+            title,
             frameQuery: frame?.contentWindow?.location?.search || '',
             storedOpt: lastOpt,
         },
         surface: `/systems2${query ? `?${query}` : ''}`,
+        // req #4158 — the view is the record this page shows; no database holds it.
+        ...(opt ? { subject: [{ kind: 'topology view', id: opt, title, database: null }] } : null),
     };
 }
 

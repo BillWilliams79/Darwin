@@ -464,7 +464,9 @@ export default function InitiativesPage() {
                     <CircularProgress />
                 </Box>
             ) : (
-                <Box sx={{ width: '100%' }} data-testid="initiatives-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="initiatives-datagrid"
+                     // req #4158 — the Requirement Filer names a grid row by its data-id as an initiative.
+                     data-filer-kind="initiative">
                     <DataGrid
                         autoHeight
                         rows={rows}

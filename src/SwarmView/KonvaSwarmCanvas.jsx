@@ -46,6 +46,9 @@ import {
     buildModelContext, buildDayModel, phaseBarSegments, durationDashed,
     recenterDecision, fitDayTransform, startGlyphPlacement, SEMANTIC_OUT_MAX,
 } from './konvaSwarmModel';
+import { chipObject, konvaObjectAt } from './swarmPointObject';
+import { registerPointResolver } from '../RequirementFiler/filerPointResolvers';
+import { registerPageOptions } from '../RequirementFiler/filedFromContext';
 import '../CalendarFC/swarmVisualizer.css';
 
 // ── World-space layout constants (k-independent; d3-zoom scales these) ─────────
@@ -515,6 +518,42 @@ const KonvaSwarmCanvas = ({
     // rowTopFor falls back to worldMidY itself only when the selected row isn't
     // present.
     const t = transform || { x: 0, y: size.h / 2 - rowTopFor(selectedDate) * kBase, k: kBase };
+
+    // ── WHAT THE REQUIREMENT FILER POINTS AT, AND WHAT IS ON SCREEN (req #4158) ──
+    // A pinned filer over a bead named the whole canvas: it asks this instead —
+    // the shape under the point, by its `filerObject` attr (swarmPointObject.js).
+    // And the page reports the day, level, toggles and camera its URL cannot
+    // say; `?view=visualizer` (swarmViewLink.js) is the part a link can carry.
+    const filerViewRef = useRef(null);
+    filerViewRef.current = { selectedDate, level, t, titlesOn, completesOn, phasesOn, costOn, wide36, dataKey };
+    useEffect(() => registerPointResolver('konva-swarm-canvas', (clientX, clientY, host) => {
+        const stage = stageRef.current;
+        if (!stage || !host) return null;
+        // The stage's own box: the host's border sits outside it.
+        const r = stage.container().getBoundingClientRect();
+        const o = konvaObjectAt(stage, clientX - r.left, clientY - r.top);
+        if (!o) return null;
+        return { ...o, rect: o.rect && { ...o.rect, left: o.rect.left + r.left, top: o.rect.top + r.top } };
+    }), []);
+    useEffect(() => registerPageOptions(() => {
+        const v = filerViewRef.current;
+        const kept = window.location.search.replace(/^\?/, '').split('&').filter(Boolean)
+            .filter((raw) => {
+                const n = raw.split('=')[0];
+                let name = n;
+                try { name = decodeURIComponent(n); } catch { /* a malformed escape stays as written */ }
+                return !['view', 'filer'].includes(name);
+            });
+        return {
+            surface: `${window.location.pathname}?${['view=visualizer', ...kept].join('&')}`,
+            options: {
+                view: 'visualizer', date: v.selectedDate, level: v.level,
+                camera: { x: Math.round(v.t.x), y: Math.round(v.t.y), k: Math.round(v.t.k * 1e4) / 1e4 },
+                titlesOn: v.titlesOn, completesOn: v.completesOn, phasesOn: v.phasesOn,
+                costOn: v.costOn, wide36: v.wide36, dataKey: v.dataKey,
+            },
+        };
+    }), []);
     const inv = t.k > 0 ? 1 / t.k : 1;
 
     const visibleRows = useMemo(() => {
@@ -601,6 +640,7 @@ const KonvaSwarmCanvas = ({
         return (
             <Group key={`${key}-cmp`}>
                 <Circle x={bx} y={by} radius={r} fill={bg} stroke={C.beadEdge} strokeWidth={1.4 * inv}
+                        filerObject={{ kind: 'swarm complete', id: sc.id, title: sc.skill_name || null }}
                         onActivate={() => onCompleteClick?.(sc.id)} />
                 <Text x={bx} y={by} text={glyph} fontSize={9 * inv} fontStyle="bold"
                       fill={ok ? '#fff' : '#000'} width={2 * r} height={2 * r}
@@ -621,14 +661,21 @@ const KonvaSwarmCanvas = ({
     const swarmStartGlyph = (key, sx, cy, swarmStartId, swarmStartRow, tipChip) => {
         const real = swarmStartId != null;
         const col = real ? REAL_GREEN : EST_RED;
+        // req #4158 — what the filer names here: the swarm-start, or (an
+        // estimated anchor has no row) the requirement it starts.
+        const startObject = real
+            ? { kind: 'swarm start', id: swarmStartId, title: tipChip?.title || null }
+            : chipObject(tipChip);
         // Span reduced by 1/3 from the full lane, kept centered on the lane.
         const yTop = cy - LANE_H * (1 / 3), yBot = cy + LANE_H * (1 / 3);
         return [
             <Line key={`${key}-stk`} points={[sx, yTop, sx, yBot]}
-                  stroke={col} strokeWidth={2.5 * inv} lineCap="round" />,
+                  stroke={col} strokeWidth={2.5 * inv} lineCap="round"
+                  filerObject={startObject} />,
             <Circle key={`${key}-sdot`} x={sx} y={yTop} radius={3.2 * inv} fill={col}
                     stroke={C.beadEdge} strokeWidth={0.8 * inv}
                     hitStrokeWidth={10 * inv}
+                    filerObject={startObject}
                     onMouseEnter={swarmStartRow ? (e) => { cursorPointer(e, true); showTip({ ...tipChip, isSwarmStartCard: true }, e); } : undefined}
                     onMouseLeave={swarmStartRow ? (e) => { cursorPointer(e, false); hideTip(); } : undefined}
                     onActivate={real ? () => onSwarmStartClick?.(swarmStartId) : undefined} />,
@@ -639,6 +686,8 @@ const KonvaSwarmCanvas = ({
     const renderRow = (r) => {
         const { date, top, height, model, parity } = r;
         const isSel = date === selectedDate;
+        // req #4158 — a point over the row's grid, wire or background names its day.
+        const dayObject = { kind: 'day', id: date, title: `${model.placed.length} completion${model.placed.length === 1 ? '' : 's'}` };
         const laneY = (row) => top + CHROME_TOP + row * LANE_H + LANE_H / 2;
         const usePhases = phasesOn || level === 'in';
         const beadR = (level === 'out' ? DOT_R_S : BEAD_R_S) * inv;
@@ -691,11 +740,12 @@ const KonvaSwarmCanvas = ({
                                    stroke={chip.isPhantom ? beadFill(chip) : undefined}
                                    strokeWidth={ring} opacity={0.85}
                                    hitStrokeWidth={6 * inv}
+                                   filerObject={chipObject(chip)}
                                    onMouseEnter={(e) => { cursorPointer(e, true); showTip(chip, e); }}
                                    onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
                                    onActivate={() => handleChipClick(chip)} />);
             });
-            return <Group key={date}>{nodes}</Group>;
+            return <Group key={date} filerObject={dayObject}>{nodes}</Group>;
         }
 
         // ── Cross-day dashed pass-throughs ───────────────────────────────────
@@ -710,6 +760,7 @@ const KonvaSwarmCanvas = ({
                              stroke={card?.color || C.tomb} strokeWidth={trackW * 0.7}
                              dash={[6 * inv, 4 * inv]} opacity={0.55} lineCap="round"
                              hitStrokeWidth={12 * inv}
+                             filerObject={chipObject(card)}
                              onMouseEnter={card ? (e) => { cursorPointer(e, true); showTip({ ...card, isCrossDay: true }, e); } : undefined}
                              onMouseLeave={card ? (e) => { cursorPointer(e, false); hideTip(); } : undefined} />);
             // Anchor the swarm-start glyph at the start-day's dashed tail (req
@@ -740,7 +791,8 @@ const KonvaSwarmCanvas = ({
                                  stroke={s.color} strokeWidth={trackW}
                                  lineCap={s.dashed ? 'butt' : 'round'}
                                  dash={s.dashed ? [5 * inv, 3 * inv] : undefined}
-                                 opacity={chip.isPhantom ? 0.8 : 0.95} />);
+                                 opacity={chip.isPhantom ? 0.8 : 0.95}
+                                 filerObject={chipObject(chip)} />);
             });
 
             // Swarm-start: vertical tick spanning the lane slot (stacks into a
@@ -782,6 +834,7 @@ const KonvaSwarmCanvas = ({
             // the badge (drawn on top) keeps its own onCompleteClick within its
             // bounds, while the hit target catches the rest of the bead area.
             nodes.push(<Circle key={`${key}-hit`} x={cx} y={cy} radius={cr + 5 * inv} fill="transparent"
+                               filerObject={chipObject(chip)}
                                onMouseEnter={(e) => { cursorPointer(e, true); showTip(chip, e); }}
                                onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
                                onActivate={() => handleChipClick(chip)} />);
@@ -795,7 +848,7 @@ const KonvaSwarmCanvas = ({
             }
         });
 
-        return <Group key={date}>{nodes}</Group>;
+        return <Group key={date} filerObject={dayObject}>{nodes}</Group>;
     };
 
     const hasData = rows.some(r => r.model.placed.length > 0 || r.model.crossDayPlaced.length > 0);
