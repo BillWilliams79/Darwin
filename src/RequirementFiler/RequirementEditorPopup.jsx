@@ -822,6 +822,16 @@ export default function RequirementEditorPopup() {
 
     const onKeyDown = (e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+        // Esc dismisses the editor like its ×: the draft stays in the store, so
+        // nothing typed is lost (req #4171). A press that already did something
+        // (closed a select's list) or is mid-composition is not ours; a pending
+        // delete confirmation is what Esc backs out of first.
+        if (e.key === 'Escape' && !e.defaultPrevented && !e.nativeEvent?.isComposing
+            && e.nativeEvent?.keyCode !== 229) {
+            e.preventDefault();
+            if (confirmDelete) { if (!deleting) setConfirmDelete(false); return; }
+            setEditorShow(false);
+        }
     };
 
     const seatIssue = savedId == null ? seatProblem(draft.seat, darwinUri) : null;

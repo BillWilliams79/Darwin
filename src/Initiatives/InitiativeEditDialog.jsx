@@ -254,6 +254,21 @@ export default function InitiativeEditDialog({
         if (deleted) onClose();
     };
 
+    // Whether Save would write anything (req #4171) — what Esc must not lose silently.
+    const editsPending = () => {
+        const sameText = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
+        if (depEdit) return true;
+        if (!initiative) {
+            return formTitle.trim() !== '' || formDescription.trim() !== '';
+        }
+        return !sameText(formTitle, initiative.title)
+            || !sameText(formDescription, initiative.description)
+            || String(formPipelineFk ?? '') !== String(initiative.pipeline_fk ?? '')
+            || String(categoryValue ?? '') !== String(initiative.category_fk ?? '')
+            || String(formSortOrder).trim() !== (initiative.sort_order == null ? '' : String(initiative.sort_order))
+            || formInitiativeStatus !== (initiative.initiative_status === 'paused' ? 'paused' : 'active');
+    };
+
     const handleSubmit = async () => {
         const title = formTitle.trim();
         const description = formDescription.trim();
@@ -337,7 +352,14 @@ export default function InitiativeEditDialog({
     };
 
     return (
-        <Dialog open={open} onClose={(_e, reason) => !submitting && onClose(reason)}
+        <Dialog open={open} onClose={(_e, reason) => {
+                    if (submitting) return;
+                    // Esc / backdrop over typed-but-unsaved edits asks first (req #4171);
+                    // the Cancel button is the explicit discard and never asks.
+                    if ((reason === 'escapeKeyDown' || reason === 'backdropClick') && editsPending()
+                        && !window.confirm('Discard unsaved changes to this initiative?')) return;
+                    onClose(reason);
+                }}
                 maxWidth="md" fullWidth data-testid="initiative-edit-dialog">
             <DialogTitle>{initiative ? `Edit initiative ${initiative.id}` : 'New initiative'}</DialogTitle>
             <DialogContent>
