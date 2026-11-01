@@ -14,7 +14,7 @@ import {
     assembleEngines, engineHealth, enginesForPipeline, historyCells, intervalText, missingAfter,
     outcomesByRequirement, recordChanges, recordView, scopeKey, scopeText, stoppedAt,
 } from '../engineModel';
-import { MISSING_AFTER_SECONDS, PLAIN_WORDS } from '../engineVocabulary';
+import { ASLEEP_CEILING_SECONDS, MISSING_AFTER_SECONDS, PLAIN_WORDS } from '../engineVocabulary';
 
 const NOW = new Date(`${fixture.now.replace(' ', 'T')}Z`);
 const engines = () => assembleEngines({ states: fixture.engine_states,
@@ -62,6 +62,20 @@ describe('engine health — derived from the heartbeat\'s AGE (darwin-mcp engine
         expect(engineHealth({ desired_state: 'off' }, { beat_at: at(900), health: {} }, NOW))
             .toEqual({ health: 'stopped', ageSeconds: 900 });
         expect(engineHealth({ desired_state: 'on' }, null, NOW)).toEqual({ health: 'missing', ageSeconds: null });
+    });
+
+    it('on, with the supervisor reporting its host asleep, is asleep — not missing (req #4155)', () => {
+        const asleep = (reportedAgo) => ({ desired_state: 'on', actual_state: 'asleep', actual_at: at(reportedAgo) });
+        expect(engineHealth(asleep(3 * 3600), { beat_at: at(3 * 3600), health: {} }, NOW))
+            .toEqual({ health: 'asleep', ageSeconds: 3 * 3600 });
+        // a fresh beat outranks it, as the service does; off outranks it too
+        expect(engineHealth(asleep(60), { beat_at: at(20), health: {} }, NOW).health).toBe('ok');
+        expect(engineHealth({ ...asleep(60), desired_state: 'off' }, { beat_at: at(900), health: {} }, NOW).health)
+            .toBe('stopped');
+        // a report older than the ceiling is missing again: a host rebooted with no VM, a dead supervisor
+        expect(engineHealth(asleep(ASLEEP_CEILING_SECONDS), { beat_at: at(90000), health: {} }, NOW).health).toBe('asleep');
+        expect(engineHealth(asleep(ASLEEP_CEILING_SECONDS + 1), { beat_at: at(90000), health: {} }, NOW).health).toBe('missing');
+        expect(engineHealth({ desired_state: 'on', actual_state: 'asleep' }, null, NOW).health).toBe('missing');
     });
 
     it('reads a stamp as UTC, falls back to create_ts, and tolerates a health string', () => {
