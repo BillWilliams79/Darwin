@@ -25,6 +25,8 @@ import GhostTextField from './GhostTextField';
  *                                      blocked verdict reaches the row-level marker.
  * @param {Function} spec.testId        (row) => string
  * @param {Function} [spec.validate]    (text, row) => error string | null
+ * @param {Function} [spec.disabled]    (row) => boolean. A true row shows its text
+ *                                      read-only (e.g. a locked pipeline).
  */
 export const ghostTextColumn = ({
     field,
@@ -38,6 +40,7 @@ export const ghostTextColumn = ({
     required = false,
     normalize,
     validate,
+    disabled,
     onCommit,
     onErrorChange,
     onEditingChange,
@@ -60,6 +63,7 @@ export const ghostTextColumn = ({
                 maxRows={maxRows}
                 commitOnEnter={commitOnEnter}
                 required={required}
+                disabled={disabled ? Boolean(disabled(params.row)) : false}
                 placeholder={placeholder}
                 normalize={normalize}
                 // Bound to the ROW so a validator can exclude the row from its own
