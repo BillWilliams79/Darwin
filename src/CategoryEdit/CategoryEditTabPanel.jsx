@@ -97,7 +97,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                         if (result.httpStatus.httpStatus > 204) {
                             showError(result, 'Unable to update category');
                         } else {
-                            // Invalidate so cross-view consumers (Roadmap table, etc.) pick up the new name.
+                            // Invalidate so cross-view consumers (Requirements table, etc.) pick up the new name.
                             queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                         }
                     }).catch(error => {
@@ -184,7 +184,7 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                 if (result.httpStatus.httpStatus > 204) {
                     showError(result, 'Unable to close category');
                 } else {
-                    // Invalidate the shared categories cache so other views (Roadmap table,
+                    // Invalidate the shared categories cache so other views (Requirements table,
                     // SwarmView, etc.) pick up the open/closed change without a full reload.
                     queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) });
                 }

@@ -5435,7 +5435,7 @@ export default function PipelinePlanVisualizer({
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
                       // Carry the plan's identity so the requirement page's Back
-                      // returns HERE and not to the Roadmap (req #3119).
+                      // returns HERE and not to the Requirements page (req #3119).
                       //
                       // `mode: 'plan'` (req #3252) is the other half of "HERE".
                       // The route alone names the PLAN, not the panel: which
