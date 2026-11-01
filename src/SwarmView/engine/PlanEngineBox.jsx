@@ -42,7 +42,7 @@ import { ROLE_LEAD, ROLE_REFUSED, ROLE_SUBSCRIBER, humanDuration } from '../pipe
 import { machineName } from './EngineLocationPanel';
 import { agoText } from './engineModel';
 import {
-    ACTUAL_STATE_WORDS, HEALTH_COLORS, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED,
+    ACTUAL_STATE_WORDS, HEALTH_ASLEEP, HEALTH_COLORS, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_OK, HEALTH_STOPPED,
     HEALTH_WORDS,
 } from './engineVocabulary';
 import { SOURCE_ENGINE } from './engineOverlay';
@@ -84,6 +84,8 @@ export function engineStateText(engine) {
         return `switched off — the supervisor reports ${actualWords}`;
     }
     if (actual === 'crashed') return `on — crashed${detail ? `: ${detail}` : ''}`;
+    // req #4155: stopped by its supervisor because this machine sleeps — not missing.
+    if (engine.health === HEALTH_ASLEEP) return `on — host asleep${detail ? `: ${detail}` : ''}`;
     if (engine.health === HEALTH_MISSING) {
         return engine.beatAgeSeconds != null
             ? `on — ${actualWords}, but no heartbeat for ${humanDuration(engine.beatAgeSeconds)}`
@@ -129,7 +131,8 @@ export function slotsOf(ctl) {
     if (counted(beatLimits)) return takenOf(beatLimits);
     // On but silent (no supervisor, no beat), or a read failed: it cannot say.
     if (ctl.readErrors.length > 0 || ctl.recordError
-        || (engine && (engine.health === HEALTH_MISSING || engine.health === HEALTH_STOPPED))) {
+        || (engine && (engine.health === HEALTH_MISSING || engine.health === HEALTH_STOPPED
+            || engine.health === HEALTH_ASLEEP))) {
         return { known: false };
     }
     return { loading: true };
@@ -244,6 +247,7 @@ function PlanEngineBox({ ctl }) {
         || role === ROLE_REFUSED);
     const onColor = holding ? HOLD_AMBER
         : HEALTH_COLORS[health] && health !== HEALTH_STOPPED ? HEALTH_COLORS[health] : ON_GREEN;
+    // (asleep wears HEALTH_COLORS' inert grey: on, but nothing beats until the host wakes)
     // A read that failed, or a switch that failed: the switch's outline goes red
     // and its hover says which — the rows may be out of date.
     const readErrors = [...ctl.readErrors, ...(ctl.recordError ? ["the engine's decision record"] : [])];

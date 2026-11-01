@@ -87,19 +87,26 @@ export const codeLabel = (code) => CODE_LABELS[code] || code;
 // Held to the schema by the vocabulary test.
 export const MISSING_AFTER_SECONDS = 180;
 export const MISSED_INTERVALS = 3;
+// heartbeat.schema.json `x-asleep-ceiling-seconds` (req #4155): how long the
+// supervisor's `asleep` report stands before a silent engine reads missing again.
+export const ASLEEP_CEILING_SECONDS = 86400;
 // run.py DEFAULT_INTERVAL: a declared `interval_s` above it is the idle backoff.
 export const ENGINE_BASE_INTERVAL_SECONDS = 60;
 export const HEALTH_OK = 'ok';
 export const HEALTH_DEGRADED = 'degraded';
 export const HEALTH_MISSING = 'missing';
 export const HEALTH_STOPPED = 'stopped';
-export const HEALTH_STATES = [HEALTH_OK, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_STOPPED];
+// req #4155: wanted on, but its supervisor stopped it because the HOST sleeps
+// (a WSL laptop in Modern Standby). Silent on purpose, said before it went quiet.
+export const HEALTH_ASLEEP = 'asleep';
+export const HEALTH_STATES = [HEALTH_OK, HEALTH_DEGRADED, HEALTH_MISSING, HEALTH_STOPPED, HEALTH_ASLEEP];
 
 export const HEALTH_WORDS = {
     [HEALTH_OK]: 'beating',
     [HEALTH_DEGRADED]: 'beating, but its last cycles failed',
     [HEALTH_MISSING]: 'no heartbeat — wanted on, but silent',
     [HEALTH_STOPPED]: 'turned off',
+    [HEALTH_ASLEEP]: 'host asleep — stopped until it wakes; another machine leads meanwhile',
 };
 
 // engine_states.actual_state — what the supervisor reports (desired_state.schema.json).
@@ -109,6 +116,7 @@ export const ACTUAL_STATE_WORDS = {
     running: 'running',
     stopping: 'stopping',
     crashed: 'crashed',
+    asleep: 'host asleep',
 };
 
 // heartbeat.schema.json health.code_verdict.
@@ -185,6 +193,7 @@ export const HEALTH_COLORS = {
     [HEALTH_DEGRADED]: HELD,
     [HEALTH_MISSING]: ATTENTION,
     [HEALTH_STOPPED]: INERT,
+    [HEALTH_ASLEEP]: INERT,
 };
 
 export const OUTCOME_COLORS = {

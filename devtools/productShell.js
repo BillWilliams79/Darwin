@@ -25,6 +25,16 @@ export function productManifest(product, base) {
   }
 }
 
+// Files under public/ that belong to darwin.one's whole-app product only, so a
+// scoped product (internal: Topology + Swarm) does not ship them (req #4077):
+// docs/ is darwin.one's engineering documentation (no route links it) and
+// downloads/ is the Maps photo shortcut. Mostly the word "Darwin" — the rename
+// census found them as the only build files naming it.
+export const WHOLE_APP_PUBLIC_PATHS = ['docs', 'downloads']
+export function scopedOutPaths(product) {
+  return product.apps.all ? [] : WHOLE_APP_PUBLIC_PATHS
+}
+
 export function productShell(product) {
   const manifestPath = path.resolve(import.meta.dirname, '..', 'public', 'manifest.json')
   const manifestJson = () => JSON.stringify(
@@ -48,10 +58,14 @@ export function productShell(product) {
         res.end(manifestJson())
       })
     },
-    // `public/` is copied verbatim; overwrite its manifest with the product's.
+    // `public/` is copied verbatim; overwrite its manifest with the product's,
+    // and (req #4077) drop what a scoped product does not contain.
     writeBundle(options) {
       const outDir = options.dir || path.resolve(import.meta.dirname, '..', 'dist')
       fs.writeFileSync(path.join(outDir, 'manifest.json'), manifestJson())
+      for (const rel of scopedOutPaths(product)) {
+        fs.rmSync(path.join(outDir, rel), { recursive: true, force: true })
+      }
     },
   }
 }

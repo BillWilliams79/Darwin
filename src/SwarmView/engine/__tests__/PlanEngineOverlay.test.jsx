@@ -238,6 +238,8 @@ describe('PlanEngineBox', () => {
         expect(engineStateText(engineRow('on', 'running', 'missing', 900)))
             .toBe('on — running, but no heartbeat for 15m');
         expect(engineStateText(engineRow('off', 'stopping'))).toBe('switched off — the supervisor reports stopping');
+        // req #4155: a sleeping host is said as that, not as a missing heartbeat
+        expect(engineStateText(engineRow('on', 'asleep', 'asleep', 7200))).toBe('on — host asleep');
     });
 });
 
