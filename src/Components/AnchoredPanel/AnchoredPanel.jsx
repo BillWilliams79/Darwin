@@ -96,7 +96,8 @@
 // at shows through (the Requirement Filer — filerHover.js).
 // `dockable={false}` (the filer's pushpin picker mode) suspends docking for the
 // drag: no rack and no title bar takes it — dragged out of one it floats — so
-// a bar's own elements are something it can point at.
+// a bar's own elements are something it can point at. `dockable="navbar"` (req
+// #4172) lets the navbar's rack alone take it: no page toolbar, no title bar.
 
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -173,8 +174,10 @@ const viewport = () => ({
  *   docking, aim}) during and at the end of a head drag; a move frame's truthy
  *   answer draws the panel translucent (req #3958), as does `aim(true)` called
  *   later in the drag — a host that decides off the frame (req #4046)
- * @param {boolean} [props.dockable]  false = a drag never racks or title-locks
- *   it (dragged out of either, it floats) — the filer's picker mode (req #3958)
+ * @param {boolean|'navbar'} [props.dockable]  false = a drag never racks or title-locks
+ *   it (dragged out of either, it floats) — the filer's picker mode (req #3958);
+ *   'navbar' = only the navbar's rack takes it — no page toolbar, no title bar
+ *   (the pinned filer, req #4172)
  * @param {boolean} [props.overhang]  true = a head drag may carry it half off
  *   the viewport, its centre kept inside (req #4046); released, it docks back
  *   whole on screen as always
@@ -309,10 +312,10 @@ export default function AnchoredPanel({
         // Lifted only off its own rack: a reorder inside it is drawn where it is.
         // Not dockable, it never stays in the rack it came from: lifted at once.
         setLive({ ...g.last, edge: g.edge,
-            lifted: !!g.slotDoc && (!dockable || !rackApi.isOverOwn(x, y, g.fromRack)) });
+            lifted: !!g.slotDoc && (!dockable || !rackApi.isOverOwn(x, y, g.fromRack, dockable)) });
         if (g.kind === 'move') {
             const overRackNow = rackApi.track(x, y, g.fromRack, colors.frame, dockable, zIndex);
-            const overBarNow = dockable && titleBar.track(x, y, colors.frame);
+            const overBarNow = dockable === true && titleBar.track(x, y, colors.frame);
             if (onMoveTrack) {
                 g.tracked = true;
                 aim(!!onMoveTrack({ phase: 'move', rect: drawnRect(g), docking: !!(overRackNow || overBarNow), aim }));
@@ -351,7 +354,7 @@ export default function AnchoredPanel({
             // Dropped on the title bar: locked where it landed (req #3857).
             // Dragged off it, it floats where it was dropped, as below.
             if (onTitleLockChange) {
-                const lock = dockable ? titleBar.release(x, y, g.last) : (titleBar.cancel(), null);
+                const lock = dockable === true ? titleBar.release(x, y, g.last) : (titleBar.cancel(), null);
                 if (lock) { onTitleLockChange(lock); endTrack(g, 'drop', true); return; }
                 if (titleLock) onTitleLockChange(null);
             }

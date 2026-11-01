@@ -89,11 +89,12 @@ function racks(s) {
  *  in that rack — the bottom, unless pointed into the stack (req #3744,
  *  `rackDropIndex`) — and whether that is the rack it is drawn in now (`own`).
  *  A window from the OTHER rack arrives there; only its own rack reorders it. */
-export function rackTarget(rackId, x, y, fromRack) {
+export function rackTarget(rackId, x, y, fromRack, navOnly = false) {
     const s = usePanelRackStore.getState();
     const from = fromRack ? rackPlacement(s, rackId)?.where ?? null : null;
     for (const [where, slot, stack, zone] of racks(s)) {
         const off = slotOffset(slot);
+        if (navOnly && where !== 'nav') continue;
         if (!zone || !slot?.node || !pointInRect(x, y, rectIn(zone, off))) continue;
         const own = from === where;
         const mids = new Map();
@@ -164,14 +165,15 @@ export function usePanelRack(rackId) {
     }, [rackId]);
 
     // Read live: a gesture's release must see the page as it is now.
-    const target = (x, y, fromRack) => (rackId && !usePanelRackStore.getState().covered
-        ? rackTarget(rackId, x, y, fromRack) : NOWHERE);
+    // `canRack` 'navbar' (req #4172): the navbar's rack takes it, a page toolbar's does not.
+    const target = (x, y, fromRack, canRack = true) => (rackId && canRack && !usePanelRackStore.getState().covered
+        ? rackTarget(rackId, x, y, fromRack, canRack === 'navbar') : NOWHERE);
     const track = (x, y, fromRack, color, canRack = true, z = null) => {
         if (!rackId) return false;
         const from = fromRack ? rackPlacement(usePanelRackStore.getState(), rackId)?.where ?? null : null;
         // Still published when it cannot rack: a page toolbar's frame gives up
         // the pointer to a carried window (Systems/ToolbarRack.jsx).
-        const { over, rack, index } = canRack ? target(x, y, fromRack) : NOWHERE;
+        const { over, rack, index } = target(x, y, fromRack, canRack);
         // `color` — its frame: the rack under it glows in it (req #3728). `z` —
         // its own stacking, which the navbar lifts to while carrying it (req #4044).
         publishRackDrag({ id: rackId, fromRack, from, color, over, rack, index, z });
@@ -179,11 +181,11 @@ export function usePanelRack(rackId) {
         return over;
     };
     const isOver = (x, y, fromRack) => target(x, y, fromRack).over;
-    const isOverOwn = (x, y, fromRack) => target(x, y, fromRack).own;
+    const isOverOwn = (x, y, fromRack, canRack = true) => target(x, y, fromRack, canRack).own;
     const cancel = () => { if (rackId) publishRackDrag(null); };
     const release = (x, y, fromRack, canRack = true) => {
         if (!rackId) return null;
-        const t = canRack ? target(x, y, fromRack) : NOWHERE;
+        const t = target(x, y, fromRack, canRack);
         publishRackDrag(null);
         const { rack, unrack } = usePanelRackStore.getState();
         // Dropped on a rack: into its stack where the pointer is, out of the other.

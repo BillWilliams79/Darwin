@@ -21,9 +21,10 @@
 //
 // PICKER MODE WORKS IN THE DOCKABLE AREAS (user, 2026-10-27: "when we are in
 // pushpin html association mode we need that mode on the … bars elements too").
-// Pinned, the filer docks nowhere (AnchoredPanel `dockable={false}`): carried
-// over the navbar, a title bar or AI Architecture's toolbar it outlines their
-// elements like any others and floats where it is dropped. Unpinned, it docks
+// Pinned, the filer docks only in the NAVBAR (AnchoredPanel
+// `dockable="navbar"`, req #4172; the pin stays pressed there): carried over a
+// title bar or AI Architecture's toolbar it outlines their elements like any
+// others and floats where it is dropped. Unpinned, it docks
 // in them as always and outlines nothing.
 //
 // IT REACHES THE EDGES (req #4046, user, 2026-10-30: "can the edges of the
