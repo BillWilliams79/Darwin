@@ -213,3 +213,31 @@ describe('PipelineEditDialog — the epic and initiative editors\' form (req #41
         expect(onDeleted).not.toHaveBeenCalled();
     });
 });
+
+describe('PipelineEditDialog Esc (req #4171)', () => {
+    const esc = () => fireEvent.keyDown(screen.getByTestId('pipeline-edit-dialog'), { key: 'Escape' });
+
+    it('closes at once when nothing was edited', () => {
+        const onClose = vi.fn();
+        const confirm = vi.spyOn(window, 'confirm');
+        render(ui(ROW, { onClose }));
+        esc();
+        expect(confirm).not.toHaveBeenCalled();
+        expect(onClose).toHaveBeenCalledTimes(1);
+        confirm.mockRestore();
+    });
+
+    it('asks before discarding edits, and keeps the dialog on No', () => {
+        const onClose = vi.fn();
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(ui(ROW, { onClose }));
+        fireEvent.change(screen.getByTestId('pipeline-edit-description'), { target: { value: 'Changed' } });
+        esc();
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(onClose).not.toHaveBeenCalled();
+        confirm.mockReturnValue(true);
+        esc();
+        expect(onClose).toHaveBeenCalledTimes(1);
+        confirm.mockRestore();
+    });
+});

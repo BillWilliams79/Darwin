@@ -231,6 +231,10 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // ── The three bodies ──────────────────────────────────────────────────────────
 
+// Whether the body on show holds unsaved edits — set by each body as it renders,
+// read by the panel's Esc handler (req #4171).
+const editorDirty = { current: false };
+
 function useWriter(spec) {
     const showError = useSnackBarStore((s) => s.showError);
     const close = usePlanEditorStore((s) => s.closeEditor);
@@ -292,6 +296,7 @@ function PipelineBody({ spec }) {
     const { fields, problem } = pipelineEditFields(openedRow, {
         title, description, machineFk, sortOrder, locked: formLocked, status });
     const dirty = !problem && Object.keys(fields).length > 0;
+    editorDirty.current = dirty;
     const deleteBlocked = deletion ? pipelineDeleteBlockedReason(pipeline, deletion) : null;
 
     const save = () => {
@@ -386,6 +391,7 @@ function EpicBody({ spec }) {
         || barrier !== barrierOf(epic) || notBefore !== notBeforeToInputValue(epic.not_before);
     const lockChanged = locked !== !!epic.locked;
     const dirty = edited || lockChanged;
+    editorDirty.current = dirty;
     const deleteBlocked = deletion ? deleteBlockedReason(epic, inheritedLock, deletion) : null;
 
     const save = () => {
@@ -516,6 +522,7 @@ function InitiativeBody({ spec }) {
         || String(categoryFk) !== String(initiative.category_fk ?? '')
         || sortOrder !== (initiative.sort_order == null ? '' : String(initiative.sort_order))
         || pause !== (initiative.initiative_status === 'paused' ? 'paused' : 'active') || !!depEdit;
+    editorDirty.current = dirty;
 
     const save = () => {
         const t = title.trim();
@@ -680,6 +687,15 @@ export default function PlanElementEditor() {
             {({ shapedWidth }) => (
                 <Box component="form" data-testid={`plan-editor-form-${current.kind}`}
                      onSubmit={(e) => e.preventDefault()}
+                     onKeyDown={(e) => {
+                         // Esc dismisses the editor (req #4171); unsaved edits are asked about first.
+                         // A press that already did something (closed a list) or is IME input is not ours.
+                         if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent?.isComposing
+                             || e.nativeEvent?.keyCode === 229) return;
+                         e.preventDefault();
+                         if (editorDirty.current && !window.confirm('Discard unsaved changes in the editor?')) return;
+                         closeEditor();
+                     }}
                      sx={{ width: shapedWidth == null ? `${FORM_EM}em` : '100%', maxWidth: '100%',
                             boxSizing: 'border-box', px: `${FORM_PAD_EM}em`, py: '0.9em',
                             display: 'flex', flexDirection: 'column', gap: '0.55em' }}>
