@@ -61,6 +61,19 @@ export function formatDateTime(dateStr, timezone) {
     return d.toLocaleString(undefined, options);
 }
 
+// The whole instant — date, time to the second and the zone's short name — in
+// the reader's timezone (req #4170's Started column).
+export function formatDateTimeFull(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '—';
+    const options = {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
+        ...(timezone && { timeZone: timezone }),
+    };
+    return d.toLocaleString(undefined, options);
+}
+
 export function formatDate(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '—';
