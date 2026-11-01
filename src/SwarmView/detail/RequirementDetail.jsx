@@ -216,7 +216,7 @@ const RequirementDetail = () => {
     const fromCalendar = location.state?.from === 'calendar';
     // Req #3119: arriving from a plan (the plan table's requirement link or the
     // visualizer's requirement label) must go BACK to that plan, not to the
-    // Roadmap. Without this the only exit from a requirement opened out of the
+    // Requirements page. Without this the only exit from a requirement opened out of the
     // visualizer was the Requirements cards view — a different page than the one
     // the user left, so the plan (and the mode/layout toggles they had set) had
     // to be found again by hand.
@@ -253,7 +253,21 @@ const RequirementDetail = () => {
     // Req #3582: a plan epic's "+" opened this draft — it is to be filed INTO
     // that epic. Seated by the same first save that creates it (below).
     const newSeat = isNew ? readNewRequirementSeat(location.state) : null;
+    // Req #4185: the navbar's jump-to-requirement opens this page in a NEW TAB
+    // (`?from=jump`). That tab has no in-app history and no router state, so
+    // there is no page to go "back" to inside it — the page the reader jumped
+    // from is the tab they left. Its exit is therefore to close the tab; if the
+    // browser refuses (window.close only works on script-opened tabs) the
+    // button still lands on the Requirements page rather than doing nothing.
+    const fromJump = new URLSearchParams(location.search ?? '').get('from') === 'jump'
+        && !location.state?.from;
     const handleBack = () => {
+        if (fromJump) {
+            window.close();
+            // Still running => the tab was not closed.
+            setTimeout(() => navigate('/swarm'), 150);
+            return;
+        }
         if (hasPipelineOrigin) {
             // `?mode=`/`?level=` are TRANSIENT overrides on the receiving page,
             // never writes to the reader's stored preferences — so returning them
@@ -264,8 +278,9 @@ const RequirementDetail = () => {
         }
         return navigate(fromCalendar ? '/calview' : '/swarm');
     };
-    const backLabel = hasPipelineOrigin ? 'Back to Plan'
-        : (fromCalendar ? 'Back to Calendar' : 'Back to Roadmap');
+    const backLabel = fromJump ? 'Close'
+        : hasPipelineOrigin ? 'Back to Plan'
+        : (fromCalendar ? 'Back to Calendar' : 'Back to Requirements');
     const { idToken, profile } = useContext(AuthContext);
     const timezone = profile?.timezone;
     const { darwinUri } = useContext(AppContext);

@@ -114,7 +114,7 @@ describe('PipelineDetail — requirement launcher (req #3798)', () => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         act(() => { setter.call(input, '3798'); input.dispatchEvent(new Event('input', { bubbles: true })); });
         act(() => { node('req-jump-submit').click(); });
-        expect(open).toHaveBeenCalledWith('/swarm/requirement/3798', '_blank', 'noopener,noreferrer');
+        expect(open).toHaveBeenCalledWith('/swarm/requirement/3798?from=jump', '_blank', 'noopener,noreferrer');
     });
 
     it('takes at most four digits (req #4064)', () => {

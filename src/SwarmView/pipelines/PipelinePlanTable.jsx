@@ -285,7 +285,7 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
                         component={RouterLink}
                         to={`/swarm/requirement/${id}`}
                         // Provenance, so the detail page's Back returns to THIS plan
-                        // rather than the Roadmap (req #3119) — and to THIS PANEL of
+                        // rather than the Requirements page (req #3119) — and to THIS PANEL of
                         // it (req #3252). The route names the plan; which panel it
                         // opens is a stored preference, and a reader who reached the
                         // table through a bead click or a `?epic=` link never
