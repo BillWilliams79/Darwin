@@ -33,6 +33,8 @@
 // darwin-mcp/services/orchestration_claims.py — the two derive the same fact for
 // different consumers, and a UI that called a claim live while the engine called
 // it reclaimable would be worse than showing nothing.
+import { buildMachineColorView } from './pipelinePlanLayout';
+
 export const STALE_AFTER_SECONDS = 600;
 
 function asArray(value) {
@@ -288,6 +290,9 @@ export function machinePlatformInitial(machine) {
  */
 export function cardOrchestrationBadges(claims, pipelineId, machines, now = new Date()) {
     if (pipelineId == null) return [];
+    // req #4169 — a badge is filled with its MACHINE's colour (the one the plan
+    // canvas's machine scale draws), not with a lead/subscriber tone.
+    const { colorOfMachine } = buildMachineColorView({ machines: asArray(machines) });
     const byId = new Map(asArray(machines).map((m) => [m.id, m]));
     const letter = (claim) => machinePlatformInitial(byId.get(claim && claim.machine_fk));
     const badges = [];
@@ -296,7 +301,8 @@ export function cardOrchestrationBadges(claims, pipelineId, machines, now = new 
         const same = badges.find((b) => b.machineFk === machine);
         if (same) { same.title = `${same.title} ${title}`; return; }
         badges.push({ key: badges.length ? `claim-${claim.id}` : 'lead',
-                      machineFk: machine, text: letter(claim), tone, title });
+                      machineFk: machine, text: letter(claim), tone, title,
+                      color: colorOfMachine(machine) });
     };
     const view = orchestrationView(claims, pipelineId, machines, now);
     if (view && view.role === ROLE_LEAD) {

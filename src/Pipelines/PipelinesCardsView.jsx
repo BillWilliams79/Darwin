@@ -373,16 +373,6 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                             <DragIndicatorIcon fontSize="small" />
                         </Box>
                     </Tooltip>
-                    {/* WHO IS ORCHESTRATING IT (req #3973) — between the grip
-                        and the title, centred on the title's first line. */}
-                    {badges.length > 0 && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', height: 30, mr: 0.5 }}>
-                            <OrchestrationBadges badges={badges}
-                                                 size={22} fontSize="0.8rem"
-                                                 testId={`pipelines-card-holder-${p.id}`}
-                                                 badgeTestIdPrefix={`pipelines-card-holder-${p.id}`} />
-                        </Box>
-                    )}
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Tooltip title={locked ? 'Locked — unlock to rename' : ''} placement="top-start">
                             <span>
@@ -468,6 +458,10 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                 <Box sx={{ position: 'relative', mt: 1.75, mb: 1.5, px: 1.5, pt: 1.75, pb: 1,
                            border: 1, borderColor: 'divider', borderRadius: 2 }}
                      data-testid={`pipelines-card-info-${p.id}`}>
+                    {/* req #4169 — the status legend and, just right of it, the
+                        orchestration badges (machine-coloured). */}
+                    <Box sx={{ position: 'absolute', top: 0, left: 12, transform: 'translateY(-50%)',
+                               display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Tooltip title={statusAnchor || !onSetStatus || statusSaving ? '' : `Status: ${statusLabel} — click to change`}
                              placement="top" enterDelay={400}>
                         <Typography component="span" variant="caption"
@@ -488,8 +482,7 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                                     onKeyUp={(e) => {
                                         if (e.key === ' ') { e.preventDefault(); openStatus(e); }
                                     }}
-                                    sx={{ position: 'absolute', top: 0, left: 12, transform: 'translateY(-50%)',
-                                          px: 1, borderRadius: 1, lineHeight: 1.6, fontWeight: 600,
+                                    sx={{ px: 1, borderRadius: 1, lineHeight: 1.6, fontWeight: 600,
                                           bgcolor: 'background.paper',
                                           ...statusColours,
                                           cursor: !onSetStatus ? 'default' : statusSaving ? 'progress' : 'pointer',
@@ -505,6 +498,13 @@ function PipelineCard({ p, summary, counts, machines, badges, heldLive, onOpen, 
                             {statusLabel}
                         </Typography>
                     </Tooltip>
+                    {badges.length > 0 && (
+                        <OrchestrationBadges badges={badges}
+                                             size={18} fontSize="0.7rem"
+                                             testId={`pipelines-card-holder-${p.id}`}
+                                             badgeTestIdPrefix={`pipelines-card-holder-${p.id}`} />
+                    )}
+                    </Box>
                     <PipelineStatusMenu anchorEl={statusAnchor} status={p.pipeline_status}
                                         onPick={pickStatus} onClose={() => setStatusAnchor(null)}
                                         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}

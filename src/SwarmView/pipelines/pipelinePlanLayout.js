@@ -592,6 +592,8 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
         return [id, c];
     }));
     return {
+        colorOfMachine: (machineFk) => (machineFk == null
+            ? MACHINE_ANY_COLOR : (colorById.get(machineFk) || MACHINE_ANY_COLOR)),
         colorOf: (reqId) => {
             const m = reqMachine.get(reqId);
             return m == null ? MACHINE_ANY_COLOR : (colorById.get(m) || MACHINE_ANY_COLOR);
