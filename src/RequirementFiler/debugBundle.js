@@ -14,8 +14,15 @@
 // them all files the requirement with no capture at all.
 //
 // STORED in `requirement_debug_captures` (one row per requirement), never in
-// the description: the bundle is 7.5-44.4 KB on real pages and ~254 K chars at
-// the caps, and the description rides into every MCP live-work read. A worker
+// the description: the 92 production bundles of 2026-10-23…31 had a median of
+// 47 KB (40 KB re-encoded by req #4159, losslessly), ~270 K chars at the caps,
+// and the description rides into every MCP live-work read.
+//
+// CORRECT AND COMPLETE (req #4159): an empty Lambda-Rest list read is counted,
+// never listed as a failure; what the reader SAW (snackbar, alerts, dialogs) is
+// its own category and failure evidence; focus losses carry their age; and
+// repeated GETs and storage the view state already records are stored once —
+// `networkOccurrences` / `expandStorage` give the old encoding back. A worker
 // reads the block in the description and pulls the bundle by id —
 // `darwin://requirement-debug/<requirement id>`.
 //
@@ -24,13 +31,14 @@
 // every URL has its credential parameters redacted; and every category's
 // serialized text is scrubbed of anything token-shaped, counting the hits.
 
-import { PROXY_AUTH } from '../config/product';
+import { PRODUCT, PROXY_AUTH } from '../config/product';
+import { database as userDatabase } from '../Context/AppContext';
 import { queryClient } from '../QueryClient/QueryClientSetup';
 import { usePressStore } from '../dnd/pressStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
-import { bounded, capList, cleanUrl, debugCaptureState, DEBUG_CAPTURE_CAPS, ser } from '../utils/debugCapture';
+import { bounded, capList, cleanUrl, debugCaptureState, DEBUG_CAPTURE_CAPS, networkOccurrences, ser } from '../utils/debugCapture';
 import { focusTimeline, storedFocusLosses } from '../utils/focusLossRecorder';
 
 export const DEBUG_CAPTURE_VERSION = 1;
@@ -47,6 +55,9 @@ export const BUNDLE_CAPS = Object.freeze({
     storageValueBytes: 2 * KB, storageBytes: 16 * KB, keyMax: 200, namesMax: 50,
     titleMax: 200, testidPath: 20,
     storesBytes: 4 * KB, focusBytes: 8 * KB,
+    // What the reader saw (req #4159): ≤ 10 visible alerts/dialogs, each ≤ 500
+    // chars, ≤ 4 KB together — plus the snackbar's ≤ 5 messages of ≤ 500.
+    screenItems: 10, screenTextMax: 500, screenAlertBytes: 4 * KB,
     // The description block's verbatim lines: at most 5 of each kind, ≤ 2 KB together.
     blockLines: 5, blockLineMax: 400, blockDetailBytes: 2 * KB,
 });
@@ -58,6 +69,7 @@ export const DEBUG_CATEGORIES = Object.freeze([
     { key: 'identity', label: 'Identity' },
     { key: 'console', label: 'Console' },
     { key: 'errors', label: 'Errors' },
+    { key: 'screen', label: 'On screen' },
     { key: 'network', label: 'Network' },
     { key: 'resourceTiming', label: 'Resource timing' },
     { key: 'navigation', label: 'Navigation' },
@@ -146,13 +158,173 @@ function ringCategory(state, name) {
     return { dropped: r.dropped, entries: r.all() };
 }
 
-/** A store's state without its actions. */
-function storeState(store) {
+/** A store's state without its actions (and without `omit`, recorded elsewhere). */
+function storeState(store, omit = []) {
     const out = {};
     for (const [k, v] of Object.entries(store.getState() || {})) {
-        if (typeof v !== 'function') out[k] = v;
+        if (typeof v !== 'function' && !omit.includes(k)) out[k] = v;
     }
     return ser(out);
+}
+
+// ── What the reader saw (req #4159) ─────────────────────────────────────────
+// The error a reader files about is often one they SAW and that no trace
+// holds: a client-side refusal shown in the snackbar before any request
+// (3877), or an alert on the page (4154, "this immediately showed"). So the
+// capture keeps the snackbar's recent messages and the text of every alert and
+// dialog on screen at the press — the filer's own UI excepted.
+
+const SEEN = '[role="alert"], [role="alertdialog"], [role="dialog"], dialog[open], .MuiAlert-root';
+const FILER_UI = '[data-testid^="requirement-editor"], [data-testid^="requirement-filer"]';
+const SEVERITY = /\bMuiAlert-(?:standard|filled|outlined|color)(Error|Warning|Info|Success)\b/;
+
+/** Drawn and not hidden. A real browser answers checkVisibility; without
+ *  layout (jsdom) an element is shown unless it or an ancestor is hidden. */
+function isShown(el) {
+    if (typeof el.checkVisibility === 'function') {
+        return el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+    }
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        if (n.hidden) return false;
+        const cs = n.ownerDocument?.defaultView?.getComputedStyle?.(n);
+        if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) return false;
+    }
+    return true;
+}
+
+function seenIn(doc, frame, out) {
+    let els = [];
+    try { els = [...doc.querySelectorAll(SEEN)]; } catch { return; }
+    for (const el of els) {
+        if (el.closest(FILER_UI) || !isShown(el)) continue;
+        const text = oneLine(el.textContent);
+        if (!text) continue;
+        const role = el.getAttribute('role') || (el.tagName === 'DIALOG' ? 'dialog' : 'alert');
+        // MUI's SnackbarContent is a role=alert with no severity: a toast — an
+        // error or a plain message alike — so it is recorded as what it is, and
+        // the snackbar store's own history says which kind it was.
+        const toast = !!el.closest('.MuiSnackbar-root, .MuiSnackbarContent-root, [data-testid="snackbar"]');
+        const severity = SEVERITY.exec(String(el.className?.baseVal ?? el.className ?? ''))?.[1]?.toLowerCase();
+        const testid = el.getAttribute('data-testid') || el.closest('[data-testid]')?.getAttribute('data-testid');
+        out.push({
+            // A toast holding an MUI Alert carries its own severity (Maps, imports,
+            // Build Visualizer keep local snackbars that never reach the store's
+            // history), so only a severity-less toast defers to that history.
+            kind: toast && !severity ? 'snackbar' : (/dialog/.test(role) && role !== 'alertdialog' ? 'dialog' : 'alert'),
+            role,
+            ...(severity ? { severity } : null),
+            ...(testid ? { testid: testid.slice(0, 100) } : null),
+            ...(frame ? { frame } : null),
+            text: text.length > BUNDLE_CAPS.screenTextMax ? `${text.slice(0, BUNDLE_CAPS.screenTextMax)}…` : text,
+            ...(text.length > BUNDLE_CAPS.screenTextMax ? { chars: text.length } : null),
+        });
+    }
+}
+
+/** Every alert and dialog on screen now, the page's same-origin frames included. */
+export function seenOnScreen(doc = document) {
+    const found = [];
+    seenIn(doc, null, found);
+    for (const f of doc.querySelectorAll?.('iframe') || []) {
+        let fd;
+        try { fd = f.contentDocument; } catch { fd = null; }
+        if (!fd) continue;
+        let frame;
+        try { frame = cleanUrl(f.contentWindow.location.pathname, f.contentWindow.location.href); } catch { frame = 'iframe'; }
+        seenIn(fd, frame, found);
+    }
+    const { kept, dropped } = capList(found.slice(0, BUNDLE_CAPS.screenItems), BUNDLE_CAPS.screenAlertBytes);
+    return { alerts: kept, alertsDropped: dropped + Math.max(0, found.length - BUNDLE_CAPS.screenItems) };
+}
+
+/** A shown alert that is failure evidence: an alert dialog, or an alert not
+ *  marked info/success. A snackbar on screen is not judged here — the store's
+ *  history records whether it was an error. */
+export const isAlarming = (a) => a?.kind === 'alert' && a.severity !== 'info' && a.severity !== 'success';
+
+// ── Failure classification (req #4159) ──────────────────────────────────────
+// A Lambda-Rest LIST read that matches no rows answers `404 "NOT FOUND"`, and
+// every Darwin reader (darwin-mcp's client included) takes it as `[]`. Counted
+// as a failure, a plan page's empty `engine_outcomes` / `initiative_deps`
+// reads turned 61 of 69 verbose blocks verbose on nothing, and hid the one
+// real failure (4113) among them. So an empty list read is counted, not
+// listed. It is matched on the PATH — `…/<database>/<table>` — so any gateway
+// host is covered (the internal product's `/api/internal/<table>`, req #4079 /
+// #4151), and it is never a single-record lookup (an `id=` filter, or
+// `pipeline_compose`, which composes ONE plan): that 404 means the record the
+// page asked for does not exist, which is a failure.
+
+const DATABASE_SEGMENTS = new Set(['darwin', 'darwin_dev', PRODUCT?.opsDatabase, PRODUCT?.buildVizDatabase, userDatabase]
+    .filter(Boolean));
+const TABLE = /^[A-Za-z0-9_]+$/;
+const SINGLE_RECORD_TABLES = new Set(['pipeline_compose']);
+
+/** A GET 404 from a Lambda-Rest table list read — an empty result, not a failure. */
+export function isEmptyListRead(e) {
+    if (!e || e.status !== 404 || String(e.method || 'GET').toUpperCase() !== 'GET') return false;
+    let u;
+    try { u = new URL(String(e.url), 'http://localhost/'); } catch { return false; }
+    const segs = u.pathname.split('/').filter(Boolean);
+    if (segs.length < 2) return false;
+    const table = segs[segs.length - 1];
+    return DATABASE_SEGMENTS.has(segs[segs.length - 2]) && TABLE.test(table)
+        && !SINGLE_RECORD_TABLES.has(table) && !u.searchParams.has('id');
+}
+
+/** A request that failed: no answer (status 0), or any status ≥ 400 that is not an empty list read. */
+export const isFailed = (e) => !!e && (e.status === 0 || (e.status >= 400 && !isEmptyListRead(e)));
+
+// ── Storage, stored once (req #4159) ────────────────────────────────────────
+// A median 51% of the localStorage keys a capture held are the page's view
+// state, which `filedFrom.options.viewState` already records. A key whose
+// stored value is EXACTLY what serializing that view-state value gives — or a
+// zustand persist envelope around it — is named instead of copied, so nothing
+// is lost: `expandStorage` puts every value back byte for byte.
+
+export const VIEW_STATE_AT = 'filedFrom.options.viewState';
+const STATE_SLOT = `[${VIEW_STATE_AT}]`;
+const same = (a, b) => { try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; } };
+const isEnvelope = (v) => v && typeof v === 'object' && !Array.isArray(v) && 'state' in v && 'version' in v;
+
+function dedupeArea(area, vs) {
+    if (!area?.entries || !vs) return area;
+    const entries = {};
+    const keys = [];
+    const wrapped = {};
+    for (const [k, v] of Object.entries(area.entries)) {
+        if (Object.prototype.hasOwnProperty.call(vs, k)) {
+            if (same(ser(vs[k]), v)) { keys.push(k); continue; }
+            if (isEnvelope(v) && same(ser({ ...v, state: vs[k] }), v)) { wrapped[k] = { ...v, state: STATE_SLOT }; continue; }
+        }
+        entries[k] = v;
+    }
+    if (!keys.length && !Object.keys(wrapped).length) return area;
+    return { ...area, entries, sameAsViewState: { at: VIEW_STATE_AT, keys,
+        ...(Object.keys(wrapped).length ? { wrapped } : null) } };
+}
+
+/** `storage` with each value already in `filedFrom`'s view state named rather than copied. */
+export function dedupeStorage(storage, filedFrom) {
+    const vs = filedFrom?.options?.viewState;
+    if (!storage || typeof storage !== 'object' || !vs || typeof vs !== 'object') return storage;
+    return { ...storage, local: dedupeArea(storage.local, vs), session: dedupeArea(storage.session, vs) };
+}
+
+/** `storage` with every named value put back — the encoding before req #4159. */
+export function expandStorage(storage, filedFrom) {
+    const vs = filedFrom?.options?.viewState || {};
+    const expand = (area) => {
+        const ref = area?.sameAsViewState;
+        if (!ref) return area;
+        const { sameAsViewState, ...rest } = area;
+        const entries = { ...rest.entries };
+        for (const k of ref.keys || []) entries[k] = ser(vs[k]);
+        for (const [k, env] of Object.entries(ref.wrapped || {})) entries[k] = ser({ ...env, state: vs[k] });
+        return { ...rest, entries };
+    };
+    if (!storage || typeof storage !== 'object') return storage;
+    return { ...storage, ...(storage.local ? { local: expand(storage.local) } : null),
+        ...(storage.session ? { session: expand(storage.session) } : null) };
 }
 
 function errorText(err) {
@@ -169,6 +341,14 @@ function readProfile(profile) {
     }
     // Who filed it — never how they are authenticated.
     return p ? { id: p.id ?? null, userName: p.userName ?? null, email: p.email ?? null } : null;
+}
+
+/** When this page loaded (ms epoch) — the start of the reader's page session. */
+function pageSessionStart() {
+    const o = performance.timeOrigin;
+    if (Number.isFinite(o) && o > 0) return Math.round(o);
+    const installed = debugCaptureState()?.installedAt;
+    return Number.isFinite(installed) ? installed : null;
 }
 
 const BUILDERS = {
@@ -198,11 +378,35 @@ const BUILDERS = {
     console: ({ state }) => ringCategory(state, 'console'),
     errors: ({ state }) => ringCategory(state, 'errors'),
     // Plus what was sent and never answered — a hung page's request is not in the ring.
-    network: ({ state }) => {
-        const now = Date.now();
+    // Which requests are held is fixed NOW; each is encoded when the category is
+    // serialized, after the failure bodies still being read have landed.
+    network: ({ state, now }) => {
+        const r = state?.rings?.network;
+        if (!r) return { installed: false };
         const inFlight = [...(state?.inFlight ?? [])].slice(-20)
             .map(e => ({ method: e.method, url: e.url, kind: e.kind, ...(e.frame ? { frame: e.frame } : null), elapsedMs: now - e.t }));
-        return { ...ringCategory(state, 'network'), inFlight };
+        const dropped = r.dropped;
+        const entries = typeof r.snapshot === 'function' ? r.snapshot() : (() => r.all());
+        return {
+            toJSON() {
+                const list = entries();
+                const all = networkOccurrences(list);
+                return { dropped, entries: list, requests: all.length,
+                    emptyListReads: all.filter(isEmptyListRead).length, inFlight };
+            },
+        };
+    },
+    screen: ({ now }) => {
+        const sb = useSnackBarStore.getState() || {};
+        const clip500 = (m) => { const t = typeof m === 'string' ? m : String(m ?? ''); return t.length > BUNDLE_CAPS.screenTextMax ? `${t.slice(0, BUNDLE_CAPS.screenTextMax)}…` : t; };
+        return {
+            snackbar: {
+                open: !!sb.open,
+                message: clip500(sb.message),
+                history: (Array.isArray(sb.history) ? sb.history : []).map(({ t, ...h }) => ({ msBeforePress: now - t, ...h })),
+            },
+            ...seenOnScreen(document),
+        };
     },
     resourceTiming: () => {
         // A per-type aggregate, plus only the entries worth reading: failed or slow.
@@ -247,18 +451,30 @@ const BUILDERS = {
     storage: () => ({ local: snapshotStorage(window.localStorage), session: snapshotStorage(window.sessionStorage) }),
     // The four zustand stores without `persist` — the persisted ones are in `storage`.
     stores: () => bounded({
-        snackBar: storeState(useSnackBarStore),
+        // Its message history is the `screen` category's.
+        snackBar: storeState(useSnackBarStore, ['history']),
         dragTab: storeState(useDragTabStore),
         swarmTab: storeState(useSwarmTabStore),
         press: storeState(usePressStore),
     }, BUNDLE_CAPS.storesBytes),
-    // The focus-loss evidence req #3632/#3652 already keeps.
-    focus: () => {
-        const now = Date.now();
-        const losses = capList(storedFocusLosses().slice(-5).reverse(), BUNDLE_CAPS.focusBytes / 2);
+    // The focus-loss evidence req #3632/#3652 already keeps. Losses persist
+    // across reloads, so each says how long before the press it happened, and
+    // one from before this page loaded is `stale` — history, not evidence
+    // about what the reader is filing (req #4159: 77 of 92 captures carried
+    // the same three days-old losses, unmarked).
+    focus: ({ now }) => {
+        const pageStart = pageSessionStart();
+        const losses = capList(storedFocusLosses().slice(-5).reverse().map((l) => {
+            const at = Date.parse(l?.at);
+            if (!Number.isFinite(at)) return l;
+            return { msBeforePress: now - at, ...(pageStart != null && at < pageStart ? { stale: true } : null), ...l };
+        }), BUNDLE_CAPS.focusBytes / 2);
         const timeline = capList(focusTimeline(now - 60000).reverse()
-            .map(({ t, ...e }) => ({ msAgo: now - t, ...e })), BUNDLE_CAPS.focusBytes / 2);
-        return { losses: losses.kept, lossesDropped: losses.dropped, timeline: timeline.kept, timelineDropped: timeline.dropped };
+            .map(({ t, ...e }) => ({ msBeforePress: now - t, ...e })), BUNDLE_CAPS.focusBytes / 2);
+        return {
+            pageSessionStart: pageStart != null ? new Date(pageStart).toISOString() : null,
+            losses: losses.kept, lossesDropped: losses.dropped, timeline: timeline.kept, timelineDropped: timeline.dropped,
+        };
     },
 };
 
@@ -276,15 +492,34 @@ function countNote(key, v) {
     case 'console': return `${of(n(v.entries), 'line')}${plus(v.dropped)}`;
     case 'errors': return `${of(n(v.entries), 'error')}${plus(v.dropped)}`;
     case 'network': {
-        const failed = (v.entries || []).filter(isFailed).length;
-        return `${of(n(v.entries), 'request')}, ${failed} failed${n(v.inFlight) ? `, ${n(v.inFlight)} pending` : ''}${plus(v.dropped)}`;
+        const all = networkOccurrences(v.entries);
+        const failed = all.filter(isFailed).length;
+        const empty = all.filter(isEmptyListRead).length;
+        return `${of(all.length, 'request')}${all.length !== n(v.entries) ? ` in ${of(n(v.entries), 'entry', 'entries')}` : ''}`
+            + `, ${failed} failed${empty ? `, ${of(empty, 'empty list read')}` : ''}`
+            + `${n(v.inFlight) ? `, ${n(v.inFlight)} pending` : ''}${plus(v.dropped)}`;
+    }
+    case 'screen': {
+        const hist = v.snackbar?.history || [];
+        const errs = hist.filter((h) => h.kind === 'error').length;
+        return [`${of(hist.length, 'snackbar message')}${errs ? ` (${errs} error${errs === 1 ? '' : 's'})` : ''}`,
+            `${of(n(v.alerts), 'alert/dialog', 'alerts/dialogs')} shown`].join(', ');
     }
     case 'resourceTiming': return `${of(v.total ?? 0, 'entry', 'entries')}, ${n(v.notable)} failed/slow`;
     case 'navigation': return `${of(n(v.entries), 'change')}`;
     case 'reactQuery': return `${of(v.total ?? 0, 'query', 'queries')}`;
-    case 'storage': return `${of(Object.keys(v.local?.entries || {}).length + Object.keys(v.session?.entries || {}).length, 'key')}`
-        + `, ${of((v.local?.droppedKeys?.count || 0) + (v.session?.droppedKeys?.count || 0), 'credential key')} dropped`;
-    case 'focus': return `${of(n(v.losses), 'loss', 'losses')}, ${of(n(v.timeline), 'event')}`;
+    case 'storage': {
+        // Keys stored once against the view state are still captured keys.
+        const named = (a) => (a?.sameAsViewState?.keys?.length || 0) + Object.keys(a?.sameAsViewState?.wrapped || {}).length;
+        const inVs = named(v.local) + named(v.session);
+        const keys = Object.keys(v.local?.entries || {}).length + Object.keys(v.session?.entries || {}).length + inVs;
+        return `${of(keys, 'key')}${inVs ? ` (${inVs} in view state)` : ''}`
+            + `, ${of((v.local?.droppedKeys?.count || 0) + (v.session?.droppedKeys?.count || 0), 'credential key')} dropped`;
+    }
+    case 'focus': {
+        const stale = (v.losses || []).filter((l) => l?.stale).length;
+        return `${of(n(v.losses), 'loss', 'losses')}${stale ? ` (${stale} stale)` : ''}, ${of(n(v.timeline), 'event')}`;
+    }
     default: return '';
     }
 }
@@ -304,7 +539,6 @@ export function pointedAtLabel(filedFrom) {
     return { path, text, more };
 }
 
-const isFailed = (e) => e && (e.status === 0 || e.status >= 400);
 const utf8 = (s) => new TextEncoder().encode(s).length;
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -320,11 +554,13 @@ const settle = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 export async function buildDebugCapture({ profile = null, state = debugCaptureState(), filedFrom = null } = {}) {
     const t0 = performance.now();
-    const capturedAt = new Date().toISOString();
+    const now = Date.now();
+    const capturedAt = new Date(now).toISOString();
     const values = {};
     for (const { key } of DEBUG_CATEGORIES) {
-        try { values[key] = BUILDERS[key]({ profile, state, filedFrom }); } catch (e) { values[key] = { captureError: String(e?.message || e) }; }
+        try { values[key] = BUILDERS[key]({ profile, state, filedFrom, now }); } catch (e) { values[key] = { captureError: String(e?.message || e) }; }
     }
+    try { values.storage = dedupeStorage(values.storage, values.filedFrom); } catch { /* kept whole */ }
     const syncMs = performance.now() - t0;
     if (state?.pendingBodies?.size) {
         await Promise.race([Promise.allSettled([...state.pendingBodies]), settle(DEBUG_CAPTURE_CAPS.failBodyWaitMs)]);
@@ -346,6 +582,17 @@ export async function buildDebugCapture({ profile = null, state = debugCaptureSt
     };
 }
 
+/** The storage category's text standing alone: with `filedFrom` dropped, the
+ *  values it named in the view state are copied back in. */
+function inlineStorage(capture, text) {
+    try {
+        const storage = JSON.parse(text);
+        if (!storage?.local?.sameAsViewState && !storage?.session?.sameAsViewState) return text;
+        const filedFrom = JSON.parse(capture.categories.find((c) => c.key === 'filedFrom')?.text ?? 'null');
+        return JSON.stringify(expandStorage(storage, filedFrom));
+    } catch { return text; }
+}
+
 /** The bundle as stored: the kept categories' redacted text, and the ones the
  *  reader dropped named. `{ text, bytes }`. */
 export function assembleBundle(capture, dropped = []) {
@@ -358,7 +605,7 @@ export function assembleBundle(capture, dropped = []) {
         jwtRedacted: capture.jwtHits,
     };
     const body = capture.categories.filter((c) => !drop.has(c.key))
-        .map((c) => `${JSON.stringify(c.key)}:${c.text}`);
+        .map((c) => `${JSON.stringify(c.key)}:${c.key === 'storage' && drop.has('filedFrom') ? inlineStorage(capture, c.text) : c.text}`);
     const raw = `${JSON.stringify(head).slice(0, -1)}${body.length ? `,${body.join(',')}` : ''}}`;
     // Every category was scrubbed already; once more over the whole, for free.
     const { text } = scrubJwt(raw);
@@ -375,6 +622,14 @@ const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const clip = (s, max = BUNDLE_CAPS.blockLineMax) => (s.length > max ? `${s.slice(0, max)}…` : s);
 const pathOf = (url) => { try { const u = new URL(url); return `${u.host}${u.pathname}${u.search}`; } catch { return String(url); } };
 const argText = (a) => (typeof a === 'string' ? a : JSON.stringify(a));
+/** `ms` as the block says an age: `12 s`, `4 min`, `3 h`. */
+const ago = (ms) => {
+    if (!Number.isFinite(ms)) return 'some time';
+    const sec = Math.max(0, Math.round(ms / 1000));
+    if (sec < 120) return `${sec} s`;
+    const min = Math.round(sec / 60);
+    return min < 120 ? `${min} min` : `${Math.round(min / 60)} h`;
+};
 
 /** The verbatim lines a worker should not need the bundle for. */
 function detailLines(cats) {
@@ -388,7 +643,24 @@ function detailLines(cats) {
                 : `[${e.kind}] ${argText(e.message)}${e.source ? ` — ${pathOf(e.source)}:${e.line}:${e.col}` : ''}`))}`);
         }
     }
-    const failed = (cats.network?.entries || []).filter(isFailed);
+    // What the reader saw: a snackbar error and a shown alert are failure
+    // evidence exactly like an uncaught error (req #4159). An alert repeating
+    // a snackbar message is the snackbar itself, still open.
+    const snackErrors = (cats.screen?.snackbar?.history || []).filter((h) => h.kind === 'error');
+    const shown = (cats.screen?.alerts || []).filter(isAlarming)
+        .filter((a) => !snackErrors.some((h) => h.message && a.text.includes(oneLine(h.message))));
+    if (snackErrors.length || shown.length) {
+        lines.push(`What the user saw (${snackErrors.length + shown.length}):`);
+        for (const h of snackErrors.slice(-BUNDLE_CAPS.blockLines)) {
+            lines.push(`- ${clip(oneLine(`snackbar error, ${ago(h.msBeforePress)} before the press: ${h.message}`))}`);
+        }
+        for (const a of shown.slice(-BUNDLE_CAPS.blockLines)) {
+            lines.push(`- ${clip(oneLine(`${a.role}${a.severity ? ` (${a.severity})` : ''}${a.testid ? ` ${a.testid}` : ''}: ${a.text}`))}`);
+        }
+    }
+    const requests = networkOccurrences(cats.network?.entries);
+    const failed = requests.filter(isFailed);
+    const emptyReads = requests.filter(isEmptyListRead).length;
     if (failed.length) {
         lines.push(`Failed requests (${failed.length}):`);
         for (const r of failed.slice(-BUNDLE_CAPS.blockLines)) {
@@ -410,6 +682,9 @@ function detailLines(cats) {
             lines.push(`- ${clip(oneLine(`console.${c.level}: ${(c.args || []).map(argText).join(' ')}`))}`);
         }
     }
+    // Counted once, and only beside something that did go wrong: on its own an
+    // empty read is not worth a verbose block.
+    if (lines.length && emptyReads) lines.push(`Empty list reads: ${emptyReads} (GET 404 = no rows; not failures)`);
     // ≤ 2 KB together: the headers stay, the lines that do not fit are counted.
     const kept = [];
     let total = 0;
@@ -434,7 +709,8 @@ export const keepsNothing = (capture, dropped) =>
  * `Surface:` (a /devops-devserver-start deep link) and `URL:`, from the kept
  * `filedFrom` category, plus `Pointed at:` when the filer floated over an
  * element (req #3829) — and where the bundle is. When something went wrong
- * (uncaught errors, failed or pending requests, console errors and warnings) it
+ * (uncaught errors, a snackbar error or alert the reader saw, failed or
+ * pending requests, console errors and warnings — never an empty list read) it
  * adds the counts and sizes per category and those lines verbatim (≤ 5 of each,
  * ≤ 2 KB together); otherwise it stops there, so a plain requirement reads as
  * one always did (req #3818). A capture lost to a reload (null) still says

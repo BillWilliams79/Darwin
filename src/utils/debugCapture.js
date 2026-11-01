@@ -21,7 +21,9 @@
 //   network     fetch + XHR: method, URL, status, duration, sizes, and the first
 //               2 KB of a FAILED response's body — never a header, never a
 //               request body (the id token rides in Authorization, the Cognito
-//               refresh token in a POST body)
+//               refresh token in a POST body). A repeated GET is one entry
+//               holding every occurrence, and GETs never evict a write
+//               (req #4159, § The network ring below)
 //   navigation  pushState / replaceState / popstate
 //
 // plus the browser's ResourceTiming buffer raised to 1,000, and the same
@@ -196,10 +198,189 @@ function ring({ entries: cap, bytes: byteCap }, entryCap = CAPS.entryBytes) {
     };
 }
 
+// ── The network ring: repeats stored losslessly, writes kept (req #4159) ────
+//
+// Polling and refetches repeat one GET: a median 29 of the 52 requests a real
+// capture held repeated an earlier method + URL, and on 3877 the ring was full.
+// So a GET that repeats an earlier one (same kind, frame, method and URL) is
+// ONE entry: its top-level fields are the LATEST occurrence, exactly the shape
+// a single request has always had, and `earlier` holds every earlier
+// occurrence's per-request fields as parallel arrays, oldest first. Nothing an
+// entry held is lost (`networkOccurrences` rebuilds the old list), and the
+// ring's entry cap counts distinct requests rather than repeats.
+//
+// A WRITE (any method but GET/HEAD/OPTIONS) is the user's own action and is
+// never grouped. GET traffic can evict only GETs: writes are evicted by writes,
+// once they hold more than half the ring — so polling cannot push the last
+// save out, and writes cannot starve the reads either.
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const GROUPED = 'GET';
+/** Per-occurrence fields an `earlier` block carries, in this order. */
+export const OCCURRENCE_FIELDS = Object.freeze(['t', 'status', 'ms', 'resBytes', 'reqBytes', 'failBody', 'error']);
+/** Fields an `earlier` block always carries, even when every value is null. */
+const ALWAYS = new Set(['t', 'status', 'ms', 'resBytes']);
+
+/** One ring entry for `occ` (occurrences oldest first, live objects — a
+ *  failure body read after the push lands when it resolves). */
+export function encodeNetworkGroup(occ, earlierDropped = 0) {
+    const latest = occ[occ.length - 1];
+    if (occ.length === 1 && !earlierDropped) return latest;
+    const prior = occ.slice(0, -1);
+    const earlier = { count: prior.length };
+    for (const f of OCCURRENCE_FIELDS) {
+        const vals = prior.map((o) => (o[f] === undefined ? null : o[f]));
+        if (ALWAYS.has(f) || vals.some((v) => v != null)) earlier[f] = vals;
+    }
+    if (earlierDropped) earlier.dropped = earlierDropped;
+    return { ...latest, earlier };
+}
+
+/** The ring's entries as the old one-entry-per-request list — every
+ *  occurrence with its own fields, in completion order (start + duration). */
+export function networkOccurrences(entries) {
+    const out = [];
+    for (const e of entries || []) {
+        if (!e || typeof e !== 'object') continue;
+        const { earlier, ...latest } = e;
+        if (earlier && typeof earlier === 'object') {
+            const shared = { ...latest };
+            for (const f of OCCURRENCE_FIELDS) delete shared[f];
+            for (let i = 0; i < (earlier.count || 0); i++) {
+                const o = { ...shared };
+                for (const f of OCCURRENCE_FIELDS) {
+                    const v = earlier[f]?.[i];
+                    if (v != null) o[f] = v;
+                    else if (ALWAYS.has(f) || f === 'reqBytes') o[f] = null;
+                }
+                out.push(o);
+            }
+        }
+        out.push(latest);
+    }
+    const end = (o) => (o.t ?? 0) + (o.ms ?? 0);
+    return out.map((o, i) => [o, i]).sort((a, b) => end(a[0]) - end(b[0]) || a[1] - b[1]).map(([o]) => o);
+}
+
+export function networkRing({ entries: cap, bytes: byteCap }, entryCap = CAPS.entryBytes) {
+    const entryMax = Math.min(entryCap, Math.floor(byteCap / 4));
+    const writeCap = Math.floor(cap / 2);
+    const writeBytesCap = Math.floor(byteCap / 2);
+    // id → { occ, write, bytes, reserve, earlierDropped }, in last-seen order.
+    const items = new Map();
+    const groups = new Map();       // GET group key → id
+    let nextId = 0;
+    let total = 0;
+    let writes = 0;
+    let writeBytes = 0;
+    let dropped = 0;
+
+    // Room held for failure bodies still being read, per occurrence.
+    const reserved = (it) => { let n = 0; for (const r of it.reserves.values()) n += r; return n; };
+    const measure = (it) => JSON.stringify(encodeNetworkGroup(it.occ, it.earlierDropped)).length + reserved(it);
+    // One entry never outgrows its bound: its oldest repeats go first, counted —
+    // on its CONTENT (a body still being read is reserved in the ring's total,
+    // never paid for with the entry's history).
+    const trim = (it) => {
+        while (it.bytes - reserved(it) > entryMax && it.occ.length > 1) {
+            it.reserves.delete(it.occ.shift());
+            it.earlierDropped++;
+            dropped++;
+            it.bytes = measure(it);
+        }
+    };
+    const remove = (id) => {
+        const it = items.get(id);
+        items.delete(id);
+        total -= it.bytes;
+        if (it.write) { writes--; writeBytes -= it.bytes; }
+        if (it.key) groups.delete(it.key);
+        dropped += it.occ.length;
+    };
+    const firstOf = (write) => {
+        for (const [id, it] of items) if (it.write === write) return id;
+        return null;
+    };
+    // Over a cap: evict the oldest GET entry, or the oldest write when writes
+    // hold more than half the ring (or nothing else is left).
+    const enforce = (id) => {
+        while (items.size > cap || total > byteCap) {
+            const victim = (writes > writeCap || writeBytes > writeBytesCap) ? firstOf(true)
+                : (firstOf(false) ?? firstOf(true));
+            if (victim == null || (victim === id && items.size === 1)) break;
+            remove(victim);
+        }
+    };
+    return {
+        push(e, reserve = 0) {
+            const kept = bounded(e, entryMax - reserve);
+            // From the request itself: a write too big for its bound is a stub, still a write.
+            const write = !READ_METHODS.has(String(e?.method || 'GET').toUpperCase());
+            const key = !write && !kept?.truncated && kept?.method === GROUPED
+                ? `${kept.kind}|${kept.frame ?? ''}|${kept.url}` : null;
+            let id = key != null ? groups.get(key) : undefined;
+            let it;
+            if (id != null) {
+                it = items.get(id);
+                items.delete(id);       // re-inserted below: last seen moves to the back
+                total -= it.bytes;
+                it.occ.push(kept);
+            } else {
+                id = nextId++;
+                it = { occ: [kept], write, key, reserves: new Map(), earlierDropped: 0, bytes: 0 };
+                if (write) writes++;
+                if (key != null) groups.set(key, id);
+            }
+            if (it.write) writeBytes -= it.bytes;
+            if (reserve > 0 && kept === e) it.reserves.set(kept, reserve);
+            it.bytes = measure(it);
+            trim(it);
+            items.set(id, it);
+            total += it.bytes;
+            if (it.write) writeBytes += it.bytes;
+            enforce(id);
+        },
+        /** A failure body has landed: release the room reserved for it. The
+         *  reserve is held only while a body is being read, so failed requests
+         *  cost their real size — not 4 KB each — once it arrives. */
+        settle(e) {
+            for (const it of items.values()) {
+                if (!it.reserves.has(e)) continue;
+                total -= it.bytes;
+                if (it.write) writeBytes -= it.bytes;
+                it.reserves.delete(e);
+                it.bytes = measure(it);
+                trim(it);
+                total += it.bytes;
+                if (it.write) writeBytes += it.bytes;
+                // The body's real size may exceed what was reserved (control
+                // characters escape to 6): the caps hold on real sizes.
+                enforce(null);
+                return;
+            }
+        },
+        all() { return [...items.values()].map((it) => encodeNetworkGroup(it.occ, it.earlierDropped)); },
+        /** The entries as of NOW, encoded when called: which requests are in
+         *  the ring is fixed at the snapshot, while each occurrence stays live
+         *  so a failure body still being read lands in it. */
+        snapshot() {
+            const held = [...items.values()].map((it) => ({ occ: it.occ.slice(), d: it.earlierDropped }));
+            return () => held.map((h) => encodeNetworkGroup(h.occ, h.d));
+        },
+        /** Entry count — distinct requests, a repeated GET counted once. */
+        get size() { return items.size; },
+        /** Every request held, repeats included. */
+        get occurrences() { let n = 0; for (const it of items.values()) n += it.occ.length; return n; },
+        get bytes() { return total; },
+        /** Requests evicted, repeats included. */
+        get dropped() { return dropped; },
+    };
+}
+
 function createState() {
     return {
         installedAt: Date.now(),
-        rings: Object.fromEntries(Object.entries(CAPS.rings).map(([k, c]) => [k, ring(c)])),
+        rings: Object.fromEntries(Object.entries(CAPS.rings).map(([k, c]) => [k, k === 'network' ? networkRing(c) : ring(c)])),
         // A failure's body is read asynchronously; the capture waits for these.
         pendingBodies: new Set(),
         // Requests sent and not yet settled — a hung page's request is here, not in the ring.
@@ -288,11 +469,20 @@ function hookWindow(win, state, frame) {
                         const read = res.clone().text()
                             .then((txt) => { entry.failBody = String(txt).slice(0, CAPS.failBodyMax); })
                             .catch(() => {})
-                            .finally(() => state.pendingBodies.delete(read));
+                            .finally(() => {
+                                state.pendingBodies.delete(read);
+                                try { rings.network.settle?.(entry); } catch { /* */ }
+                            });
                         state.pendingBodies.add(read);
                     }
-                    // Reserve twice the body: JSON-escaping a quote-heavy body can double it.
-                    rings.network.push(entry, res.ok ? 0 : 2 * CAPS.failBodyMax);
+                    // Reserve twice the body: JSON-escaping a quote-heavy body can
+                    // double it. Its Content-Length sizes the reserve when the
+                    // server sent one (a Lambda-Rest 404 is 11 bytes): a flat 4 KB
+                    // per failure let 16 parallel failed reads fill the ring
+                    // before any body landed (req #4159).
+                    const bodyMax = Number.isFinite(entry.resBytes) && entry.resBytes >= 0
+                        ? Math.min(CAPS.failBodyMax, entry.resBytes) : CAPS.failBodyMax;
+                    rings.network.push(entry, res.ok ? 0 : 2 * bodyMax + 2);
                 } catch { /* never break the response */ }
                 return res;
             }, (err) => {
