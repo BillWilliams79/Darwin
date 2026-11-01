@@ -164,7 +164,8 @@ const ProfileContent = ({ onClose }) => {
             const data = await fetchExportData(darwinUri, profile.userName, idToken, profile, selectedApps);
             const date = new Date().toISOString().slice(0, 10);
             // The product's own name (req #4077): darwin-export-… on darwin.one.
-            downloadJson(data, `${PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-export-${date}.json`);
+            const slug = PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
+            downloadJson(data, `${slug}-export-${date}.json`);
         } catch (err) {
             showError(err, 'Export failed. Please try again.');
         } finally {

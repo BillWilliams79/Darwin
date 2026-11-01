@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadEnv } from 'vite'
+import { WHOLE_APP_PUBLIC_PATHS } from '../devtools/productShell.js'
 
 const darwinRoot = path.resolve(import.meta.dirname, '..')
 const args = process.argv.slice(2)
@@ -52,7 +53,7 @@ for (const file of walk(outDir)) {
 }
 
 // 4. (req #4077) darwin.one's whole-app public/ files are not shipped.
-for (const rel of ['docs', 'downloads']) {
+for (const rel of WHOLE_APP_PUBLIC_PATHS) {
   if (fs.existsSync(path.join(outDir, rel))) findings.push(`${rel}/ is in the build — a scoped product does not ship it (devtools/productShell.js)`)
 }
 
