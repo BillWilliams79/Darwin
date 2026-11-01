@@ -27,6 +27,14 @@ let targetId: string;
 const projectName = uniqueName('FilerPointProj');
 const targetTitle = uniqueName('FilerPointTarget');
 const filed: string[] = [];
+// Req #4158 — a plan to point at: pipeline → initiative → epic → requirement.
+let planId: string;
+let planInitiativeId: string;
+let planEpicId: string;
+let planReqId: string;
+const planTitle = uniqueName('FilerPointPlan');
+const planInitiativeTitle = uniqueName('FilerPointInitiative');
+const planEpicTitle = uniqueName('FilerPointEpic');
 
 test.describe('Requirement Filer — pointed at (req #3829)', () => {
   test.beforeAll(async ({ browser }) => {
@@ -42,16 +50,29 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     categoryId = cat[0].id;
     const req = await apiCall('requirements', 'POST', { creator_fk: sub, title: targetTitle, category_fk: categoryId, requirement_status: 'authoring' }, idToken) as Array<{ id: string }>;
     targetId = req[0].id;
+    const post = async (table: string, body: object) => {
+      const r = await apiCall(table, 'POST', { creator_fk: sub, ...body }, idToken) as Array<{ id: string }>;
+      if (!Array.isArray(r) || r[0]?.id == null) throw new Error(`Failed to create ${table}: ${JSON.stringify(r)}`);
+      return r[0].id;
+    };
+    planReqId = await post('requirements', { title: uniqueName('FilerPointSeated'), category_fk: categoryId, requirement_status: 'authoring' });
+    planId = await post('pipelines', { title: planTitle, pipeline_status: 'authoring' });
+    planInitiativeId = await post('initiatives', { pipeline_fk: planId, title: planInitiativeTitle, category_fk: categoryId });
+    planEpicId = await post('epics', { initiative_fk: planInitiativeId, title: planEpicTitle });
+    await apiCall('epic_requirements', 'POST', { epic_fk: planEpicId, requirement_fk: planReqId }, idToken);
   });
 
   test.afterAll(async () => {
     test.setTimeout(60000);
-    for (const id of [...filed, targetId]) { try { await apiDelete('requirements', id, idToken); } catch {} }
+    try { await apiDelete('epics', planEpicId, idToken); } catch {}
+    try { await apiDelete('initiatives', planInitiativeId, idToken); } catch {}
+    try { await apiDelete('pipelines', planId, idToken); } catch {}
+    for (const id of [...filed, targetId, planReqId]) { try { await apiDelete('requirements', id, idToken); } catch {} }
     try { await apiDelete('projects', projectId, idToken); } catch {}
   });
 
-  /** /swarm on the seeded project's tab, the filer shown — floating, or racked. */
-  async function openSwarm(page: Page, racked: boolean, pinned = true) {
+  /** Sends the filer's production calls on to the test database (req #3888, above). */
+  async function routeProd(page: Page) {
     prodCalls = [];
     if (TEST_DATABASE !== 'darwin') {
       await page.route(PROD_FILER_CALL, (route) => {
@@ -60,6 +81,11 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
         return route.continue({ url: req.url().replace('/eng/darwin/', `/eng/${TEST_DATABASE}/`) });
       });
     }
+  }
+
+  /** /swarm on the seeded project's tab, the filer shown — floating, or racked. */
+  async function openSwarm(page: Page, racked: boolean, pinned = true) {
+    await routeProd(page);
     await page.addInitScript(({ pid, cid, racked, pinned }) => {
       localStorage.setItem('darwin-swarm-view', 'cards');
       // The pushpin (req #3958): pressed, the + records the place.
@@ -88,6 +114,40 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     for (let i = 1; i <= 10; i++) await page.mouse.move(sx + (dx * i) / 10, sy + (dy * i) / 10);
     if (beforeRelease) await beforeRelease();
     await page.mouse.up();
+  }
+
+  /** Drags the floating filer by its head so its centre sits on client point `p`. */
+  async function dragFilerTo(page: Page, p: { x: number; y: number }, beforeRelease?: () => Promise<void>) {
+    const filer = (await page.getByTestId('requirement-filer').boundingBox())!;
+    const head = (await page.getByTestId('requirement-filer-header').boundingBox())!;
+    const dx = p.x - (filer.x + filer.width / 2);
+    const dy = p.y - (filer.y + filer.height / 2);
+    const sx = head.x + head.width / 2;
+    const sy = head.y + head.height / 2;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) await page.mouse.move(sx + (dx * i) / 12, sy + (dy * i) / 12);
+    if (beforeRelease) await beforeRelease();
+    await page.mouse.up();
+  }
+
+  /** The client point inside the plan canvas's node carrying `attr` = `value` (fx across, near its top). */
+  async function canvasNode(page: Page, attr: string, value: number, fx = 0.5) {
+    const handle = await page.waitForFunction(({ attr, value, fx }) => {
+      const stage = (window as any).Konva?.stages?.find((s: any) => s.container().isConnected);
+      const node = stage?.findOne((n: any) => n.getAttr(attr) === value);
+      if (!node) return null;
+      const r = node.getClientRect();
+      const c = stage.container().getBoundingClientRect();
+      return { x: c.left + r.x + r.width * fx, y: c.top + r.y + Math.min(r.height / 2, 6), top: c.top + r.y, left: c.left + r.x };
+    }, { attr, value, fx }, { timeout: 20000 });
+    return await handle.jsonValue() as { x: number; y: number; top: number; left: number };
+  }
+
+  /** What the outline names, once it settles on something matching `re`. */
+  async function aimSettlesOn(page: Page, re: RegExp) {
+    await expect.poll(async () => page.getByTestId('requirement-aim').getAttribute('data-aim', { timeout: 500 }).catch(() => null),
+      { timeout: 5000 }).toMatch(re);
   }
 
   /** + → title → Create; returns the filed requirement's id, its description and bundle. */
@@ -144,6 +204,46 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     expect(card.rect.w).toBeGreaterThan(0);
     expect(card.rect.h).toBeGreaterThan(0);
     expect(JSON.stringify(filedFrom.pointedAt)).not.toContain('requirement-filer');
+  });
+
+  test('FPA-06: pinned over the plan canvas, the outline and Pointed at name the epic, requirement and band — and the block names the plan (req #4158)', async ({ page }) => {
+    test.setTimeout(120000);
+    await routeProd(page);
+    await page.addInitScript(({ pid, cid }) => {
+      localStorage.setItem('darwin_requirement_filer', JSON.stringify({
+        state: { show: true, open: true, dock: null, pinned: true, lastProjectId: pid, lastCategoryId: cid, defaults: {} }, version: 3 }));
+      localStorage.setItem('darwin_panel_rack', JSON.stringify({ state: { racked: [], seeded: ['dev-servers'] }, version: 1 }));
+    }, { pid: Number(projectId), cid: Number(categoryId) });
+    await page.goto(`/swarm/pipeline/${planId}?mode=plan&level=3`);
+    await expect(page.getByTestId('pipeline-plan-visualizer')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('requirement-filer-add')).toBeVisible();
+
+    // A requirement row: its own row, not the card around it.
+    const row = await canvasNode(page, 'dragReqId', Number(planReqId), 0.3);
+    await dragFilerTo(page, row, () => aimSettlesOn(page, new RegExp(`^requirement #${planReqId} `)));
+    // The epic's title area.
+    const epic = await canvasNode(page, 'pressEpicId', Number(planEpicId), 0.5);
+    await dragFilerTo(page, epic, () => aimSettlesOn(page, new RegExp(`^epic #${planEpicId} "${planEpicTitle}" · pipeline-plan-visualizer$`)));
+    // The band, left of the card and below the initiative's chip: no card there.
+    const chip = (await page.getByTestId(`pipeline-viz-initiative-pause-${planInitiativeId}`).boundingBox())!;
+    await dragFilerTo(page, { x: Math.max(4, epic.left - 12), y: chip.y + chip.height + 30 },
+      () => aimSettlesOn(page, new RegExp(`^initiative #${planInitiativeId} `)));
+    // Back on the epic, let go and file.
+    await dragFilerTo(page, epic, () => aimSettlesOn(page, new RegExp(`^epic #${planEpicId} `)));
+    const { description, filedFrom } = await fileIt(page, uniqueName('FilerPlanPointed'));
+    const lines = description.split('\n');
+    // The centre's object first; a corner probe may add more (`(+N more in the bundle)`).
+    const pointed = lines.find((l: string) => l.startsWith('Pointed at: '))!;
+    expect(pointed.startsWith(`Pointed at: epic #${planEpicId} "${planEpicTitle}" (pipeline-plan-visualizer)`)).toBe(true);
+    expect(filedFrom.pointedAt[0].object).toEqual({ kind: 'epic', id: Number(planEpicId), title: planEpicTitle });
+    // The location lines: the plan by name, its database, and the level drawn.
+    const subject = lines.find((l: string) => l.startsWith('Subject: '))!;
+    expect(subject).toContain(`pipeline ${planId} "${planTitle}" (1 initiative, 1 epic`);
+    expect(subject).toContain(TEST_DATABASE === 'darwin' ? 'production ids (darwin)' : `${TEST_DATABASE} ids`);
+    expect(filedFrom.subject[0]).toMatchObject({ kind: 'pipeline', id: Number(planId), title: planTitle });
+    const surface = lines.find((l: string) => l.startsWith('Surface: '))!;
+    expect(surface).toMatch(new RegExp(`^Surface: /swarm/pipeline/${planId}\\?mode=plan&level=3&color=`));
+    expect(filedFrom.options.page).toMatchObject({ view: 'plan', level: 'in', levelNumber: 3 });
   });
 
   test('FPA-05: pinned, it is carried half off screen to the edge, and let go there the place is held and recorded (req #4046)', async ({ page }) => {
