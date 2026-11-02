@@ -176,8 +176,13 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         expect(put[0].id).toBe(3901);
         expect(put[0].description).toContain(DEBUG_BLOCK_BEGIN);
         expect(put[0].description).toContain('\nSurface: /maps\n');
-        expect(put[0].description).toContain('Debug capture: darwin://requirement-debug/3901');
+        expect(put[0].description).toContain('darwin://requirement-debug/3901 · ');
         expect(put[0].description).toContain('blank effort');
+        // The stored bundle opens with its index (req #4160), which points at the failing request.
+        expect(Object.keys(bundle)[0]).toBe('summary');
+        expect(bundle.summary.mode).toBe('broken');
+        expect(bundle.summary.whereToLook.map(w => w.split(' ')[0])).toContain(`network.entries[${bundle.network.entries.length - 1}]`);
+        expect(bundle.summary.dropped).toEqual(['storage']);
         // The editor now shows the block, the row is in epic, and nothing is left to send.
         expect(screen.getByTestId('requirement-editor-field-description').value).toContain(DEBUG_BLOCK_BEGIN);
         expect(screen.getByTestId('requirement-editor-capture-uri').textContent).toBe('darwin://requirement-debug/3901');
@@ -187,7 +192,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         expect(rest).toHaveBeenCalledTimes(3);
         expect(screen.getByTestId('requirement-editor-capture-toggle-console').disabled).toBe(true);
         // The block names exactly the categories the stored row left out.
-        expect(put[0].description).toContain('Dropped before save: storage');
+        expect(put[0].description).toContain('; dropped before save: storage)');
     });
 
     it('is as short as it can be: the settings sit behind the spec-code button, laid out like the requirement page', async () => {
@@ -250,8 +255,11 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         expect(details.getAttribute('aria-hidden')).toBe(null);
         expect(toggle.getAttribute('aria-expanded')).toBe('true');
         expect(details.contains(screen.getByTestId('requirement-editor-capture-toggle-console'))).toBe(true);
+        // The capture time and build left the description for here (req #4160).
+        expect(screen.getByTestId('requirement-editor-capture-at').textContent).toMatch(/^Captured .+ · build \S+ \(\w+\)$/);
         fireEvent.click(toggle);
         expect(details.getAttribute('data-open')).toBe('0');
+        expect(screen.queryByTestId('requirement-editor-capture-at')).toBe(null);
     });
 
     it('a failed capture write leaves the requirement filed with no pointer; Retry saves it', async () => {

@@ -259,8 +259,8 @@ describe('the block\'s location and Pointed at lines (req #4158)', () => {
             { kind: 'pipeline', id: 12, title: 'Pre-WSL', database: 'darwin', detail: '4 initiatives, 26 epics' },
             { kind: 'epic', id: 492, title: 'Pointer', database: 'darwin' }] };
         expect(subjectLine(where)).toBe('Subject: pipeline 12 "Pre-WSL" (4 initiatives, 26 epics) · epic 492 "Pointer"'
-            + ' — production ids (darwin) — on a dev server, find or seed the matching darwin_dev record');
-        expect(subjectLine({ state: { database: 'darwin_dev' }, subject: [] })).toBe('Database: darwin_dev ids — they open as-is on a dev server');
+            + ' — production ids (darwin) — find or seed the match in darwin_dev');
+        expect(subjectLine({ state: { database: 'darwin_dev' }, subject: [] })).toBe('Database: darwin_dev ids — they open as-is');
         expect(subjectLine({ state: { database: 'darwin' }, subject: [{ kind: 'topology view', id: 'v', title: 'V', database: null }] }))
             .toBe('Subject: topology view "v" "V" (not in a database)');
         expect(subjectLine(null)).toBeNull();
@@ -278,7 +278,7 @@ describe('the block\'s location and Pointed at lines (req #4158)', () => {
             categories: [{ key: 'filedFrom', label: 'Filed from', text: JSON.stringify(filedFrom), bytes: 1, note: '' }] };
         const block = formatDebugBlock(capture, [], 5000).split('\n');
         expect(block).toContain('Surface: /swarm/pipeline/12?mode=plan&level=3');
-        expect(block).toContain('Subject: pipeline 12 "Plan" — darwin_dev ids — they open as-is on a dev server');
+        expect(block).toContain('Subject: pipeline 12 "Plan" — darwin_dev ids — they open as-is');
         expect(block).toContain('Pointed at: epic #385 "Login Credentials" (pipeline-plan-visualizer)');
     });
 });

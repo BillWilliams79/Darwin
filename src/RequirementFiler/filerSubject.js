@@ -146,8 +146,8 @@ export function resolveSubjects({ routeIds, query, database = null, queryCache =
 
 /** What a database means to the worker reading the ids. */
 export function databaseNote(database) {
-    if (database === 'darwin') return 'production ids (darwin) — on a dev server, find or seed the matching darwin_dev record';
-    if (database === 'darwin_dev') return 'darwin_dev ids — they open as-is on a dev server';
+    if (database === 'darwin') return 'production ids (darwin) — find or seed the match in darwin_dev';
+    if (database === 'darwin_dev') return 'darwin_dev ids — they open as-is';
     return database ? `ids from ${database}` : null;
 }
 
