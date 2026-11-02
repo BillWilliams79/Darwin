@@ -43,11 +43,18 @@ import { focusTimeline, storedFocusLosses } from '../utils/focusLossRecorder';
 import { objectLabel } from './filerPointResolvers';
 import { databaseNote, subjectLabel } from './filerSubject';
 
-export const DEBUG_CAPTURE_VERSION = 1;
-export const DEBUG_BLOCK_BEGIN = `--- Debug capture v${DEBUG_CAPTURE_VERSION} (req #3815) ---`;
+// v2 (req #4160): the block is written for its reader, and the stored bundle
+// opens with a `summary` index. A v1 block (req #3815) is still replaced in place.
+export const DEBUG_CAPTURE_VERSION = 2;
+export const DEBUG_BLOCK_BEGIN = `--- Debug capture v${DEBUG_CAPTURE_VERSION} (req #4160) ---`;
 export const DEBUG_BLOCK_END = '--- end Debug capture ---';
+/** The begin marker of a block of ANY version, v1 included. */
+const ANY_BLOCK_BEGIN = /--- Debug capture v\d+ \(req #\d+\) ---/;
 /** Where a worker reads the full bundle. */
 export const debugCaptureUri = (requirementId) => `darwin://requirement-debug/${requirementId}`;
+/** THE way to read a capture in context (req #4160): the full stored bundle,
+ *  and exactly the portion asked for, verbatim. */
+export const READ_CAPTURE = 'scripts/debug/read-capture.py';
 
 const KB = 1024;
 /** The caps the rings do not already enforce (design § Caps and windows). */
@@ -60,8 +67,13 @@ export const BUNDLE_CAPS = Object.freeze({
     // What the reader saw (req #4159): ≤ 10 visible alerts/dialogs, each ≤ 500
     // chars, ≤ 4 KB together — plus the snackbar's ≤ 5 messages of ≤ 500.
     screenItems: 10, screenTextMax: 500, screenAlertBytes: 4 * KB,
-    // The description block's verbatim lines: at most 5 of each kind, ≤ 2 KB together.
-    blockLines: 5, blockLineMax: 400, blockDetailBytes: 2 * KB,
+    // The description block's verbatim lines: at most 5 distinct of each kind (identical
+    // ones counted ×N), ≤ 1.2 KB together (the spec allows 2 KB): on the 95 real captures the
+    // worst bug block was 2,492 chars at 2 KB and 1,163 (490 tokens measured) at 1.2 KB with the
+    // merges (req #4160, memory/requirement-filer-efficacy.md § The reading pipeline).
+    blockLines: 5, blockLineMax: 400, blockDetailBytes: 1200,
+    // The quoted text of what was pointed at, in the block and the index (whole in the bundle).
+    pointedTextMax: 120,
 });
 
 /** The categories, in bundle order. `label` is what the editor shows. */
@@ -527,8 +539,10 @@ function countNote(key, v) {
 }
 
 /** Text the block carries never holds the block's own grammar (a filer over a
- *  description holding a Debug capture block would nest a fake one). */
-const blockSafe = (s) => oneLine(s).replace(/-{3,}/g, '—').replace(/Debug capture:/gi, 'Debug capture -');
+ *  description holding a Debug capture block would nest a fake one): no
+ *  marker, no v1 pointer line, and no other requirement's bundle URI. */
+const blockSafe = (s) => oneLine(s).replace(/-{3,}/g, '—').replace(/Debug capture:/gi, 'Debug capture -')
+    .replace(/darwin:\/\/requirement-debug\//gi, 'requirement-debug/');
 
 /** What a floating filer pointed at, as the block names it (req #3829): the
  *  centre's element by its testid path (outermost first) or tag, its text, and
@@ -545,7 +559,7 @@ export function pointedAtLabel(filedFrom) {
     const testids = Array.isArray(p.testidPath) ? p.testidPath : [];
     if (p.object && p.object.kind && p.object.id != null) {
         const where = p.host || p.within || testids[0] || p.tag || '?';
-        return { path: blockSafe(`${objectLabel(p.object)} (${where})`), text: '', more };
+        return { path: blockSafe(`${objectLabel(p.object)} (${where})`), text: '', more, object: true };
     }
     const path = testids.length ? [...testids].reverse().join(' > ') : (p.tag || '?');
     const text = p.text ? blockSafe(p.text) : '';
@@ -625,11 +639,15 @@ function inlineStorage(capture, text) {
     } catch { return text; }
 }
 
-/** The bundle as stored: the kept categories' redacted text, and the ones the
- *  reader dropped named. `{ text, bytes }`. */
+/** The bundle as stored: its `summary` index FIRST (req #4160), then the kept
+ *  categories' redacted text, and the ones the reader dropped named. The index
+ *  only points into the bundle; nothing is left out for it. `{ text, bytes }`. */
 export function assembleBundle(capture, dropped = []) {
     const drop = new Set(dropped);
+    let summary;
+    try { summary = buildSummary(capture, dropped); } catch (e) { summary = { captureError: String(e?.message || e) }; }
     const head = {
+        summary,
         capture: 'darwin debug capture (req #3815)',
         version: capture.version,
         capturedAt: capture.capturedAt,
@@ -654,6 +672,13 @@ const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const clip = (s, max = BUNDLE_CAPS.blockLineMax) => (s.length > max ? `${s.slice(0, max)}…` : s);
 const pathOf = (url) => { try { const u = new URL(url); return `${u.host}${u.pathname}${u.search}`; } catch { return String(url); } };
 const argText = (a) => (typeof a === 'string' ? a : JSON.stringify(a));
+/** A URL as the index names it: its last two path segments — `…/darwin/epics`. */
+const tailOf = (url) => {
+    let p;
+    try { p = new URL(url, 'http://localhost/').pathname; } catch { p = String(url).split('?')[0]; }
+    const segs = p.split('/').filter(Boolean);
+    return segs.length > 2 ? `…/${segs.slice(-2).join('/')}` : `/${segs.join('/')}`;
+};
 /** `ms` as the block says an age: `12 s`, `4 min`, `3 h`. */
 const ago = (ms) => {
     if (!Number.isFinite(ms)) return 'some time';
@@ -663,67 +688,122 @@ const ago = (ms) => {
     return min < 120 ? `${min} min` : `${Math.round(min / 60)} h`;
 };
 
-/** The verbatim lines a worker should not need the bundle for. */
-function detailLines(cats) {
-    const lines = [];
-    const errors = (cats.errors?.entries || []).slice(-BUNDLE_CAPS.blockLines);
-    if (errors.length) {
-        lines.push(`Uncaught errors (${cats.errors.entries.length}):`);
-        for (const e of errors) {
-            lines.push(`- ${clip(oneLine(e.kind === 'resource'
-                ? `[resource] <${e.tag}> failed to load ${e.src}`
-                : `[${e.kind}] ${argText(e.message)}${e.source ? ` — ${pathOf(e.source)}:${e.line}:${e.col}` : ''}`))}`);
-        }
-    }
+// ── What went wrong, each where the bundle holds it whole (req #4160) ───────
+// ONE classifier feeds the block's verbatim lines and the bundle index's
+// `anomalies` / `whereToLook`, so the two can never disagree about what failed.
+
+/** `{ kind, header, why, items: [{ path, text }] }` per kind of anomaly, plus
+ *  the empty list reads (counted, never anomalies). Every item names the bundle
+ *  path holding it whole: `errors.entries[0]`, `network.entries[41]` … */
+export function captureAnomalies(cats) {
+    const groups = [];
+    // `count` is how many of the kind there were — an item may stand for several (`n`).
+    const group = (kind, header, items) => {
+        if (items.length) groups.push({ kind, header, items, count: items.reduce((t, it) => t + (it.n || 1), 0) });
+    };
+    group('errors', 'Uncaught errors', (cats.errors?.entries || []).map((e, i) => ({
+        path: `errors.entries[${i}]`,
+        text: e?.kind === 'resource'
+            ? `[resource] <${e.tag}> failed to load ${e.src}`
+            : `[${e?.kind}] ${argText(e?.message)}${e?.source ? ` — ${pathOf(e.source)}:${e.line}:${e.col}` : ''}`,
+    })));
     // What the reader saw: a snackbar error and a shown alert are failure
     // evidence exactly like an uncaught error (req #4159). An alert repeating
     // a snackbar message is the snackbar itself, still open.
-    const snackErrors = (cats.screen?.snackbar?.history || []).filter((h) => h.kind === 'error');
-    const shown = (cats.screen?.alerts || []).filter(isAlarming)
-        .filter((a) => !snackErrors.some((h) => h.message && a.text.includes(oneLine(h.message))));
-    if (snackErrors.length || shown.length) {
-        lines.push(`What the user saw (${snackErrors.length + shown.length}):`);
-        for (const h of snackErrors.slice(-BUNDLE_CAPS.blockLines)) {
-            lines.push(`- ${clip(oneLine(`snackbar error, ${ago(h.msBeforePress)} before the press: ${h.message}`))}`);
-        }
-        for (const a of shown.slice(-BUNDLE_CAPS.blockLines)) {
-            lines.push(`- ${clip(oneLine(`${a.role}${a.severity ? ` (${a.severity})` : ''}${a.testid ? ` ${a.testid}` : ''}: ${a.text}`))}`);
-        }
+    const history = cats.screen?.snackbar?.history || [];
+    const snackErrors = history.map((h, i) => [h, i]).filter(([h]) => h?.kind === 'error');
+    const seen = snackErrors.map(([h, i]) => ({ path: `screen.snackbar.history[${i}]`,
+        text: `snackbar error, ${ago(h.msBeforePress)} before the press: ${h.message}` }));
+    (cats.screen?.alerts || []).forEach((a, i) => {
+        if (!isAlarming(a) || snackErrors.some(([h]) => h.message && a.text.includes(oneLine(h.message)))) return;
+        seen.push({ path: `screen.alerts[${i}]`,
+            text: `${a.role}${a.severity ? ` (${a.severity})` : ''}${a.testid ? ` ${a.testid}` : ''}: ${a.text}` });
+    });
+    group('seen', 'What the user saw', seen);
+    // A grouped GET entry holds every occurrence; the failing one may be earlier than its latest.
+    const failed = [];
+    (cats.network?.entries || []).forEach((e, i) => {
+        const occ = networkOccurrences([e]);
+        occ.forEach((o, k) => { if (isFailed(o)) failed.push({ o, i, nth: k + 1, of: occ.length }); });
+    });
+    failed.sort((a, b) => ((a.o.t ?? 0) + (a.o.ms ?? 0)) - ((b.o.t ?? 0) + (b.o.ms ?? 0)));
+    // One entry's occurrences that failed ALIKE (same status and answer) are one line: the
+    // request, status and answer verbatim, how many, and their durations' range.
+    const merged = new Map();
+    for (const f of failed) {
+        const r = f.o;
+        const k = `${f.i}|${r.status}|${r.failBody ?? ''}|${r.error ?? ''}`;
+        const m = merged.get(k) || { ...f, nths: [], ms: [] };
+        m.nths.push(f.nth);
+        if (r.ms != null) m.ms.push(r.ms);
+        merged.delete(k);
+        merged.set(k, m);
     }
-    const requests = networkOccurrences(cats.network?.entries);
-    const failed = requests.filter(isFailed);
-    const emptyReads = requests.filter(isEmptyListRead).length;
-    if (failed.length) {
-        lines.push(`Failed requests (${failed.length}):`);
-        for (const r of failed.slice(-BUNDLE_CAPS.blockLines)) {
-            const why = r.failBody ? ` ${JSON.stringify(oneLine(r.failBody).slice(0, 200))}` : (r.error ? ` ${r.error}` : '');
-            lines.push(`- ${clip(oneLine(`${r.method} ${pathOf(r.url)} → ${r.status}${r.ms != null ? ` (${r.ms} ms)` : ''}${why}`))}`);
+    group('requests', 'Failed requests', [...merged.values()].map(({ o: r, i, of, nths, ms }) => {
+        const n = nths.length;
+        const which = of > 1 ? (n > 1 ? ` [${n} of ${of} occurrences]` : ` [occurrence ${nths[0]} of ${of}]`) : '';
+        const took = n > 1 ? (ms.length ? ` (${Math.min(...ms)}–${Math.max(...ms)} ms)` : '') : (r.ms != null ? ` (${r.ms} ms)` : '');
+        return {
+            path: `network.entries[${i}]`,
+            n,
+            // The index names it short — the query and the body are the entry's.
+            why: `${r.method} ${tailOf(r.url)} → ${r.status}${of > 1 ? (n > 1 ? ` [${n} of ${of} occurrences]` : ` [occurrence ${nths[0]} of ${of}]`) : ''}`,
+            text: `${r.method} ${pathOf(r.url)} → ${r.status}${took}`
+                + (r.failBody ? ` ${JSON.stringify(oneLine(r.failBody).slice(0, 200))}` : (r.error ? ` ${r.error}` : ''))
+                + which,
+        };
+    }));
+    group('pending', 'Still pending at the press', (cats.network?.inFlight || []).map((r, i) => ({
+        path: `network.inFlight[${i}]`, text: `${r.method} ${pathOf(r.url)} — ${r.elapsedMs} ms without an answer`,
+    })));
+    const consoleBad = [];
+    (cats.console?.entries || []).forEach((c, i) => {
+        if (c?.level === 'error' || c?.level === 'warn') {
+            consoleBad.push({ path: `console.entries[${i}]`, text: `console.${c.level}: ${(c.args || []).map(argText).join(' ')}` });
         }
+    });
+    group('console', 'Console errors and warnings', consoleBad);
+    const emptyReads = networkOccurrences(cats.network?.entries).filter(isEmptyListRead).length;
+    return { groups, emptyReads };
+}
+
+/** `items` with identical texts merged, in order of their LAST occurrence:
+ *  `[{ text, why, n, paths }]` — `paths` oldest first. */
+function alike(items) {
+    const by = new Map();
+    for (const it of items) {
+        const x = by.get(it.text) || { text: it.text, why: it.why, n: 0, paths: [] };
+        x.n++;
+        x.paths.push(it.path);
+        by.delete(it.text);
+        by.set(it.text, x);
     }
-    const pending = cats.network?.inFlight || [];
-    if (pending.length) {
-        lines.push(`Still pending at the press (${pending.length}):`);
-        for (const r of pending.slice(-BUNDLE_CAPS.blockLines)) {
-            lines.push(`- ${clip(oneLine(`${r.method} ${pathOf(r.url)} — ${r.elapsedMs} ms without an answer`))}`);
-        }
-    }
-    const consoleErrors = (cats.console?.entries || []).filter((c) => c.level === 'error' || c.level === 'warn');
-    if (consoleErrors.length) {
-        lines.push(`Console errors and warnings (${consoleErrors.length}):`);
-        for (const c of consoleErrors.slice(-BUNDLE_CAPS.blockLines)) {
-            lines.push(`- ${clip(oneLine(`console.${c.level}: ${(c.args || []).map(argText).join(' ')}`))}`);
+    return [...by.values()];
+}
+
+/** The anomalies as the block (and the index) quote them: a header per kind,
+ *  its last ≤ 5 lines verbatim, ≤ 2 KB of lines together — the rest counted. */
+function anomalyLines(an) {
+    const lines = [];
+    for (const g of an.groups) {
+        lines.push(`${g.header} (${g.count}):`);
+        // Identical lines once, counted: the bundle keeps every one.
+        for (const { text, n } of alike(g.items).slice(-BUNDLE_CAPS.blockLines)) {
+            lines.push(`- ${clip(blockSafe(text))}${n > 1 ? ` (×${n})` : ''}`);
         }
     }
     // Counted once, and only beside something that did go wrong: on its own an
-    // empty read is not worth a verbose block.
-    if (lines.length && emptyReads) lines.push(`Empty list reads: ${emptyReads} (GET 404 = no rows; not failures)`);
-    // ≤ 2 KB together: the headers stay, the lines that do not fit are counted.
+    // empty read is not an anomaly.
+    if (lines.length && an.emptyReads) lines.push(`Empty list reads: ${an.emptyReads} (GET 404 = no rows; not failures)`);
+    // Every kind keeps at least its first line (each ≤ blockLineMax), so no header stands empty.
     const kept = [];
     let total = 0;
     let cut = 0;
+    let first = false;
     for (const l of lines) {
-        if (!l.startsWith('- ')) { kept.push(l); continue; }
-        if (total + l.length + 1 > BUNDLE_CAPS.blockDetailBytes) { cut++; continue; }
+        if (!l.startsWith('- ')) { kept.push(l); first = true; continue; }
+        if (!first && total + l.length + 1 > BUNDLE_CAPS.blockDetailBytes) { cut++; continue; }
+        first = false;
         kept.push(l);
         total += l.length + 1;
     }
@@ -735,60 +815,152 @@ function detailLines(cats) {
 export const keepsNothing = (capture, dropped) =>
     !!capture && capture.categories.every((c) => (dropped || []).includes(c.key));
 
-/**
- * The description's `Debug capture` block for `capture` saved as requirement
- * `requirementId` with `dropped` left out. It always says WHERE it was filed —
- * `Surface:` (a /devops-devserver-start deep link) and `URL:`, from the kept
- * `filedFrom` category, plus `Pointed at:` when the filer floated over an
- * element (req #3829) — and where the bundle is. When something went wrong
- * (uncaught errors, a snackbar error or alert the reader saw, failed or
- * pending requests, console errors and warnings — never an empty list read) it
- * adds the counts and sizes per category and those lines verbatim (≤ 5 of each,
- * ≤ 2 KB together); otherwise it stops there, so a plain requirement reads as
- * one always did (req #3818). A capture lost to a reload (null) still says
- * where its row is.
- */
-export function formatDebugBlock(capture, dropped, requirementId) {
-    const pointer = `Debug capture: ${debugCaptureUri(requirementId)}`;
-    if (!capture) return [DEBUG_BLOCK_BEGIN, pointer, DEBUG_BLOCK_END].join('\n');
+/** The dropped categories by name, in bundle order. */
+const droppedKeys = (drop) => DEBUG_CATEGORIES.map((c) => c.key).filter((k) => drop.has(k));
+
+function keptCategories(capture, dropped) {
     const drop = new Set(dropped || []);
     const kept = capture.categories.filter((c) => !drop.has(c.key));
     const cats = {};
     for (const c of kept) { try { cats[c.key] = JSON.parse(c.text); } catch { /* */ } }
+    return { drop, kept, cats };
+}
+
+/** `Pointed at:`'s text: the object or element, its text quoted, the rest counted. */
+function pointedAtText(at) {
+    if (!at) return null;
+    // Its innermost two testids — the ones a session searches the code for; the whole path is the
+    // bundle's. A canvas OBJECT's label is a title, never a testid path: kept whole.
+    const m = /^(.+? in )?(.*)$/.exec(at.path);
+    const segs = m[2].split(' > ');
+    const path = at.object ? at.path : `${m[1] || ''}${segs.length > 2 ? `… > ${segs.slice(-2).join(' > ')}` : m[2]}`;
+    return clip(`${path}${at.text ? ` "${clip(at.text, BUNDLE_CAPS.pointedTextMax)}"` : ''}`)
+        + (at.more ? ` (+${at.more} more in the bundle)` : '');
+}
+
+/** The URL line only when it says something the surface does not — another path, a hash,
+ *  or a query parameter the surface lacks (they matched on 80 of 92; a surface that only
+ *  ADDS page state, `?mode=plan&level=3` over `?mode=plan`, already says it all). */
+function urlBeyondSurface(where) {
+    const full = where?.url?.full;
+    if (!full || full === where.surface) return null;
+    let u;
+    let sf;
+    try { u = new URL(full, 'http://x/'); sf = new URL(String(where.surface ?? ''), 'http://x/'); } catch { return full; }
+    if (u.pathname !== sf.pathname || u.hash) return full;
+    for (const [k, v] of u.searchParams) if (!sf.searchParams.getAll(k).includes(v)) return full;
+    return null;
+}
+
+/** The index's `whereToLook`: at most this many paths, the rest counted, each `why` ≤ WHY_MAX chars. */
+export const WHERE_TO_LOOK_MAX = 12;
+const WHY_MAX = 60;
+
+/**
+ * The bundle INDEX (req #4160) — the stored JSON's first key, `summary`. It
+ * points INTO the bundle and replaces nothing: `mode` (`broken` when anything
+ * went wrong, else `improve`), where and what (surface, subject, pointedAt),
+ * the anomalies as the block quotes them, `whereToLook` — `<path> <what>` for
+ * THIS capture's relevant entries (`network.entries[41] DELETE …/epics → 500`),
+ * which `scripts/debug/read-capture.py --entry <path>` / `--look` return
+ * verbatim — and what every kept category holds.
+ */
+export function buildSummary(capture, dropped = []) {
+    const { drop, kept, cats } = keptCategories(capture, dropped);
     const where = cats.filedFrom;
-    const lines = [DEBUG_BLOCK_BEGIN];
-    if (where?.surface) lines.push(`Surface: ${where.surface}`);
-    const subject = subjectLine(where);
-    if (subject) lines.push(subject);
-    if (where?.url?.full) lines.push(`URL: ${where.url.full}`);
+    const an = captureAnomalies(cats);
     const at = pointedAtLabel(where);
-    if (at) {
-        lines.push(clip(`Pointed at: ${at.path}${at.text ? ` "${at.text}"` : ''}`)
-            + (at.more ? ` (+${at.more} more in the bundle)` : ''));
+    const look = [];
+    const seenPath = new Set();
+    // `<path> <what>`: the path first, so `read-capture.py --look` fetches it whole.
+    const add = (path, why, suffix = '') => {
+        if (!seenPath.has(path)) { seenPath.add(path); look.push(`${path} ${clip(blockSafe(why), WHY_MAX)}${suffix}`); }
+    };
+    // Alike entries are named once, by their first path, with how many more there are.
+    for (const g of an.groups) {
+        // Clipped first, so the count is never cut off.
+        for (const x of alike(g.items)) add(x.paths[0], x.why ?? x.text, x.n > 1 ? ` (+${x.n - 1} alike)` : '');
     }
-    lines.push(pointer);
-    const detail = detailLines(cats);
-    if (detail.length) {
-        const build = cats.environment?.build;
-        lines.push(
-            `Captured at: ${capture.capturedAt} · ${formatBytes(assembleBundle(capture, dropped).bytes)}`
-                + (build ? ` · build ${build.commit} (${build.mode})` : ''),
-            `Categories: ${kept.map((c) => `${c.key} ${formatBytes(c.bytes)}${c.note ? ` (${c.note})` : ''}`).join(' · ') || 'none'}`,
-        );
-        if (drop.size) lines.push(`Dropped before save: ${capture.categories.filter((c) => drop.has(c.key)).map((c) => c.key).join(', ')}`);
-        if (capture.jwtHits) lines.push(`Redacted: ${capture.jwtHits} token-shaped value${capture.jwtHits === 1 ? '' : 's'}`);
-        lines.push(...detail);
+    if (at) add('filedFrom.pointedAt[0]', 'the element the user pointed at: rect, frame, text, field');
+    if (Array.isArray(where?.subject) && where.subject.length) add('filedFrom.subject', 'the page\'s record(s), titled, and their database');
+    if (where?.options) add('filedFrom.options', 'page state the URL cannot say (view state, open popups)');
+    const build = cats.environment?.build;
+    return {
+        readMe: `An index: nothing is left out of the bundle. Fetch what bears on the requirement, verbatim, with ${READ_CAPTURE}: `
+            + '--look (every whereToLook path), --entry <path>, --section <category>, --status/--method/--level/--window/--grep.',
+        mode: an.groups.length ? 'broken' : 'improve',
+        surface: where?.surface ?? null,
+        ...(urlBeyondSurface(where) ? { url: urlBeyondSurface(where) } : null),
+        subject: Array.isArray(where?.subject) ? where.subject.map(({ kind, id, title, database }) => ({ kind, id, title, database: database ?? null })) : [],
+        pointedAt: pointedAtText(at),
+        anomalies: anomalyLines(an),
+        counts: Object.fromEntries([...an.groups.map((g) => [g.kind, g.count]), ['emptyListReads', an.emptyReads]]),
+        whereToLook: look.slice(0, WHERE_TO_LOOK_MAX),
+        ...(look.length > WHERE_TO_LOOK_MAX ? { whereToLookMore: look.length - WHERE_TO_LOOK_MAX } : null),
+        categories: Object.fromEntries(kept.map((c) => [c.key, `${formatBytes(c.bytes)}${c.note ? ` · ${c.note}` : ''}`])),
+        dropped: droppedKeys(drop),
+        capturedAt: capture.capturedAt,
+        ...(build ? { build: `${build.commit} (${build.mode})` } : null),
+    };
+}
+
+/**
+ * The description's `Debug capture` block (v2, req #4160) for `capture` saved
+ * as requirement `requirementId` with `dropped` left out — written for the
+ * session that reads it, in this order: what this is and what to do with it;
+ * WHERE (`Surface:` — a /devops-devserver-start deep link — the `Subject:`
+ * records and their database, `URL:` only when it differs from the surface);
+ * WHAT (`Pointed at:`, when the pinned filer pointed at something, req #3829 /
+ * #4158); the ANOMALIES verbatim, only when something went wrong (uncaught
+ * errors, what the reader saw, failed or pending requests, console errors and
+ * warnings — ≤ 5 of each, ≤ 2 KB; never an empty list read); and one line
+ * naming the bundle, its size and the helper that reads it. Per-category sizes
+ * and the capture time are the editor's Details view and the bundle index's.
+ * A capture lost to a reload (null) still says where its row is.
+ */
+export function formatDebugBlock(capture, dropped, requirementId) {
+    const read = `python3 ${READ_CAPTURE} ${requirementId}`;
+    if (!capture) {
+        return [DEBUG_BLOCK_BEGIN, `Bundle (if one was saved): ${debugCaptureUri(requirementId)} — index first: ${read}`, DEBUG_BLOCK_END].join('\n');
     }
+    const { drop, cats } = keptCategories(capture, dropped);
+    const where = cats.filedFrom;
+    const at = pointedAtLabel(where);
+    const anomalies = anomalyLines(captureAnomalies(cats));
+    const what = [where && 'the page', at && 'the element pointed at', 'the bundle'].filter(Boolean);
+    const lines = [DEBUG_BLOCK_BEGIN,
+        `Filed with the Requirement Filer — start from ${what.length > 1 ? `${what.slice(0, -1).join(', ')} and ${what.at(-1)}` : what[0]}`
+            + `${anomalies.length ? ', and what went wrong (verbatim)' : ''}.`];
+    const body = [];
+    if (where?.surface) body.push(`Surface: ${where.surface}`);
+    const subject = subjectLine(where);
+    if (subject) body.push(subject);
+    if (urlBeyondSurface(where)) body.push(`URL: ${urlBeyondSurface(where)}`);
+    if (at) body.push(`Pointed at: ${pointedAtText(at)}`);
+    body.push(...anomalies);
+    // Every line from the page passes blockSafe: nothing it holds can forge the grammar.
+    lines.push(...body.map(blockSafe));
+    const gone = droppedKeys(drop);
+    lines.push(`Bundle: ${debugCaptureUri(requirementId)} · ${formatBytes(assembleBundle(capture, dropped).bytes)}`
+        + ` (network, console, navigation, page state${gone.length ? `; dropped before save: ${gone.join(', ')}` : ''})`
+        + ` — index first: ${read}`);
     lines.push(DEBUG_BLOCK_END);
     return scrubJwt(lines.join('\n')).text;
 }
 
-/** `text` carrying `block` once: an earlier Debug capture block is replaced in
- *  place (a retried save), otherwise the block is appended below. */
+/** `text` carrying `block` once: the Debug capture block already there, of any
+ *  version (v1 included), is replaced in place (a retried save), otherwise the
+ *  block is appended below. */
 export function withDebugBlock(text, block) {
     const s = String(text ?? '');
-    const begin = s.indexOf(DEBUG_BLOCK_BEGIN);
-    const end = begin < 0 ? -1 : s.indexOf(DEBUG_BLOCK_END, begin);
+    // The LAST marker with an end after it is the block (the filer appends it): a marker
+    // the user typed or pasted above it is their text, never replaced.
+    let begin = -1;
+    let end = -1;
+    for (const m of s.matchAll(new RegExp(ANY_BLOCK_BEGIN.source, 'g'))) {
+        const e = s.indexOf(DEBUG_BLOCK_END, m.index);
+        if (e >= 0) { begin = m.index; end = e; }
+    }
     if (begin >= 0 && end >= 0) return `${s.slice(0, begin)}${block}${s.slice(end + DEBUG_BLOCK_END.length)}`;
     return s.trim() === '' ? block : `${s.replace(/\s+$/, '')}\n\n${block}`;
 }

@@ -1060,7 +1060,7 @@ describe('FILE records where it was filed (req #3813), in its debug capture (req
         expect(description.startsWith('What I want.\n\n')).toBe(true);
         expect(description).toContain('\nSurface: /systems2?opt=tpu8t-datacenter-3d\n');
         expect(description).toContain('\nURL: /systems2?opt=tpu8t-datacenter-3d#top\n');
-        expect(description).toContain('Debug capture: darwin://requirement-debug/4001');
+        expect(description).toContain('darwin://requirement-debug/4001 · ');
         expect(ctx.url).toEqual({ full: '/systems2?opt=tpu8t-datacenter-3d#top', path: '/systems2',
             query: '?opt=tpu8t-datacenter-3d', hash: '#top' });
         // Options: the query, the page's live view, the owning app's view state only.

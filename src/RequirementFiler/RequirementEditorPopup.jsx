@@ -336,6 +336,14 @@ function CaptureLine({ capture, dropped, canDropAll, onDropAll, expanded, onExpa
     );
 }
 
+/** ` · build <commit> (<mode>)` from the capture's environment category, or ''. */
+function capturedBuild(capture) {
+    try {
+        const b = JSON.parse(capture.categories.find(c => c.key === 'environment')?.text ?? 'null')?.build;
+        return b ? ` · build ${b.commit} (${b.mode})` : '';
+    } catch { return ''; }
+}
+
 /** What the capture holds, per category, each droppable until it is sent —
  *  slid open from CaptureLine's Details; with Retry and the saved row's URI. */
 function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
@@ -388,6 +396,12 @@ function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, on
                             })}
                         </Box>
                     </Box>
+                </Box>
+            )}
+            {capture?.capturedAt && expanded && (
+                // Out of the description since req #4160: the time and build live here and in the bundle's index.
+                <Box component="span" data-testid="requirement-editor-capture-at" sx={{ color: P.dim }}>
+                    Captured {new Date(capture.capturedAt).toLocaleTimeString()}{capturedBuild(capture)}
                 </Box>
             )}
             {capture?.jwtHits > 0 && expanded && (
