@@ -330,6 +330,13 @@ describe('card orchestration badges (req #3973)', () => {
         expect(cardOrchestrationBadges([claim({ pipeline_fk: 3 })], 2, PLATFORMS, NOW)).toEqual([]);
     });
 
+    it('colours each badge with its machine\'s canvas colour (req #4169)', () => {
+        const claims = [claim({ id: 1, machine_fk: 4 }), claim({ id: 2, machine_fk: 5, initiative_fk: 9 })];
+        const [mac, win] = cardOrchestrationBadges(claims, 2, PLATFORMS, NOW);
+        expect(mac.color).toBe('#FF5F56');
+        expect(win.color).toBe('#0078D4');
+    });
+
     it('draws the lead green and every other machine orange, lead first', () => {
         const claims = [claim({ id: 1, machine_fk: 4 }),
                         claim({ id: 2, machine_fk: 5, initiative_fk: 9 })];

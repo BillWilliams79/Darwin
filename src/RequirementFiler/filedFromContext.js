@@ -244,8 +244,8 @@ export function openActionPopups(doc = document) {
 // rect. A racked filer points at nothing: `pointedAt: null` with the reason —
 // and so, since req #3958, does one locked into the title bar. And it records
 // its place only while its PUSHPIN is pressed (user ruling 2026-10-26) — then a
-// drag outlines the element as it goes (filerHover.js) and docks nowhere, so
-// the bars' own elements (navbar, title bar, topology toolbar …) are pickable
+// drag outlines the element as it goes (filerHover.js) and docks only in the navbar, so
+// the other bars' own elements (title bar, topology toolbar …) are pickable
 // too (user, 2026-10-27); unpinned, `pointedAt: null`, notPinned.
 //
 // A FIELD'S VALUE (user ruling 2026-10-23, req #3829): an unfocused field is a

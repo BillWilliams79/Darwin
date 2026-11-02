@@ -1,21 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
-    PERCENT_BANDS, PERCENT_NONE_COLOR, PREVIEW_COLOR_MODES, DEFAULT_PREVIEW_COLOR,
-    epicPercent, percentColor, normalizePreviewColor, beadSlices, previewLegend,
+    PERCENT_BANDS, PERCENT_NONE_COLOR, DEFAULT_PREVIEW_COLOR, CLEAN_COLOR, CLEAN_MODE,
+    epicPercent, percentColor, normalizePreviewColor, previewLegend,
 } from '../previewColor';
 
 const band = (pct) => PERCENT_BANDS.find((b) => b.color === percentColor(pct)).key;
 
-describe('previewColor (req #4063)', () => {
-    it('defaults to progress and lists it first, the visualizer scales after, flags last', () => {
+describe('previewColor (req #4063, narrowed by req #4184)', () => {
+    it('defaults to progress; the clean look is the only other mode', () => {
         expect(DEFAULT_PREVIEW_COLOR).toBe('percent');
-        expect(PREVIEW_COLOR_MODES.map((m) => m.key))
-            .toEqual(['percent', 'state', 'session', 'autonomy', 'model', 'machine', 'flags']);
+        expect(normalizePreviewColor(CLEAN_MODE)).toBe('clean');
+        expect(CLEAN_COLOR).toBe('#14692b');      // the 100% green
     });
 
-    it('normalizes a hostile stored value to the default', () => {
+    it('normalizes hostile and retired stored values to the default', () => {
         expect(normalizePreviewColor('constructor')).toBe('percent');
-        expect(normalizePreviewColor('model')).toBe('model');
+        expect(normalizePreviewColor('model')).toBe('percent');   // a retired scale
+        expect(normalizePreviewColor('flags')).toBe('percent');
+        expect(normalizePreviewColor(null)).toBe('percent');
     });
 
     it('bands progress exactly as the user named them', () => {
@@ -39,27 +41,8 @@ describe('previewColor (req #4063)', () => {
         expect(epicPercent({ reqIds: [], openReqIds: [] })).toBeNull();
     });
 
-    it('draws a scale-coloured epic as a pie of its requirements, in legend order', () => {
-        const view = {
-            colorOf: (id) => (id < 3 ? '#aaa' : '#bbb'),
-            legend: [{ color: '#bbb' }, { color: '#aaa' }],
-        };
-        const slices = beadSlices({ reqIds: [1, 2, 3, 4], trackingReqIds: [4] }, view);
-        expect(slices).toEqual([
-            { color: '#bbb', frac: 1 / 3 }, { color: '#aaa', frac: 2 / 3 }]);
-        expect(beadSlices({ reqIds: [] }, view)).toEqual([]);
-    });
-
-    it('keys the progress bands and every value a scale can paint', () => {
-        expect(previewLegend('percent').map((e) => e.label))
+    it('keys the progress bands and the no-work swatch', () => {
+        expect(previewLegend().map((e) => e.label))
             .toEqual(['0%', '1–25%', '26–50%', '51–75%', '76–99%', '100%', 'no work']);
-        expect(previewLegend('autonomy').map((e) => e.key))
-            .toEqual(['discuss', 'planned', 'implemented', 'deployed', 'none']);
-        expect(previewLegend('flags')).toEqual([]);
-        // Neutral "no work" closes every key; unknown joins Session until sessions load.
-        expect(previewLegend('autonomy').at(-1).key).toBe('none');
-        expect(previewLegend('session', [], { sessionsKnown: false }).map((e) => e.key))
-            .toContain('unknown');
-        expect(previewLegend('session').map((e) => e.key)).not.toContain('unknown');
     });
 });

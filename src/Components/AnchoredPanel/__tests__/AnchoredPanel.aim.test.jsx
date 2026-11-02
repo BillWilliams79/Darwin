@@ -124,4 +124,26 @@ describe('AnchoredPanel onMoveTrack (req #3958)', () => {
         expect(screen.getByTestId('p').getAttribute('data-racked')).toBe('0');
         expect(usePanelRackStore.getState().racked).toEqual([]);
     });
+
+    it('dockable="navbar" (req #4172): the navbar rack takes it, a page toolbar\'s rack does not', () => {
+        const track = vi.fn(() => false);
+        render(<Panel onMoveTrack={track} dockable="navbar" />);
+        place(screen.getByTestId('p'), { left: 1200, top: 800, width: 300, height: 180 });
+        // A page toolbar rack at the right edge.
+        const tz = document.createElement('div');
+        place(tz, { left: 1400, top: 0, width: 200, height: 100 });
+        const tn = document.createElement('div');
+        tz.appendChild(tn);
+        document.body.appendChild(tz);
+        act(() => usePanelRackStore.getState().setPageSlot({ node: tn, width: 200, zone: tz, offset: () => ({ left: 0, top: 0 }), name: 'toolbar' }));
+        press([1300, 810]);
+        moveTo([1500, 50]);
+        expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'move', docking: false }));
+        moveTo([90, 400]);
+        expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'move', docking: true }));
+        release([90, 400]);
+        expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'drop', docking: true }));
+        expect(screen.getByTestId('p').getAttribute('data-racked')).toBe('1');
+        tz.remove();
+    });
 });

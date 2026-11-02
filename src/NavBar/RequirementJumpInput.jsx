@@ -22,7 +22,9 @@ const RequirementJumpInput = () => {
         const id = parseInt(value, 10);
         if (!Number.isFinite(id) || id <= 0) return;
         setValue('');
-        window.open(`/swarm/requirement/${id}`, '_blank', 'noopener,noreferrer');
+        // req #4185 — `?from=jump` tells the page it is a standalone tab: its exit is to
+        // close itself and leave the reader on the page they jumped from.
+        window.open(`/swarm/requirement/${id}?from=jump`, '_blank', 'noopener,noreferrer');
     }, [value]);
 
     const onKeyDown = (e) => {

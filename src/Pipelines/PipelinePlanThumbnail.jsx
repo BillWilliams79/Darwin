@@ -27,27 +27,24 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
-import { Stage, Layer, Group, Rect, Line, Path, Text, Circle, Wedge } from 'react-konva';
+import { Stage, Layer, Group, Rect, Line, Path, Text, Circle } from 'react-konva';
 
 import { useComposedPipeline } from '../hooks/useDataQueries';
-import { adaptComposedPipeline, buildPlanModel } from '../SwarmView/pipelines/pipelineAdapter';
+import { adaptComposedPipeline } from '../SwarmView/pipelines/pipelineAdapter';
 import { localDayOf } from '../SwarmView/pipelines/pipelinePlanTime';
 import {
     computePlanLayout,
     beadStyle,
-    buildReqColorViews,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
     NEXT_HALO_OPACITY,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { planOverview, overviewArcPath, OVERVIEW } from './planOverview';
 import {
-    DEFAULT_PREVIEW_COLOR, FLAGS_MODE, PERCENT_MODE,
-    PERCENT_NONE_COLOR, beadSlices, epicPercent, percentColor,
+    CLEAN_COLOR, DEFAULT_PREVIEW_COLOR, PERCENT_MODE, epicPercent, percentColor,
 } from './previewColor';
 
-// A bead's ring in the colour modes: neutral, because the ring in `flags` says
-// barrier / lock / run and a second meaning on the same edge would read as one.
+// A bead's ring: neutral — the fill carries the one meaning (progress).
 const NEUTRAL_RING = 'rgba(255,255,255,0.55)';
 
 // The frame. Height is the card's to spend and is kept short — a glance, not a
@@ -55,10 +52,6 @@ const NEUTRAL_RING = 'rgba(255,255,255,0.55)';
 // beads a reader can tell apart (measured on production plan 10: 6 bands, 9
 // lanes).
 export const THUMB_H = 160;
-
-// The bead's ring, scaled to the bead: the plan page's emphasis weight is
-// drawn for a 9px bead, and on a small overview bead it would swallow the fill.
-export const beadRingWidth = (style, r) => Math.min(style.ringWidth, Math.max(1, r * 0.3));
 
 // The plan page's monospace stack — the badge digits match the plan's.
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
@@ -82,12 +75,10 @@ function badgeBox(bead, r) {
 
 // `refetchInterval` (req #3804): the Pipelines cards keep the picture live, so
 // a plan that moves on while the page is open is redrawn rather than frozen.
-// `colorMode` (req #4063) is what the beads are coloured by — see previewColor.js;
-// `sessionStatus` is the page's requirement → latest-session-status index, which
-// only the `session` mode reads (the composed plan read carries no session data).
+// `colorMode` (req #4063, narrowed by req #4184) is what the beads are coloured by:
+// progress, or the clean all-green look — see previewColor.js.
 export default function PipelinePlanThumbnail({ pipelineId, machines = [],
-    enabled = true, refetchInterval, colorMode = DEFAULT_PREVIEW_COLOR,
-    sessionStatus = null }) {
+    enabled = true, refetchInterval, colorMode = DEFAULT_PREVIEW_COLOR }) {
     const { data, isLoading, isError } = useComposedPipeline(pipelineId, {
         enabled: enabled && Number.isFinite(pipelineId),
         refetchInterval,
@@ -138,16 +129,6 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         ? planOverview(structure.layout, structure.rows, width, THUMB_H) : null),
     [structure, width]);
 
-    // The visualizer's own scales over this plan's requirements — pure CPU over
-    // the payload already in hand. Built only for the scale modes.
-    const colorViews = useMemo(() => {
-        if (!data || colorMode === PERCENT_MODE || colorMode === FLAGS_MODE) return null;
-        const model = buildPlanModel(data, machines, sessionStatus);
-        return buildReqColorViews({
-            requirements: model.requirements, machines: model.machines,
-        });
-    }, [data, machines, sessionStatus, colorMode]);
-
     const P = PLAN_VIZ_PALETTE;
 
     // The frame is drawn in EVERY state — loading, failed, empty and drawn — at
@@ -193,12 +174,6 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                         {view.beads.map((bead) => {
                             const style = beadStyle(bead.row, structure.eligible.has(bead.id),
                                 bead.row.launchSuppressed);
-                            const flags = colorMode === FLAGS_MODE;
-                            // The ring: the flags' own in `flags`, neutral otherwise.
-                            const ring = flags ? style.ring : NEUTRAL_RING;
-                            const ringW = flags ? beadRingWidth(style, view.r) : 1;
-                            const slices = colorViews ? beadSlices(bead.row, colorViews[colorMode]) : [];
-                            let at = -90;       // twelve o'clock, clockwise
                             return (
                                 <Group key={`bead-${bead.id}`}>
                                     {style.next && (
@@ -206,28 +181,11 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                                 stroke={style.haloColor} strokeWidth={1.2}
                                                 opacity={NEXT_HALO_OPACITY} dash={[2, 2]} />
                                     )}
-                                    {slices.length > 1 ? (
-                                        <>
-                                            {slices.map((sl) => {
-                                                const rotation = at;
-                                                at += sl.frac * 360;
-                                                return (
-                                                    <Wedge key={sl.color} x={bead.x} y={bead.y}
-                                                           radius={view.r} angle={sl.frac * 360}
-                                                           rotation={rotation} fill={sl.color} />
-                                                );
-                                            })}
-                                            <Circle x={bead.x} y={bead.y} radius={view.r}
-                                                    stroke={ring} strokeWidth={ringW} />
-                                        </>
-                                    ) : (
-                                        <Circle x={bead.x} y={bead.y} radius={view.r}
-                                                fill={flags ? style.fill
-                                                    : colorMode === PERCENT_MODE
-                                                        ? percentColor(epicPercent(bead.row))
-                                                        : (slices[0]?.color ?? PERCENT_NONE_COLOR)}
-                                                stroke={ring} strokeWidth={ringW} />
-                                    )}
+                                    <Circle x={bead.x} y={bead.y} radius={view.r}
+                                            fill={colorMode === PERCENT_MODE
+                                                ? percentColor(epicPercent(bead.row))
+                                                : CLEAN_COLOR}
+                                            stroke={NEUTRAL_RING} strokeWidth={1} />
                                 </Group>
                             );
                         })}

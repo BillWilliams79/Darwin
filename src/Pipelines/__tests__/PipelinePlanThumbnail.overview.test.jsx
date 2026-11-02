@@ -126,18 +126,14 @@ describe('PipelinePlanThumbnail — whole-plan overview (req #3804)', () => {
             .getAttribute('data-color-mode')).toBe('percent');
     });
 
-    it('draws a scale mode as a pie of the epic\'s requirements', () => {
+    it('draws every bead the 100% green in the clean look (req #4184)', () => {
         composed = plan();
-        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="state" />));
-        // Epic B holds a development and a swarm_ready requirement: two slices.
-        expect(drawn.wedges).toHaveLength(2);
-        expect(drawn.wedges.reduce((n, w) => n + w.angle, 0)).toBeCloseTo(360);
-    });
-
-    it('keeps the original flag colouring behind the Flags mode', () => {
-        composed = plan();
-        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="flags" />));
+        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="clean" />));
+        const fills = drawn.circles.filter((c) => c.fill).map((c) => c.fill);
+        expect(fills).toHaveLength(3);
+        expect(new Set(fills)).toEqual(new Set(['#14692b']));
         expect(drawn.wedges).toHaveLength(0);
-        expect(drawn.circles.filter((c) => c.fill)).toHaveLength(3);
+        expect(container.querySelector('[data-testid="pipelines-card-thumb-7"]')
+            .getAttribute('data-color-mode')).toBe('clean');
     });
 });

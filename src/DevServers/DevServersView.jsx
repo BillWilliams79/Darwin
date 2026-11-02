@@ -51,7 +51,7 @@ const getDevServerColumns = (navigate, timezone) => [
     },
     {
         field: 'requirement_id',
-        headerName: 'Roadmap ID',
+        headerName: 'Requirement ID',
         width: 110,
         renderCell: (params) => params.value
             ? <a href={`/swarm/requirement/${params.value}`}
@@ -63,7 +63,7 @@ const getDevServerColumns = (navigate, timezone) => [
     },
     {
         field: 'requirement_title',
-        headerName: 'Roadmap Requirement',
+        headerName: 'Requirement',
         width: 300,
         renderCell: (params) => {
             if (!params.value) return '—';

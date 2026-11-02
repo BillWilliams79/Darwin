@@ -2,7 +2,7 @@
 //
 // Req #3737 — deleting a requirement leaves the page the way Back would: one
 // opened from a plan returns to that plan's view (the camera restores from
-// storage, req #3637), not to the Roadmap.
+// storage, req #3637), not to the Requirements page.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let locationState = null;
+let locationSearch = '';
 const navigateCalls = [];
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom');
@@ -20,7 +21,7 @@ vi.mock('react-router-dom', async () => {
         ...actual,
         useParams: () => ({ id: '42' }),
         useNavigate: () => (...args) => navigateCalls.push(args),
-        useLocation: () => ({ state: locationState }),
+        useLocation: () => ({ state: locationState, search: locationSearch }),
     };
 });
 
@@ -107,6 +108,7 @@ describe('RequirementDetail delete returns where the reader came from (req #3737
         mountedRoots = [];
         restCalls.length = 0;
         navigateCalls.length = 0;
+        locationSearch = '';
     });
     afterEach(() => {
         act(() => { mountedRoots.forEach((r) => r.unmount()); });
@@ -130,11 +132,46 @@ describe('RequirementDetail delete returns where the reader came from (req #3737
         expect(navigateCalls.at(-1)).toEqual(['/calview']);
     });
 
-    it('opened with no origin: returns to the Roadmap as before', async () => {
+    it('opened with no origin: returns to the Requirements page as before', async () => {
         locationState = null;
         const { container } = mount();
         await flush();
         await deleteRequirement(container);
         expect(navigateCalls.at(-1)).toEqual(['/swarm']);
+    });
+
+    // Req #4185 — the navbar jump opens the requirement in a NEW TAB (?from=jump).
+    // There is no page behind it to go "back" to, so its exit closes the tab, and
+    // falls back to the Requirements page if the browser refuses.
+    describe('opened by the navbar jump (standalone tab, req #4185)', () => {
+        it('labels the exit "Close", never "Roadmap", and closes the tab', async () => {
+            locationState = null;
+            locationSearch = '?from=jump';
+            const closeSpy = vi.spyOn(window, 'close').mockImplementation(() => {});
+            try {
+                const { container } = mount();
+                await flush();
+                vi.useFakeTimers({ toFake: ['setTimeout'] });
+                const btn = container.querySelector('[data-testid="btn-back-to-swarm"]');
+                expect(btn.textContent).toBe('Close');
+                await act(async () => { btn.click(); });
+                expect(closeSpy).toHaveBeenCalledTimes(1);
+                expect(navigateCalls).toEqual([]);
+                // the browser did not close the tab => the button still does something
+                await act(async () => { vi.advanceTimersByTime(200); });
+                expect(navigateCalls.at(-1)).toEqual(['/swarm']);
+            } finally {
+                vi.useRealTimers();
+                closeSpy.mockRestore();
+            }
+        });
+
+        it('a plan origin still wins over the jump marker', async () => {
+            locationState = { from: 'pipeline', pipelineId: 7, mode: 'plan' };
+            locationSearch = '?from=jump';
+            const { container } = mount();
+            await flush();
+            expect(container.querySelector('[data-testid="btn-back-to-swarm"]').textContent).toBe('Back to Plan');
+        });
     });
 });

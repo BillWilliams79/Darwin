@@ -56,9 +56,9 @@
 // ITS PUSHPIN (req #3958, user ruling 2026-10-26), between the title and the ×:
 // pressed — PICKER MODE — a head drag outlines the element under its centre —
 // the one its + records first in `pointedAt` — (filerHover.js), the bars'
-// elements included, for it docks nowhere meanwhile (`dockable={false}`: the
-// navbar, the topology toolbar and the title bar take it no more than any other
-// spot), and the + records the place; pressing it outlines where it sits now
+// elements included, for it docks nowhere meanwhile but the NAVBAR (req #4172,
+// `dockable="navbar"`: the topology toolbar and the title bar take it no more than
+// any other spot; docked, the pin stays pressed), and the + records the place; pressing it outlines where it sits now
 // for a moment. Not pressed, it docks as always, outlines nothing and records no
 // place (`pointedAtReason` notPinned).
 //
@@ -491,7 +491,7 @@ export default function RequirementFiler() {
                        rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
                        rackIconLabel={`Requirement — create a new one${filesElsewhere ? ` (filed in production ${PRODUCT_NAME})` : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock} onMoveTrack={onMoveTrack}
-                       dockable={!pinned} overhang={pinned}
+                       dockable={pinned ? 'navbar' : true} overhang={pinned}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>

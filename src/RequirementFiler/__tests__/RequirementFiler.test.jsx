@@ -722,6 +722,16 @@ describe('Requirement Filer (req #3811)', () => {
         expect(screen.queryByTestId('requirement-editor-error')).toBe(null);
     });
 
+    it('Esc closes the editor like × and keeps what was typed (req #4171)', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fill('title', 'Typed');
+        fireEvent.keyDown(screen.getByTestId('requirement-editor-form'), { key: 'Escape' });
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().draft.title).toBe('Typed');
+    });
+
     it('an edit made just before × reaches the row — exactly once', async () => {
         useRequirementFilerStore.setState({ show: true });
         renderAll();

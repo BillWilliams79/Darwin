@@ -263,6 +263,13 @@ export default function PipelineEditDialog({
     const canDelete = !!(pipeline && deletion);
     const deleteBlocked = canDelete ? pipelineDeleteBlockedReason(pipeline, deletion) : null;
 
+    // Whether anything would be written by Save (req #4171) — what Esc must not lose silently.
+    const editsPending = () => {
+        const { fields, problem } = pipelineEditFields(openedRow, {
+            title, description, machineFk, sortOrder, locked: formLocked, status });
+        return !!problem || Object.keys(fields).length > 0;
+    };
+
     const handleSubmit = async () => {
         // Enter in the Title field reaches here too, not only the (disabled)
         // Save button — a second Enter mid-save must not send a second PUT.
@@ -341,7 +348,14 @@ export default function PipelineEditDialog({
     };
 
     return (
-        <Dialog open={open} onClose={(_e, reason) => !submitting && onClose(reason)}
+        <Dialog open={open} onClose={(_e, reason) => {
+                    if (submitting) return;
+                    // Esc / backdrop over typed-but-unsaved edits asks first (req #4171);
+                    // the Cancel button is the explicit discard and never asks.
+                    if ((reason === 'escapeKeyDown' || reason === 'backdropClick') && editsPending()
+                        && !window.confirm('Discard unsaved changes to this pipeline?')) return;
+                    onClose(reason);
+                }}
                 maxWidth="md" fullWidth data-testid="pipeline-edit-dialog">
             <DialogTitle data-testid="pipeline-edit-heading">
                 {`Edit pipeline ${pipeline?.id ?? ''}`.trim()}

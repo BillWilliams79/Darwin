@@ -102,6 +102,12 @@ describe('ghostTextColumn — the rendered cell', () => {
         expect(validate).toHaveBeenCalledWith('beta', ROW);
     });
 
+    it('disables the field for a row the disabled predicate names', () => {
+        const col = ghostTextColumn(baseSpec({ disabled: (row) => row.id === 7 }));
+        expect(renderCell(col).disabled).toBe(true);
+        expect(renderCell(col, { id: 8, name: 'beta' }).disabled).toBe(false);
+    });
+
     it('binds onCommit to the row', async () => {
         const commit = vi.fn().mockResolvedValue(undefined);
         const onCommit = vi.fn(() => commit);

@@ -202,6 +202,16 @@ export default function EpicEditDialog({
         if (deleted) onClose();
     };
 
+    // Whether Save would write anything (req #4171).
+    const editsPending = () => {
+        if (!epic) return formTitle.trim() !== '' || formNotes.trim() !== '';
+        return formTitle !== (epic.title || '') || formNotes !== (epic.notes || '')
+            || formRun !== runOf(epic) || formBarrier !== barrierOf(epic)
+            || formNotBefore !== notBeforeToInputValue(epic.not_before)
+            || formLocked !== !!epic.locked
+            || String(formInitiativeFk ?? '') !== String(epic.initiative_fk ?? '');
+    };
+
     const handleSubmit = async () => {
         const title = formTitle.trim();
         const notes = formNotes.trim();
@@ -262,7 +272,13 @@ export default function EpicEditDialog({
     };
 
     return (
-        <Dialog open={open} onClose={(_e, reason) => !submitting && onClose(reason)}
+        <Dialog open={open} onClose={(_e, reason) => {
+                    if (submitting) return;
+                    // Esc / backdrop over unsaved edits asks first (req #4171); Cancel never asks.
+                    if ((reason === 'escapeKeyDown' || reason === 'backdropClick') && editsPending()
+                        && !window.confirm('Discard unsaved changes to this epic?')) return;
+                    onClose(reason);
+                }}
                 maxWidth="md" fullWidth data-testid="epic-edit-dialog">
             <DialogTitle>{epic ? `Edit epic ${epic.id}` : 'New epic'}</DialogTitle>
             <DialogContent>

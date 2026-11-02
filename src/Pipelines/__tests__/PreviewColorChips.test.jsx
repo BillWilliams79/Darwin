@@ -30,12 +30,18 @@ const unhover = (el) => act(() => {
     el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
 });
 
-describe('PreviewColorChips — colour help like the visualizer (req #4063)', () => {
-    it('shows no standing key; hovering a chip pops its help, leaving closes it', () => {
+describe('PreviewColorChips — the one Progress button (req #4063, #4184)', () => {
+    it('renders only the Progress button; no other colour chips', () => {
+        act(() => root.render(<PreviewColorChips mode="percent" onChange={() => {}} />));
+        expect(chip('percent')).not.toBeNull();
+        for (const k of ['state', 'session', 'autonomy', 'model', 'machine', 'flags']) {
+            expect(chip(k)).toBeNull();
+        }
+    });
+
+    it('shows no standing key; hovering the button pops its help, leaving closes it', () => {
         act(() => root.render(<PreviewColorChips mode="percent" onChange={() => {}} />));
         expect(help()).toBeNull();
-        expect(document.querySelector('[data-testid="pipelines-preview-color-key"]')).toBeNull();
-
         hover(chip('percent'));
         expect(help()).not.toBeNull();
         expect(help().getAttribute('data-key')).toBe('percent');
@@ -43,25 +49,23 @@ describe('PreviewColorChips — colour help like the visualizer (req #4063)', ()
         const words = [...help().querySelectorAll('[data-testid="pipeline-viz-legend-word"]')]
             .map((n) => n.textContent);
         expect(words).toEqual(['0%', '1–25%', '26–50%', '51–75%', '76–99%', '100%', 'no work']);
-
         unhover(chip('percent'));
         expect(help()).toBeNull();
     });
 
-    it('explains an inactive chip too, with that scale\'s own values', () => {
-        act(() => root.render(<PreviewColorChips mode="percent" onChange={() => {}} />));
-        hover(chip('autonomy'));
-        const words = [...help().querySelectorAll('[data-testid="pipeline-viz-legend-word"]')]
-            .map((n) => n.textContent);
-        expect(words).toEqual(['discuss', 'planned', 'implemented', 'deployed', 'no work']);
+    it('still explains itself while switched off', () => {
+        act(() => root.render(<PreviewColorChips mode="clean" onChange={() => {}} />));
+        hover(chip('percent'));
+        expect(help()).not.toBeNull();
     });
 
-    it('a click still selects, and the lit chip returns to Progress', () => {
+    it('a click toggles Progress off to the clean look and back on', () => {
         const onChange = vi.fn();
-        act(() => root.render(<PreviewColorChips mode="model" onChange={onChange} />));
-        act(() => chip('state').click());
-        expect(onChange).toHaveBeenLastCalledWith('state');
-        act(() => chip('model').click());
+        act(() => root.render(<PreviewColorChips mode="percent" onChange={onChange} />));
+        act(() => chip('percent').click());
+        expect(onChange).toHaveBeenLastCalledWith('clean');
+        act(() => root.render(<PreviewColorChips mode="clean" onChange={onChange} />));
+        act(() => chip('percent').click());
         expect(onChange).toHaveBeenLastCalledWith('percent');
     });
 });
