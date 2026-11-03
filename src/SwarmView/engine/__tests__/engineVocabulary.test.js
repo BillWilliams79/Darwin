@@ -94,6 +94,18 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         expect(codeLabel('NEW_CODE')).toBe('NEW_CODE');
     });
 
+    it('says a slot-starved hold whose slots are stuck at starting is not a plain one (req #4193)', () => {
+        expect(detailText('CAPACITY', { stuck_starting: [11, 12] }))
+            .toBe("2 of the machine's live slots are sessions STUCK at starting, never provisioned "
+                + '(sessions 11, 12)');
+        expect(detailText('CAPACITY', { owed_to: ['plan 2'], stuck_starting: [11] }))
+            .toBe("the free slot is owed to plan 2; 1 of the machine's live slots is a session STUCK "
+                + 'at starting, never provisioned (session 11)');
+        expect(detailText('DEP_PRIORITY', { waiting_on_epic_ids: [101], stuck_starting: [11] }))
+            .toContain('waiting on epic 101; 1 of the machine');
+        expect(detailText('CAPACITY', { stuck_starting: [] })).toBe('');
+    });
+
     it('puts each code\'s detail into words', () => {
         expect(detailText('BARRIER', { barrier_epic_ids: [12] })).toBe('held by barrier epic 12');
         expect(detailText('DEP_PRIORITY', { waiting_on_epic_ids: [101, 102] }))
