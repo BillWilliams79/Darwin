@@ -259,9 +259,10 @@ export function detailText(code, detail, names) {
             return parts.join(', ');
         }
         case 'DEP_PRIORITY':
-            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic', names)}${owedText(detail)}`;
+            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic', names)}${owedText(detail)}`
+                + stuckText(detail);
         case 'CAPACITY':
-            return owedText(detail).replace(/^; /, '');
+            return (owedText(detail) + stuckText(detail)).replace(/^; /, '');
         case 'ADMITTED':
             return detail.reannounce ? `announced again (attempt ${detail.reannounce})` : '';
         default:
@@ -288,6 +289,15 @@ function noWorkText(reason) {
 // A free slot this engine left for a peer on the machine (req #3807's fair share).
 const owedText = (detail) => (Array.isArray(detail.owed_to) && detail.owed_to.length
     ? `; the free slot is owed to ${detail.owed_to.join(' and ')}` : '');
+
+// Live slots held by sessions stuck at `starting` that never provisioned
+// (req #4193, core.py's `stuck_starting`): such a hold is never a plain CAPACITY.
+export const stuckText = (detail) => {
+    const ids = detail && Array.isArray(detail.stuck_starting) ? detail.stuck_starting : [];
+    if (!ids.length) return '';
+    return `; ${ids.length} of the machine's live slots ${ids.length === 1 ? 'is a session' : 'are sessions'} `
+        + `STUCK at starting, never provisioned (session${ids.length === 1 ? '' : 's'} ${ids.join(', ')})`;
+};
 
 /** An event (core.py `_observe`) as one sentence; `names` as `detailText`. */
 export function eventText(event, names) {
