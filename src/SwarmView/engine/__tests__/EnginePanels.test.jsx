@@ -149,6 +149,17 @@ describe('EngineLimitsPanel', () => {
         expect(text('engine-limit-share-4')).toContain('owed to other engines on this machine');
     });
 
+    it('says which live slots are sessions stuck at starting (req #4193)', () => {
+        mount(<EngineLimitsPanel engine={engine(4)}
+                                 limits={{ ceiling: 8, live: 8, reserved: 0, free: 0,
+                                           stuck_starting: [21, 22] }} />);
+        expect(text('engine-limit-stuck-4')).toContain('2 of the 8 live slots are sessions');
+        expect(text('engine-limit-stuck-4')).toContain('(session 21, 22)');
+        mount(<EngineLimitsPanel engine={engine(3)}
+                                 limits={{ ceiling: 8, live: 8, reserved: 0, free: 0 }} />);
+        expect($('engine-limit-stuck-3')).toBeNull();
+    });
+
     it('says capacity is unknown rather than drawing zeros', () => {
         mount(<EngineLimitsPanel engine={engine(3)} limits={{ ceiling: null, live: null, reserved: null, free: null }} />);
         expect(text('engine-limits-unknown-3')).toContain('Capacity unknown this cycle');
