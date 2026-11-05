@@ -40,9 +40,7 @@ import {
     NEXT_HALO_OPACITY,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { planOverview, overviewArcPath, OVERVIEW } from './planOverview';
-import {
-    CLEAN_COLOR, DEFAULT_PREVIEW_COLOR, PERCENT_MODE, epicPercent, percentColor,
-} from './previewColor';
+import { epicPercent, percentColor } from './previewColor';
 
 // A bead's ring: neutral — the fill carries the one meaning (progress).
 const NEUTRAL_RING = 'rgba(255,255,255,0.55)';
@@ -75,10 +73,9 @@ function badgeBox(bead, r) {
 
 // `refetchInterval` (req #3804): the Pipelines cards keep the picture live, so
 // a plan that moves on while the page is open is redrawn rather than frozen.
-// `colorMode` (req #4063, narrowed by req #4184) is what the beads are coloured by:
-// progress, or the clean all-green look — see previewColor.js.
+// The beads are always coloured by progress — see previewColor.js (req #4196).
 export default function PipelinePlanThumbnail({ pipelineId, machines = [],
-    enabled = true, refetchInterval, colorMode = DEFAULT_PREVIEW_COLOR }) {
+    enabled = true, refetchInterval }) {
     const { data, isLoading, isError } = useComposedPipeline(pipelineId, {
         enabled: enabled && Number.isFinite(pipelineId),
         refetchInterval,
@@ -137,7 +134,6 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         <Box
             ref={setEl}
             data-testid={`pipelines-card-thumb-${pipelineId}`}
-            data-color-mode={colorMode}
             data-thumb-state={isLoading ? 'loading' : isError ? 'error'
                 : view ? 'drawn' : 'empty'}
             sx={{
@@ -182,9 +178,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                                 opacity={NEXT_HALO_OPACITY} dash={[2, 2]} />
                                     )}
                                     <Circle x={bead.x} y={bead.y} radius={view.r}
-                                            fill={colorMode === PERCENT_MODE
-                                                ? percentColor(epicPercent(bead.row))
-                                                : CLEAN_COLOR}
+                                            fill={percentColor(epicPercent(bead.row))}
                                             stroke={NEUTRAL_RING} strokeWidth={1} />
                                 </Group>
                             );

@@ -361,18 +361,17 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-8')).not.toBeNull();
     });
 
-    // req #4184 — header order, left to right: Progress, the status selectors,
-    // then "New pipeline"; Progress is the only colour button.
-    it('orders the header Progress, status selectors, New pipeline', () => {
+    // req #4196 — the Progress on/off button is gone; its help stays, first in the header.
+    it('orders the header Progress help, status selectors, New pipeline; no Progress toggle', () => {
         mount();
-        const progress = node('pipelines-preview-color-percent');
+        const help = node('pipelines-preview-progress-help-button');
         const filter = node('pipelines-status-filter');
         const create = node('pipelines-new-button');
-        expect(progress && filter && create).toBeTruthy();
+        expect(help && filter && create).toBeTruthy();
         const before = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-        expect(before(progress, filter)).toBe(true);
+        expect(before(help, filter)).toBe(true);
         expect(before(filter, create)).toBe(true);
-        expect(document.querySelectorAll('[data-testid^="pipelines-preview-color-"]:not([data-testid$="help"])')).toHaveLength(1);
+        expect(node('pipelines-preview-color-percent')).toBeNull();
     });
 
     // ── req #3365 — COMPLETENESS IS MEASURED ON REQUIREMENTS ────────────────

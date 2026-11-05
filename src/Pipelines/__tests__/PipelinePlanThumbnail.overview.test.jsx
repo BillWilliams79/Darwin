@@ -116,24 +116,11 @@ describe('PipelinePlanThumbnail — whole-plan overview (req #3804)', () => {
         expect(container.querySelector('[data-testid="thumb-stage"]')).toBeNull();
     });
 
-    it('colours beads by progress by default: dark red at 0%, dark green at 100%, a mix between', () => {
+    it('colours beads by progress: dark red at 0%, dark green at 100%, a mix between', () => {
         composed = plan();
         act(() => root.render(<PipelinePlanThumbnail pipelineId={7} />));
         const fills = drawn.circles.filter((c) => c.fill).map((c) => c.fill).sort();
         // A: 1/1 closed -> dark green. B: 0/2 closed -> dark red. C: no work -> neutral.
         expect(fills).toEqual([PERCENT_NONE_COLOR, '#14692b', '#a31515'].sort());
-        expect(container.querySelector('[data-testid="pipelines-card-thumb-7"]')
-            .getAttribute('data-color-mode')).toBe('percent');
-    });
-
-    it('draws every bead the 100% green in the clean look (req #4184)', () => {
-        composed = plan();
-        act(() => root.render(<PipelinePlanThumbnail pipelineId={7} colorMode="clean" />));
-        const fills = drawn.circles.filter((c) => c.fill).map((c) => c.fill);
-        expect(fills).toHaveLength(3);
-        expect(new Set(fills)).toEqual(new Set(['#14692b']));
-        expect(drawn.wedges).toHaveLength(0);
-        expect(container.querySelector('[data-testid="pipelines-card-thumb-7"]')
-            .getAttribute('data-color-mode')).toBe('clean');
     });
 });
