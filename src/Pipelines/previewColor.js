@@ -1,34 +1,17 @@
 // previewColor.js — what colours the beads of a pipeline card's preview (req #4063,
-// narrowed by req #4184).
+// narrowed by req #4184, the on/off button removed by req #4196).
 //
-// Req #4063 gave the preview six colourings (Progress, the plan visualizer's five
-// scales, and the old Flags view). Req #4184 (user): *"Leave the progress button so
-// we can show the help for it. If you disable progress you would get an all green
-// circle (same as all requirements completed) for every bubble in the preview — so
-// a clean look or progress only — and remove the rest."*
-//
-// TWO MODES now. `percent` (the default) is % complete: 0 dark red … 100 dark green.
-// `clean` is what the Progress button's OFF state draws — every bead the 100% green,
-// a quiet preview that says nothing about progress. The five scales, the Flags view,
-// the pie-slice drawing and their key are gone.
+// ONE colouring: % complete, 0 dark red … 100 dark green. The Progress button that
+// used to switch it off (to an all-green "clean" look) is gone — req #4196 (user):
+// *"show the progress definitions as the help popup … then delete the progress
+// on/off button. Feature not needed. Confusing."* The band definitions live on as the
+// help popup (`PreviewProgressHelp`).
 
-export const PERCENT_MODE = 'percent';
-export const CLEAN_MODE = 'clean';
-export const DEFAULT_PREVIEW_COLOR = PERCENT_MODE;
-
-export const PREVIEW_COLOR_STORAGE_KEY = 'darwin-swarm-pipelines-preview-color';
-
-/** The one button: Progress. Its help explains the band colours. */
-export const PROGRESS_BUTTON = {
-    key: PERCENT_MODE, label: 'Progress', keyTitle: 'Epic = % complete',
-    tip: 'Colour each epic by how much of its work is closed — dark red at 0%, dark green at 100%. Click to turn off: every epic is drawn dark green.',
+/** The help's identity and copy: what the bead colours mean. */
+export const PROGRESS_HELP = {
+    key: 'percent', label: 'Progress', keyTitle: 'Epic = % complete',
+    tip: 'Each epic is coloured by how much of its work is closed — dark red at 0%, dark green at 100%.',
 };
-
-// Membership over the two modes: the value was read from web storage, where
-// 'constructor' is a reachable string. A stored value from the retired modes
-// (a scale key, 'flags') is simply not a mode and falls to the default.
-export const isPreviewColor = (v) => v === PERCENT_MODE || v === CLEAN_MODE;
-export const normalizePreviewColor = (v) => (isPreviewColor(v) ? v : DEFAULT_PREVIEW_COLOR);
 
 // ── PROGRESS ────────────────────────────────────────────────────────────────
 // The six bands the user named. 'dark green' and 'dark red' are the two ends; the
@@ -62,9 +45,6 @@ export function percentColor(pct) {
     if (pct == null) return PERCENT_NONE_COLOR;
     return (PERCENT_BANDS.find((b) => b.test(pct)) || PERCENT_BANDS[0]).color;
 }
-
-/** The clean look: every bead wears the 100% colour. */
-export const CLEAN_COLOR = PERCENT_BANDS[PERCENT_BANDS.length - 1].color;
 
 /** The key for the Progress help: the six bands and the no-work swatch. */
 export function previewLegend() {
