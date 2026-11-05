@@ -463,6 +463,64 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         row.remove();
     });
 
+    it('ACCEPTANCE (req #4197): the + dragged is the pointer, outlines what it is over, and its drop files there — pinned or not', async () => {
+        renderAll({ at: '/swarm' });
+        const row = document.createElement('div');
+        row.setAttribute('data-testid', 'requirement-3958');
+        row.textContent = '3958 Requirement editor highlights its hover';
+        document.body.appendChild(row);
+        const box = (el, left, top, width, height) => {
+            el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+        };
+        box(row, 100, 300, 800, 40);
+        const filer = screen.getByTestId('requirement-filer');
+        box(filer, 200, 100, 200, 100);
+        document.elementsFromPoint = (x, y) => [filer, row].filter((el) => {
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        });
+        const add = screen.getByTestId('requirement-filer-add');
+        for (const pinned of [false, true]) {
+            useRequirementFilerStore.setState({ pinned });
+            fireEvent.pointerDown(add, { button: 0, pointerId: 1, clientX: 380, clientY: 110 });
+            fireEvent.pointerMove(window, { pointerId: 1, clientX: 500, clientY: 320 });
+            await waitFor(() => expect(screen.getByTestId('requirement-aim').getAttribute('data-aim')).toBe('requirement-3958'));
+            expect(screen.getByTestId('requirement-plus-drag')).toBeTruthy();
+            expect(screen.queryByTestId('requirement-editor')).toBe(null);
+            fireEvent.pointerUp(window, { pointerId: 1, clientX: 500, clientY: 320 });
+            // The drag preview and outline are gone; the editor starts, holding the drop as its place.
+            expect(screen.queryByTestId('requirement-plus-drag')).toBe(null);
+            expect(screen.queryByTestId('requirement-aim')).toBe(null);
+            await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
+                .toMatch(/^\d+(\.\d)? (B|KB)$/));
+            const ff = JSON.parse(useRequirementFilerStore.getState().capture.categories[0].text);
+            expect(ff.pointedAt[0].testidPath).toEqual(['requirement-3958']);
+            expect(ff.pointedAtFrom).toBe('dropped');
+            expect(ff.popup.pinned).toBe(pinned);
+            act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        }
+        // A press that never travels is still the click it was: no preview, and it files as before.
+        fireEvent.pointerDown(add, { button: 0, pointerId: 1, clientX: 380, clientY: 110 });
+        fireEvent.pointerUp(window, { pointerId: 1, clientX: 380, clientY: 110 });
+        expect(screen.queryByTestId('requirement-plus-drag')).toBe(null);
+        fireEvent.click(add);
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
+            .toMatch(/^\d+(\.\d)? (B|KB)$/));
+        // The drop above made no click; this plain press records the pin's own rule (no drop).
+        expect(JSON.parse(useRequirementFilerStore.getState().capture.categories[0].text).pointedAtFrom).not.toBe('dropped');
+        // The click that follows a drop is swallowed: dropping files once, not twice.
+        act(() => useRequirementFilerStore.getState().setEditorShow(false));
+        fireEvent.pointerDown(add, { button: 0, pointerId: 1, clientX: 380, clientY: 110 });
+        fireEvent.pointerMove(window, { pointerId: 1, clientX: 500, clientY: 320 });
+        fireEvent.pointerUp(window, { pointerId: 1, clientX: 500, clientY: 320 });
+        const keyBefore = useRequirementFilerStore.getState().draftKey;
+        fireEvent.click(add);
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
+            .toMatch(/^\d+(\.\d)? (B|KB)$/));
+        expect(useRequirementFilerStore.getState().draftKey).toBe(keyBefore);
+        row.remove();
+    });
+
     it('the outline is debounced (req #3958): the tile crossed between two cards never flashes', async () => {
         useRequirementFilerStore.setState({ pinned: true });
         renderAll({ at: '/swarm' });

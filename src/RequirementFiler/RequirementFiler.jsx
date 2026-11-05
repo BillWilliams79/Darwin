@@ -62,6 +62,11 @@
 // for a moment. Not pressed, it docks as always, outlines nothing and records no
 // place (`pointedAtReason` notPinned).
 //
+// DRAGGED (req #4197): press the + and drag — it becomes the pointer (a blue +,
+// the whole drag preview), outlining the element under it as the pinned head drag
+// does — and drop it on any element or area: the requirement editor opens on a new
+// requirement whose place is what it was dropped on. Pushpin pressed or not (plusDrag.js).
+//
 // AIMED AT A CATEGORY (req #4026): on the requirements page's Cards view, the +
 // of a floating filer — not racked, not locked into the title bar — hovered over
 // a category card outlines that card, and a click files the new requirement in
@@ -105,6 +110,7 @@ import { buildDebugCapture } from './debugBundle';
 import { AIM_COLOR, AIM_SAMPLE_MS, AIM_SETTLE_MS, FILER_Z, aimAt, clearAim, showAim } from './filerHover';
 import { categoryAimAt, highlightCategoryAim, placeProblem } from './filerCategoryAim';
 import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
+import { beginPlusDrag } from './plusDrag';
 import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
 import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
@@ -300,14 +306,14 @@ export default function RequirementFiler() {
     const signedIn = !!profile?.userName;
     // Where a requirement started now is filed from — read at the press, so it
     // is the page as it is then (req #3813).
-    const filedFrom = () => {
+    const filedFrom = (dropRect = null) => {
         const typingIn = focusAtPress && performance.now() - focusAtPress.t < PRESS_MS ? focusAtPress.el : null;
         focusAtPress = null;
         return filedFromNow({
             location, profile, database, theme, popupId: FILER_RACK_ID,
             popupStore: { open: useRequirementFilerStore.getState().open, dock,
                 titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
-            pinned: useRequirementFilerStore.getState().pinned, heldRect: heldRect(),
+            pinned: useRequirementFilerStore.getState().pinned, heldRect: heldRect(), dropRect,
         });
     };
     // The epic the + was aimed at as its press began (req #3854) — read at the
@@ -343,6 +349,45 @@ export default function RequirementFiler() {
         highlightCategoryAim(card, !placeProblem(card, darwinUri));
     };
     const aimLeave = () => { highlightEpicAim(null); highlightCategoryAim(null); };
+    // THE + DRAGGED (req #4197): past a few px of travel the press is a drag —
+    // plusDrag.js draws the + as the pointer and outlines what it is over — and the
+    // drop files a requirement whose place is the element it was dropped on, pin
+    // pressed or not. The epic or category card under the drop seats/places it,
+    // exactly as a hover-then-click on the + does.
+    const plusDragRef = useRef(null);
+    const plusDrag = (e) => {
+        plusDragRef.current?.();
+        // Dropping is a deliberate aim: a card or epic under the drop takes the requirement
+        // whatever the filer's own state (racked or title-locked included — `from` null).
+        plusDragRef.current = beginPlusDrag(e, {
+            onStart: () => {
+                aimAtPress = null; highlightEpicAim(null); highlightCategoryAim(null);
+                // The held place's outline (req #4046) and the pin's flash must not repaint the drag's.
+                const h = hoverRef.current;
+                h.paused = true; cancelAnimationFrame(h.follow); clearTimeout(flashRef.current);
+            },
+            onMove: ({ x, y }) => {
+                const target = epicAimAt(x, y);
+                highlightEpicAim(target && { ...target, ok: !seatProblem(target, darwinUri) });
+                const card = categoryAimAt(x, y, null);
+                highlightCategoryAim(card, !placeProblem(card, darwinUri));
+            },
+            onEnd: () => {
+                highlightEpicAim(null); highlightCategoryAim(null);
+                const h = hoverRef.current;
+                if (h.paused) { h.paused = false; if (h.held) h.follow = requestAnimationFrame(followHeld); }
+            },
+            onDrop: ({ x, y, rect }) => {
+                const seat = epicAimAt(x, y);
+                const card = categoryAimAt(x, y, null);
+                const place = card && !placeProblem(card, darwinUri)
+                    ? { projectId: card.projectId, categoryId: card.categoryId } : null;
+                // A drag outlasts PRESS_MS; the field being typed in is still never copied.
+                if (focusAtPress) focusAtPress.t = performance.now();
+                fileRequirementNow(filedFrom(rect), profile, seat, place);
+            },
+        });
+    };
     // Dragged by its head with the pin pressed (req #3958): what its + would point at is outlined.
     const flashRef = useRef(0);
     // Sampled at most every AIM_SAMPLE_MS. The outline follows the element it
@@ -401,7 +446,7 @@ export default function RequirementFiler() {
     // the hold ends once nothing is.
     const followHeld = () => {
         const h = hoverRef.current;
-        if (!h.held) return;
+        if (!h.held || h.paused) return;
         const target = aimAt(h.held);
         if (!target) { resetHover(); return; }
         showAim(target);
@@ -442,11 +487,12 @@ export default function RequirementFiler() {
     };
     useEffect(() => () => {
         const h = hoverRef.current;
+        plusDragRef.current?.();
         clearTimeout(flashRef.current); clearTimeout(h.timer); clearTimeout(h.trail); cancelAnimationFrame(h.follow); clearAim();
     }, []);
     // Hidden — closed, a narrow window, signed out — it holds nothing.
     const shown = show && isDesktop && !!profile?.userName;
-    useEffect(() => { if (!shown) resetHover(); }, [shown]);
+    useEffect(() => { if (!shown) { resetHover(); plusDragRef.current?.(); } }, [shown]);
     // The pushpin: pressed, the place it sits over now is outlined a moment.
     const togglePin = () => {
         clearTimeout(flashRef.current);
@@ -498,6 +544,7 @@ export default function RequirementFiler() {
                            {/* The one way to create (req #3830): after the title folded, far right open. */}
                            <Box sx={{ mr: open ? '0.3em' : 0, display: 'flex' }}
                                 onPointerDownCapture={notePress}
+                                onPointerDown={plusDrag}
                                 onPointerMove={aimHover}
                                 onPointerLeave={aimLeave}>
                                <ActionPopupAdd onClick={fileRequirement}
