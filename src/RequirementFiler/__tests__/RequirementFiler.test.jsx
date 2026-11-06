@@ -722,14 +722,33 @@ describe('Requirement Filer (req #3811)', () => {
         expect(screen.queryByTestId('requirement-editor-error')).toBe(null);
     });
 
-    it('Esc closes the editor like × and keeps what was typed (req #4171)', () => {
+    it('Esc and × on a typed, uncreated requirement ask before dropping it (req #4198)', () => {
         useRequirementFilerStore.setState({ show: true });
         renderAll();
         fireEvent.click(screen.getByTestId('requirement-filer-add'));
         fill('title', 'Typed');
         fireEvent.keyDown(screen.getByTestId('requirement-editor-form'), { key: 'Escape' });
-        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        // Asked, nothing closed yet.
+        expect(screen.getByTestId('requirement-editor-discard-message').textContent).toContain('“Typed” has not been created');
+        expect(useRequirementFilerStore.getState().editorShow).toBe(true);
+        // Keep editing: the editor and the draft stay.
+        fireEvent.click(screen.getByTestId('requirement-editor-discard-keep'));
+        expect(useRequirementFilerStore.getState().editorShow).toBe(true);
         expect(useRequirementFilerStore.getState().draft.title).toBe('Typed');
+        // × asks the same question; Discard closes the editor and lets the draft go.
+        fireEvent.click(screen.getByTestId('requirement-editor-close'));
+        fireEvent.click(screen.getByTestId('requirement-editor-discard-yes'));
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
+        expect(useRequirementFilerStore.getState().draft).toBe(null);
+    });
+
+    it('× on an untouched new requirement just closes — nothing to lose (req #4198)', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        fireEvent.click(screen.getByTestId('requirement-editor-close'));
+        expect(screen.queryByTestId('requirement-editor-discard-yes')).toBe(null);
+        expect(useRequirementFilerStore.getState().editorShow).toBe(false);
     });
 
     it('an edit made just before × reaches the row — exactly once', async () => {

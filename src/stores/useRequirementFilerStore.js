@@ -279,6 +279,15 @@ export const useRequirementFilerStore = create(
                 }
                 set(patch);
             },
+            // A new requirement the reader chose to DISCARD (req #4198) — closing
+            // the editor on it, after the question: the draft is let go, not kept
+            // hidden. A new key, so nothing still holding the old one writes back.
+            discardDraft: () => set({
+                draftKey: get().draftKey + 1,
+                draft: null, savedId: null, saved: null, editorShow: false, restoredDraft: false,
+                orphaned: false, focusPending: false, reopened: false,
+                capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
+            }),
             markOrphaned: (key) => { if (get().draftKey === key) set({ orphaned: true }); },
         }),
         {

@@ -240,6 +240,15 @@ export function buildPutBody(id, draft, saved, now = new Date().toISOString()) {
     return [{ id, ...row }];
 }
 
+/** A NEW requirement the reader has typed into and not yet created (req #4198):
+ *  closing the editor on it would drop it, so closing asks first. A draft with
+ *  no title or description holds nothing to lose; an orphaned one (committed,
+ *  id unknown) has nothing it can still send. */
+export function unsentNewDraft(draft, savedId, orphaned = false) {
+    return !!draft && savedId == null && !orphaned
+        && ((draft.title ?? '').trim() !== '' || (draft.description ?? '').trim() !== '');
+}
+
 /** Whether Save has anything to send. */
 export function draftDirty(draft, savedId, saved) {
     if (!draft) return false;
