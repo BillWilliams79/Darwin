@@ -1,25 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-    PERCENT_BANDS, PERCENT_NONE_COLOR, DEFAULT_PREVIEW_COLOR, CLEAN_COLOR, CLEAN_MODE,
-    epicPercent, percentColor, normalizePreviewColor, previewLegend,
+    PERCENT_BANDS, PERCENT_NONE_COLOR, epicPercent, percentColor, previewLegend,
 } from '../previewColor';
 
 const band = (pct) => PERCENT_BANDS.find((b) => b.color === percentColor(pct)).key;
 
-describe('previewColor (req #4063, narrowed by req #4184)', () => {
-    it('defaults to progress; the clean look is the only other mode', () => {
-        expect(DEFAULT_PREVIEW_COLOR).toBe('percent');
-        expect(normalizePreviewColor(CLEAN_MODE)).toBe('clean');
-        expect(CLEAN_COLOR).toBe('#14692b');      // the 100% green
-    });
-
-    it('normalizes hostile and retired stored values to the default', () => {
-        expect(normalizePreviewColor('constructor')).toBe('percent');
-        expect(normalizePreviewColor('model')).toBe('percent');   // a retired scale
-        expect(normalizePreviewColor('flags')).toBe('percent');
-        expect(normalizePreviewColor(null)).toBe('percent');
-    });
-
+describe('previewColor (req #4063, #4184, #4196)', () => {
     it('bands progress exactly as the user named them', () => {
         expect(band(0)).toBe('p0');
         expect(band(0.4)).toBe('p25');     // some work closed is never "0"

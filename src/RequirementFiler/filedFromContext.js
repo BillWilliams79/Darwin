@@ -18,6 +18,8 @@
 //   • Pointed at — the page element(s) a floating filer sits over (req #3829,
 //               `pointedAt`; null with `pointedAtReason` when racked) — on a
 //               canvas, the OBJECT drawn there (req #4158, filerPointResolvers.js).
+//               A + dragged out of the head and dropped (req #4197) points at
+//               what it was dropped on — pushpin or no pushpin, racked or not.
 //   • Subject — the record(s) the page's address names, titled from the React
 //               Query cache, with the database their ids belong to (req #4158,
 //               filerSubject.js).
@@ -555,10 +557,13 @@ function visibleApps(profile) {
  * @param {?Object} [p.heldRect] {x, y, w, h} — where a pinned filer was let go
  *   half off screen (req #4046): it slid back on, and the place it HOLDS, not
  *   where it now sits, is what it points at
+ * @param {?Object} [p.dropRect] {x, y, w, h} — the + was DRAGGED and dropped here (req #4197):
+ *   the element under that point is what it points at, pin pressed or not, filer
+ *   racked or floating (`pointedAtFrom: 'dropped'`)
  * @param {?Object} [p.queryCache] the React Query cache the subject titles come from (req #4158)
  * @param {Date} [p.now]
  */
-export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, heldRect = null, queryCache = queryClient.getQueryCache(), now = new Date() }) {
+export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, pinned = false, heldRect = null, dropRect = null, queryCache = queryClient.getQueryCache(), now = new Date() }) {
     const { pathname = '/', search = '', hash = '' } = location || {};
     const page = readPageOptions();
     const app = appForRoute(pathname);
@@ -568,7 +573,9 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     const query = cleanQuery(search, '?', ['filer']);
     const cleanHash = cleanQuery(hash, '#');
     const racked = self ? self.racked : rackPlacement(usePanelRackStore.getState(), popupId) != null;
-    const pointed = !pinned ? { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notPinned }
+    const pointed = dropRect && typeof document !== 'undefined'
+        ? { ...pointedAtNow({ rect: dropRect }, document, typingIn), pointedAtFrom: 'dropped', droppedAt: { x: dropRect.x + dropRect.w / 2, y: dropRect.y + dropRect.h / 2 } }
+        : !pinned ? { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notPinned }
         : typeof document !== 'undefined'
         ? (self && heldRect && !self.racked && !self.titleLocked
             ? { ...pointedAtNow({ ...self, rect: heldRect }, document, typingIn), pointedAtFrom: 'held', heldRect }
