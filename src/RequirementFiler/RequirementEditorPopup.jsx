@@ -100,12 +100,13 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import DiscardDraftDialog from './DiscardDraftDialog';
 import { EDITOR_Z } from './filerHover';
 import { useFilerFilesElsewhere } from './filerScope';
 import { notifyEpicSeated, seatProblem } from './filerEpicAim';
 import { moveEpicRequirement } from '../Epics/epicsApi';
 import {
-    buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
+    buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode, unsentNewDraft,
     staleCategory, staleMachine,
 } from './requirementFilerModel';
 
@@ -446,7 +447,7 @@ export default function RequirementEditorPopup() {
     const descriptionCollapsed = useRequirementFilerStore(s => s.descriptionCollapsed);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
         clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
-        setCreating, endCreating, clearSeat, toggleDescriptionCollapsed, discardDeleted } = useRequirementFilerStore.getState();
+        setCreating, endCreating, clearSeat, toggleDescriptionCollapsed, discardDeleted, discardDraft } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -472,7 +473,9 @@ export default function RequirementEditorPopup() {
     const [deleting, setDeleting] = useState(false);
     // Read by save() and the live save: nothing is PUT to a row being deleted.
     const deletingRef = useRef(false);
-    useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); setConfirmDelete(false); }, [draftKey]);
+    // Closing a new requirement not yet created asks first (req #4198).
+    const [confirmClose, setConfirmClose] = useState(false);
+    useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); setConfirmDelete(false); setConfirmClose(false); }, [draftKey]);
     const titleRef = useRef(null);
     // The description's own element, as state: racking re-mounts it, and the
     // measure below must follow the new one.
@@ -834,6 +837,16 @@ export default function RequirementEditorPopup() {
     // Retry: the live save the last failure stopped.
     const retry = () => { failedDraftRef.current = null; save(); };
 
+    // × and Esc: a typed, uncreated requirement is asked about (req #4198) —
+    // anything else just hides the editor, its draft kept (req #4171).
+    const requestClose = () => {
+        // A create still being written (shown again by a slow one, req #3860) is
+        // past asking: it lands whatever is answered, so × only hides it.
+        const writing = saving === draftKey || useRequirementFilerStore.getState().creating === draftKey;
+        if (!writing && unsentNewDraft(draft, savedId, orphaned)) setConfirmClose(true);
+        else setEditorShow(false);
+    };
+
     const onKeyDown = (e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
         // Esc dismisses the editor like its ×: the draft stays in the store, so
@@ -844,7 +857,7 @@ export default function RequirementEditorPopup() {
             && e.nativeEvent?.keyCode !== 229) {
             e.preventDefault();
             if (confirmDelete) { if (!deleting) setConfirmDelete(false); return; }
-            setEditorShow(false);
+            requestClose();
         }
     };
 
@@ -852,14 +865,14 @@ export default function RequirementEditorPopup() {
     const code = specCode(draft);
     const spec = machineLabel ? `${code} · ${machineLabel}` : code;
 
-    return (
+    return (<>
         <AnchoredPanel dock={dock} onDockChange={setEditorDock}
                        open={open} onToggle={toggleEditorOpen}
                        name="Requirement Editor" testid="requirement-editor"
                        rackId={EDITOR_RACK_ID} zIndex={EDITOR_Z}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
-                       actions={<ActionPopupClose onClick={() => setEditorShow(false)}
+                       actions={<ActionPopupClose onClick={requestClose}
                                                   label="Close the requirement editor"
                                                   testid="requirement-editor-close" />}>
             {({ shapedWidth }) => (
@@ -1123,5 +1136,8 @@ export default function RequirementEditorPopup() {
                 </Box>
             )}
         </AnchoredPanel>
-    );
+        <DiscardDraftDialog open={confirmClose} title={draft.title}
+                            onKeep={() => setConfirmClose(false)}
+                            onDiscard={() => { setConfirmClose(false); discardDraft(); }} />
+    </>);
 }
